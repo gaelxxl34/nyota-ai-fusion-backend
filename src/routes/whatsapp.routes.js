@@ -1080,7 +1080,10 @@ router.get("/knowledge/search", (req, res) => {
 // Test endpoint to verify conversation creation
 router.post("/test-conversation", authenticateUser, async (req, res) => {
   try {
-    const { phoneNumber, contactName } = req.body;
+    const {
+      phoneNumber = process.env.WHATSAPP_TEST_PHONE_NUMBER,
+      contactName,
+    } = req.body;
 
     if (!phoneNumber) {
       return res.status(400).json({
@@ -1115,7 +1118,11 @@ router.post("/test-conversation", authenticateUser, async (req, res) => {
 // Test AI response endpoint
 router.post("/test-ai", async (req, res) => {
   try {
-    const { message, phoneNumber, profileName } = req.body;
+    const {
+      message,
+      phoneNumber = process.env.WHATSAPP_TEST_PHONE_NUMBER,
+      profileName,
+    } = req.body;
 
     if (!message || !phoneNumber) {
       return res.status(400).json({
