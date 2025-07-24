@@ -36,11 +36,12 @@ router.post("/wordpress", validateWebhookSource, async (req, res) => {
     );
 
     // Extract data using exact field names provided by developer
-    const firstName = formData.firstname;
-    const lastName = formData.lastname;
-    const email = formData.email;
-    const phone = formData.phone;
-    const message = formData.message;
+    // Handle both lowercase and capitalized field names from Elementor
+    const firstName = formData.firstname || formData["First Name"];
+    const lastName = formData.lastname || formData["Last Name"];
+    const email = formData.email || formData["Email"];
+    const phone = formData.phone || formData["Phone Number"];
+    const message = formData.message || formData["Message"];
 
     // Combine first and last name
     const name = `${firstName || ""} ${lastName || ""}`.trim() || "Unknown";
