@@ -487,22 +487,134 @@ router.post("/application-form", validateWebhookSource, async (req, res) => {
     // Since submitApplication handles lead checking and creation internally,
     // we can use it directly
     try {
+      // Helper function to normalize values for validation
+      const normalizeGender = (value) => {
+        if (!value) return null;
+        const normalized = value.toLowerCase().trim();
+        switch (normalized) {
+          case "male":
+            return "male";
+          case "female":
+            return "female";
+          case "other":
+            return "other";
+          case "prefer not to say":
+            return "prefer_not_to_say";
+          default:
+            return null;
+        }
+      };
+
+      const normalizeModeOfStudy = (value) => {
+        if (!value) return null;
+        const normalized = value.toLowerCase().trim();
+        switch (normalized) {
+          case "on-campus":
+          case "on campus":
+          case "oncampus":
+            return "on_campus";
+          case "online":
+            return "online";
+          default:
+            return null;
+        }
+      };
+
+      const normalizeIntake = (value) => {
+        if (!value) return null;
+        const normalized = value.toLowerCase().trim();
+        switch (normalized) {
+          case "january":
+          case "jan":
+            return "january";
+          case "may":
+            return "may";
+          case "august":
+          case "aug":
+            return "august";
+          default:
+            return null;
+        }
+      };
+
+      const normalizeProgram = (value) => {
+        if (!value || value.trim() === "") return null;
+        const normalized = value.toLowerCase().trim();
+
+        // Map program names to expected values
+        if (
+          normalized.includes("bachelor") &&
+          normalized.includes("information technology")
+        ) {
+          return "bachelor_information_technology";
+        } else if (
+          normalized.includes("bachelor") &&
+          normalized.includes("business administration")
+        ) {
+          return "bachelor_business_administration";
+        } else if (
+          normalized.includes("bachelor") &&
+          normalized.includes("commerce")
+        ) {
+          return "bachelor_commerce";
+        } else if (
+          normalized.includes("master") &&
+          normalized.includes("information technology")
+        ) {
+          return "master_information_technology";
+        } else if (
+          normalized.includes("master") &&
+          normalized.includes("business administration")
+        ) {
+          return "master_business_administration";
+        } else if (
+          normalized.includes("diploma") &&
+          normalized.includes("information technology")
+        ) {
+          return "diploma_information_technology";
+        } else if (
+          normalized.includes("diploma") &&
+          normalized.includes("business administration")
+        ) {
+          return "diploma_business_administration";
+        } else if (normalized.includes("certificate")) {
+          return "certificate_programs";
+        }
+
+        // Default fallback - if no match found, use the first available program
+        console.warn(
+          `⚠️ Unknown program "${value}", defaulting to bachelor_information_technology`
+        );
+        return "bachelor_information_technology";
+      };
+
       // Create application data with the 10 specific fields mapped to expected format
       const applicationData = {
         name,
         email,
         phoneNumber: phone,
         countryOfBirth,
-        gender,
-        modeOfStudy,
-        preferredIntake: intake,
-        preferredProgram: courseOfInterest,
+        gender: normalizeGender(gender),
+        modeOfStudy: normalizeModeOfStudy(modeOfStudy),
+        preferredIntake: normalizeIntake(intake),
+        preferredProgram: normalizeProgram(courseOfInterest),
         additionalInfo: {
           firstName,
           lastName,
           courseOfInterest2,
+          originalValues: {
+            gender: gender,
+            modeOfStudy: modeOfStudy,
+            preferredIntake: intake,
+            preferredProgram: courseOfInterest,
+          },
         },
       };
+
+      console.log(
+        "🔄 Normalized application data:",
+        JSON.stringify(applicationData, null, 2)
+      );
 
       const result = await applicationService.submitApplication(
         applicationData
