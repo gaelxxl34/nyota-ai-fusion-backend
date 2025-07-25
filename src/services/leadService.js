@@ -54,23 +54,72 @@ class LeadService {
     ];
 
     timestampFields.forEach((field) => {
-      if (converted[field] && converted[field]._seconds) {
-        converted[field] = new Date(converted[field]._seconds * 1000);
-      }
+      converted[field] = this._convertSingleTimestamp(converted[field]);
     });
 
     // Convert timeline timestamps if they exist
     if (converted.timeline && Array.isArray(converted.timeline)) {
       converted.timeline = converted.timeline.map((entry) => ({
         ...entry,
-        date:
-          entry.date && entry.date._seconds
-            ? new Date(entry.date._seconds * 1000)
-            : entry.date,
+        date: this._convertSingleTimestamp(entry.date),
       }));
     }
 
     return converted;
+  }
+
+  /**
+   * Convert a single timestamp value to JavaScript Date object
+   * Handles various Firestore timestamp formats safely
+   */
+  _convertSingleTimestamp(timestamp) {
+    if (!timestamp) {
+      return null;
+    }
+
+    try {
+      // Firestore Timestamp object with _seconds property
+      if (timestamp._seconds !== undefined) {
+        return new Date(timestamp._seconds * 1000);
+      }
+
+      // Firestore Timestamp object with seconds property
+      if (timestamp.seconds !== undefined) {
+        return new Date(timestamp.seconds * 1000);
+      }
+
+      // Already a Date object
+      if (timestamp instanceof Date) {
+        return isNaN(timestamp.getTime()) ? null : timestamp;
+      }
+
+      // String that can be parsed as date
+      if (typeof timestamp === "string") {
+        const parsed = new Date(timestamp);
+        return isNaN(parsed.getTime()) ? null : parsed;
+      }
+
+      // Unix timestamp (number)
+      if (typeof timestamp === "number") {
+        // Handle both seconds and milliseconds
+        const date =
+          timestamp > 1000000000000
+            ? new Date(timestamp) // milliseconds
+            : new Date(timestamp * 1000); // seconds
+        return isNaN(date.getTime()) ? null : date;
+      }
+
+      // ISO string format
+      if (typeof timestamp === "object" && timestamp.toDate) {
+        return timestamp.toDate();
+      }
+
+      console.warn(`⚠️ Unknown timestamp format:`, timestamp);
+      return null;
+    } catch (error) {
+      console.warn(`⚠️ Error converting timestamp:`, timestamp, error);
+      return null;
+    }
   }
 
   /**
@@ -345,6 +394,24 @@ class LeadService {
 
       console.log(`✅ Lead ${leadId} status updated to ${newStatus}`);
 
+      // Sync lead status with conversation
+      if (lead.phoneNumber || lead.phone) {
+        try {
+          const ConversationService = require("./conversationService");
+          const conversationService = new ConversationService();
+          await conversationService.updateConversationLeadStatus(
+            lead.phoneNumber || lead.phone,
+            leadId,
+            newStatus
+          );
+        } catch (syncError) {
+          console.warn(
+            "⚠️ Failed to sync lead status with conversation:",
+            syncError.message
+          );
+        }
+      }
+
       // Broadcast lead status update to all connected clients
       broadcastMessage(
         {
@@ -384,6 +451,27 @@ class LeadService {
         .update(updatePayload);
 
       console.log(`✅ Lead ${leadId} updated`);
+
+      // Sync lead status with conversation if status changed
+      if (updateData.status) {
+        try {
+          const lead = await this.getLeadById(leadId);
+          if (lead && (lead.phoneNumber || lead.phone)) {
+            const ConversationService = require("./conversationService");
+            const conversationService = new ConversationService();
+            await conversationService.updateConversationLeadStatus(
+              lead.phoneNumber || lead.phone,
+              leadId,
+              updateData.status
+            );
+          }
+        } catch (syncError) {
+          console.warn(
+            "⚠️ Failed to sync lead status with conversation:",
+            syncError.message
+          );
+        }
+      }
 
       // Return updated lead
       return await this.getLeadById(leadId);

@@ -332,7 +332,9 @@ class WhatsAppMessageService {
         phoneNumber,
         message,
         metadata.leadId,
-        metadata.contactName
+        metadata.contactName,
+        false, // isAI
+        false // automated
       );
     } catch (error) {
       console.error("❌ Error sending WhatsApp message:", error);

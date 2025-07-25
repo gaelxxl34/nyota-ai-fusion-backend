@@ -3,8 +3,8 @@ const { getAuth } = require("firebase-admin/auth");
 
 const authenticateUser = async (req, res, next) => {
   try {
-    // Development bypass - remove this in production
-    if (process.env.NODE_ENV === "development" || !process.env.JWT_SECRET) {
+    // Only bypass authentication if explicitly enabled and no JWT secret
+    if (process.env.DISABLE_AUTH === "true" && !process.env.JWT_SECRET) {
       console.log("🔓 Development mode: Bypassing authentication");
       req.user = {
         uid: "dev_user_123",

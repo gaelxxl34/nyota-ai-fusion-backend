@@ -212,7 +212,7 @@ router.get("/business-profile", authenticateUser, async (req, res) => {
   }
 });
 
-// Get conversations from Firestore with pagination
+// Get conversations from Firestore with pagination and filtering
 router.get("/conversations", authenticateUser, async (req, res) => {
   try {
     console.log("📋 Fetching conversations from Firestore...");
@@ -221,36 +221,29 @@ router.get("/conversations", authenticateUser, async (req, res) => {
 
     // Extract pagination and filter parameters
     const {
-      limit = 50,
+      limit = 25, // Reduced default for better performance
       offset = 0,
       status = "active",
       includeClosed = "false",
+      leadStatus = null, // New: filter by lead status
     } = req.query;
 
-    // Validate limit
-    const parsedLimit = Math.min(parseInt(limit) || 50, 100); // Max 100 per request
+    // Validate limit (max 50 per request for performance)
+    const parsedLimit = Math.min(parseInt(limit) || 25, 50);
     const parsedOffset = parseInt(offset) || 0;
     const includeClosedBool = includeClosed.toLowerCase() === "true";
 
-    // Get user organization from auth context
-    const organizationId = req.user?.organizationId || "dev_org_123";
-    console.log(
-      `🏢 Using organization ID: ${organizationId} for user: ${req.user?.email}`
-    );
-
-    // Fetch conversations using the improved service
-    const result = await conversationService.getActiveConversations(
-      organizationId,
-      {
-        limit: parsedLimit,
-        offset: parsedOffset,
-        status,
-        includeClosed: includeClosedBool,
-      }
-    );
+    // Fetch conversations using the optimized service
+    const result = await conversationService.getActiveConversations({
+      limit: parsedLimit,
+      offset: parsedOffset,
+      status,
+      includeClosed: includeClosedBool,
+      leadStatus, // Pass lead status filter
+    });
 
     console.log(
-      `✅ Returning ${result.conversations.length} conversations to frontend`
+      `✅ Returning ${result.conversations.length} conversations to frontend (filtered by leadStatus: ${leadStatus})`
     );
 
     res.json({
@@ -260,7 +253,17 @@ router.get("/conversations", authenticateUser, async (req, res) => {
         limit: parsedLimit,
         offset: parsedOffset,
         hasMore: result.hasMore,
-        total: result.total,
+        totalCount: result.totalCount,
+        nextOffset: result.pagination?.nextOffset || parsedOffset + parsedLimit,
+        currentPage:
+          result.pagination?.currentPage ||
+          Math.floor(parsedOffset / parsedLimit) + 1,
+        totalFetched: result.conversations.length,
+      },
+      filters: {
+        leadStatus,
+        status,
+        includeClosed: includeClosedBool,
       },
       message: `Found ${result.conversations.length} active conversations`,
     });
@@ -274,13 +277,15 @@ router.get("/conversations", authenticateUser, async (req, res) => {
   }
 });
 
-// Get messages for a conversation
+// Get messages for a conversation with pagination
 router.get(
   "/conversations/:phoneNumber/messages",
   authenticateUser,
   async (req, res) => {
     try {
       const { phoneNumber } = req.params;
+      const { limit = 50, offset = 0 } = req.query;
+
       const conversationService = new ConversationService();
 
       // Find conversation by phone number
@@ -297,16 +302,29 @@ router.get(
         });
       }
 
-      // Get messages for the conversation
-      const messages = await conversationService.getConversationMessages(
-        conversationId
+      // Get paginated messages for the conversation
+      const parsedLimit = Math.min(parseInt(limit) || 50, 100);
+      const parsedOffset = parseInt(offset) || 0;
+
+      const result = await conversationService.getConversationMessages(
+        conversationId,
+        {
+          limit: parsedLimit,
+          offset: parsedOffset,
+        }
       );
 
       res.json({
         success: true,
-        messages: messages,
+        messages: result.messages || [],
         phoneNumber: phoneNumber,
         conversationId: conversationId,
+        pagination: {
+          limit: parsedLimit,
+          offset: parsedOffset,
+          hasMore: result.hasMore || false,
+          total: result.total || result.messages?.length || 0,
+        },
       });
     } catch (error) {
       console.error("❌ Error:", error);
@@ -579,6 +597,119 @@ router.delete("/conversations", authenticateUser, async (req, res) => {
     });
   }
 });
+
+// Get conversations by lead status (optimized filtering)
+router.get(
+  "/conversations/by-status/:status",
+  authenticateUser,
+  async (req, res) => {
+    try {
+      const { status } = req.params;
+      const { limit = 25, offset = 0 } = req.query;
+
+      const conversationService = new ConversationService();
+
+      const result = await conversationService.getActiveConversations({
+        limit: Math.min(parseInt(limit) || 25, 50),
+        offset: parseInt(offset) || 0,
+        leadStatus: status,
+      });
+
+      res.json({
+        success: true,
+        conversations: result.conversations,
+        leadStatus: status,
+        pagination: {
+          limit: result.limit,
+          offset: result.offset,
+          hasMore: result.hasMore,
+          total: result.total,
+        },
+      });
+    } catch (error) {
+      console.error("❌ Error fetching conversations by status:", error);
+      res.status(500).json({
+        success: false,
+        error: error.message,
+      });
+    }
+  }
+);
+
+// Get conversation counts by lead status (for tab badges)
+router.get("/conversations/counts", authenticateUser, async (req, res) => {
+  try {
+    const conversationService = new ConversationService();
+
+    // This would ideally be optimized with aggregation queries
+    // For now, we'll return cached counts or make separate queries
+    const statusCounts = {
+      NO_LEAD: 0,
+      INQUIRY: 0,
+      CONTACTED: 0,
+      NURTURE: 0,
+      PRE_QUALIFIED: 0,
+      FOLLOW_UP: 0,
+      APPLIED: 0,
+      REVIEW: 0,
+      PENDING_DOCS: 0,
+      ADMITTED: 0,
+      ENROLLED: 0,
+      SUCCESS: 0,
+    };
+
+    // TODO: Implement efficient counting - for now return 0s
+    // In a real implementation, you'd use Firestore aggregation queries
+    // or maintain counts in a separate document
+
+    res.json({
+      success: true,
+      counts: statusCounts,
+      message: "Conversation counts by lead status",
+    });
+  } catch (error) {
+    console.error("❌ Error fetching conversation counts:", error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
+// Bulk update lead statuses in conversations
+router.post(
+  "/conversations/sync-lead-statuses",
+  authenticateUser,
+  async (req, res) => {
+    try {
+      const { phoneToStatusMap } = req.body;
+
+      if (!phoneToStatusMap || typeof phoneToStatusMap !== "object") {
+        return res.status(400).json({
+          success: false,
+          error: "phoneToStatusMap is required",
+        });
+      }
+
+      const conversationService = new ConversationService();
+      const updateCount = await conversationService.bulkUpdateLeadStatuses(
+        phoneToStatusMap
+      );
+
+      res.json({
+        success: true,
+        message: `Updated ${updateCount} conversation lead statuses`,
+        updateCount,
+      });
+    } catch (error) {
+      console.error("❌ Error syncing lead statuses:", error);
+      res.status(500).json({
+        success: false,
+        error: error.message,
+      });
+    }
+  }
+);
 
 // SSE endpoint for real-time message updates
 router.get("/messages/stream", (req, res) => {

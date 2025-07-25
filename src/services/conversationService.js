@@ -7,6 +7,59 @@ class ConversationService {
   }
 
   /**
+   * Convert a single timestamp value to JavaScript Date object
+   * Handles various Firestore timestamp formats safely
+   */
+  _convertTimestamp(timestamp) {
+    if (!timestamp) {
+      return null;
+    }
+
+    try {
+      // Firestore Timestamp object with _seconds property
+      if (timestamp._seconds !== undefined) {
+        return new Date(timestamp._seconds * 1000);
+      }
+
+      // Firestore Timestamp object with seconds property
+      if (timestamp.seconds !== undefined) {
+        return new Date(timestamp.seconds * 1000);
+      }
+
+      // Already a Date object
+      if (timestamp instanceof Date) {
+        return isNaN(timestamp.getTime()) ? null : timestamp;
+      }
+
+      // String that can be parsed as date
+      if (typeof timestamp === "string") {
+        const parsed = new Date(timestamp);
+        return isNaN(parsed.getTime()) ? null : parsed;
+      }
+
+      // Unix timestamp (number)
+      if (typeof timestamp === "number") {
+        // Handle both seconds and milliseconds
+        const date =
+          timestamp > 1000000000000
+            ? new Date(timestamp) // milliseconds
+            : new Date(timestamp * 1000); // seconds
+        return isNaN(date.getTime()) ? null : date;
+      }
+
+      // ISO string format
+      if (typeof timestamp === "object" && timestamp.toDate) {
+        return timestamp.toDate();
+      }
+
+      return null;
+    } catch (error) {
+      console.warn(`⚠️ Error converting timestamp:`, timestamp, error);
+      return null;
+    }
+  }
+
+  /**
    * Store incoming WhatsApp message in Firestore
    */
   async storeIncomingMessage(messageData) {
@@ -31,6 +84,7 @@ class ConversationService {
         to: process.env.WHATSAPP_PHONE_NUMBER_ID,
         content: text?.body || "",
         messageType: type,
+        senderType: "incoming", // For frontend color coding: white background
         direction: "incoming",
         timestamp: new Date(timestamp),
         profileName: contactName || "Unknown",
@@ -165,7 +219,6 @@ class ConversationService {
         phoneNumber: phoneNumber,
         leadId: leadId, // Use leadId instead of contactId
         contactName: contactName || `Contact ${phoneNumber.slice(-4)}`,
-        organizationId: "dev_org_123", // Add organization ID for development
         status: "active",
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -236,6 +289,7 @@ class ConversationService {
           to: phoneNumber,
           content: message,
           messageType: "text",
+          senderType: messageIsAI ? "ai" : "admin", // For frontend color coding: green for AI, blue for admin
           direction: "outgoing",
           timestamp: new Date(),
           status: "sent",
@@ -359,33 +413,206 @@ class ConversationService {
   }
 
   /**
-   * Get active conversations for organization with pagination and optimization
+   * Get active conversations with pagination and optimization
+   *
+   * IMPORTANT: Lead status filtering uses Option B approach:
+   * 1. Query leads by status first (leads.status field)
+   * 2. Extract phone numbers from matching leads
+   * 3. Find conversations by phone numbers
+   * 4. Return filtered conversations
+   *
+   * This avoids the complexity of syncing leadStatus fields in conversations
+   * and ensures we always get accurate, up-to-date lead status information.
    */
-  async getActiveConversations(organizationId, options = {}) {
+  async getActiveConversations(options = {}) {
     try {
       const {
-        limit = 50, // Reduced default limit from 200 to 50
+        limit = 25, // Further reduced for better performance
         offset = 0,
         status = "active",
         includeClosed = false,
+        leadStatus = null, // New: filter by lead status
       } = options;
 
       console.log(
-        `📋 Fetching conversations for organization ${organizationId} (limit: ${limit}, offset: ${offset})...`
+        `📋 Fetching conversations (limit: ${limit}, offset: ${offset}, leadStatus: ${leadStatus})...`
       );
 
-      // Build optimized query with proper indexing considerations
+      // Option B: Query leads directly first, then find their conversations
+      if (leadStatus && leadStatus !== "NO_LEAD") {
+        // Step 1: Query leads by status
+        const LeadService = require("./leadService");
+        const leadService = new LeadService(this.db);
+
+        const leadsWithStatus = await leadService.getLeadsByStatus(
+          leadStatus,
+          200
+        ); // Get more leads to account for conversations
+        console.log(
+          `📋 Found ${leadsWithStatus.length} leads with status: ${leadStatus}`
+        );
+
+        if (leadsWithStatus.length === 0) {
+          // No leads with this status, return empty result
+          return {
+            conversations: [],
+            totalCount: 0,
+            hasMore: false,
+            limit,
+            offset,
+            pagination: {
+              currentPage: 1,
+              totalFetched: 0,
+              totalAvailable: 0,
+              hasMore: false,
+              nextOffset: 0,
+            },
+          };
+        }
+
+        // Step 2: Get phone numbers from leads to find conversations
+        const phoneNumbers = leadsWithStatus
+          .map((lead) => lead.phone || lead.phoneNumber)
+          .filter((phone) => phone); // Remove null/undefined phones
+
+        console.log(
+          `📋 Looking for conversations with ${phoneNumbers.length} phone numbers`
+        );
+
+        if (phoneNumbers.length === 0) {
+          return {
+            conversations: [],
+            totalCount: 0,
+            hasMore: false,
+            limit,
+            offset,
+            pagination: {
+              currentPage: 1,
+              totalFetched: 0,
+              totalAvailable: 0,
+              hasMore: false,
+              nextOffset: 0,
+            },
+          };
+        }
+
+        // Step 3: Query conversations by phone numbers (in batches due to Firestore limitations)
+        let allConversations = [];
+        const batchSize = 10; // Firestore 'in' query limit
+
+        for (let i = 0; i < phoneNumbers.length; i += batchSize) {
+          const phoneBatch = phoneNumbers.slice(i, i + batchSize);
+
+          let conversationQuery = this.db
+            .collection("conversations")
+            .where("phoneNumber", "in", phoneBatch);
+
+          // Add status filter
+          if (!includeClosed) {
+            conversationQuery = conversationQuery.where("status", "in", [
+              "active",
+              null,
+            ]);
+          }
+
+          const snapshot = await conversationQuery.get();
+
+          const batchConversations = [];
+
+          for (const doc of snapshot.docs) {
+            const data = doc.data();
+
+            // Find the corresponding lead to get the name
+            const correspondingLead = leadsWithStatus.find(
+              (lead) => (lead.phone || lead.phoneNumber) === data.phoneNumber
+            );
+
+            batchConversations.push({
+              id: doc.id,
+              phoneNumber: data.phoneNumber,
+              contactName:
+                correspondingLead?.name ||
+                data.contactName ||
+                data.profileName ||
+                `Contact ${data.phoneNumber?.slice(-4) || "Unknown"}`,
+              leadName: correspondingLead?.name || null,
+              leadId: data.leadId,
+              leadStatus: leadStatus, // We know the lead status from our query
+              status: data.status || "active",
+              lastMessageTime:
+                this._convertTimestamp(data.lastMessageTime) || new Date(),
+              messageCount: data.messageCount || 0,
+              unreadCount: data.unreadCount || 0,
+              lastMessage: data.lastMessage || "",
+              updatedAt: this._convertTimestamp(data.updatedAt) || new Date(),
+            });
+          }
+
+          allConversations.push(...batchConversations);
+        }
+
+        // Step 4: Sort by lastMessageTime and apply pagination
+        allConversations.sort((a, b) => {
+          const timeA =
+            a.lastMessageTime instanceof Date
+              ? a.lastMessageTime
+              : new Date(a.lastMessageTime || 0);
+          const timeB =
+            b.lastMessageTime instanceof Date
+              ? b.lastMessageTime
+              : new Date(b.lastMessageTime || 0);
+          return timeB.getTime() - timeA.getTime();
+        });
+
+        // Apply offset and limit
+        const startIndex = offset;
+        const endIndex = startIndex + limit;
+        const paginatedConversations = allConversations.slice(
+          startIndex,
+          endIndex
+        );
+
+        console.log(
+          `✅ Returning ${
+            paginatedConversations.length
+          } conversations for lead status: ${leadStatus} (hasMore: ${
+            endIndex < allConversations.length
+          })`
+        );
+
+        return {
+          conversations: paginatedConversations,
+          totalCount: allConversations.length,
+          hasMore: endIndex < allConversations.length,
+          limit,
+          offset,
+          pagination: {
+            currentPage: Math.floor(offset / limit) + 1,
+            totalFetched: paginatedConversations.length,
+            totalAvailable: allConversations.length,
+            hasMore: endIndex < allConversations.length,
+            nextOffset: offset + limit,
+          },
+        };
+      }
+
+      // Handle NO_LEAD case or when no leadStatus filter is specified
       let query = this.db.collection("conversations");
 
-      // Add status filter
+      if (leadStatus === "NO_LEAD") {
+        // For conversations without leads - now using composite index
+        query = query.where("leadId", "==", null);
+      }
+
+      // Add status filter (now works with composite index)
       if (!includeClosed) {
         query = query.where("status", "in", ["active", null]);
       }
 
-      // Order by lastMessageTime for better performance (index exists)
+      // Order by lastMessageTime for better performance (composite index supports this)
       query = query.orderBy("lastMessageTime", "desc").limit(limit);
 
-      // Add offset support
+      // Add offset support using startAfter for better performance
       if (offset > 0) {
         const offsetQuery = await this.db
           .collection("conversations")
@@ -405,85 +632,87 @@ class ConversationService {
         `📊 Raw conversations fetched: ${conversationsQuery.docs.length}`
       );
 
-      // Convert to objects with minimal data first
-      const conversations = conversationsQuery.docs.map((doc) => {
+      // Convert to objects with optimized data structure
+      const conversations = [];
+
+      for (const doc of conversationsQuery.docs) {
         const data = doc.data();
-        return {
+
+        // Get lead name if leadId exists
+        let leadName = null;
+        if (data.leadId) {
+          leadName = await this.getLeadName(data.leadId);
+        }
+
+        // Calculate display name with priority: Lead Name > Contact Name > Profile Name > Generic
+        const displayName =
+          leadName ||
+          data.contactName ||
+          data.profileName ||
+          `Contact ${data.phoneNumber?.slice(-4) || "Unknown"}`;
+
+        conversations.push({
           id: doc.id,
           phoneNumber: data.phoneNumber,
-          contactName: data.contactName,
+          contactName: displayName,
+          leadName: leadName, // Include lead name separately for reference
           contactId: data.contactId,
-          lastMessage: data.lastMessage,
-          lastMessageTime: data.lastMessageTime,
+          lastMessage: data.lastMessage || "",
+          lastMessageTime:
+            this._convertTimestamp(data.lastMessageTime) ||
+            this._convertTimestamp(data.createdAt) ||
+            new Date(),
           lastMessageFrom: data.lastMessageFrom,
           status: data.status || "active",
           messageCount: data.messageCount || 0,
           unreadCount: data.unreadCount || 0,
-          createdAt: data.createdAt,
-          updatedAt: data.updatedAt,
-        };
-      });
-
-      // Only enhance with contact names if needed and for first page
-      if (offset === 0) {
-        console.log(
-          `🔄 Enhancing ${conversations.length} conversations with contact names...`
-        );
-
-        // Use Promise.all for parallel contact name fetching
-        const contactNamePromises = conversations.map(async (conversation) => {
-          if (conversation.contactId && !conversation.contactName) {
-            try {
-              const contactName = await this.getContactName(
-                conversation.contactId
-              );
-              if (contactName) {
-                conversation.contactName = contactName;
-              }
-            } catch (error) {
-              console.warn(
-                `⚠️ Failed to get contact name for ${conversation.contactId}: ${error.message}`
-              );
-            }
-          }
-          return conversation;
+          leadStatus: data.leadStatus || "NO_LEAD", // Include lead status
+          leadId: data.leadId || null,
+          aiEnabled: data.aiEnabled !== false, // Default to true
+          createdAt: this._convertTimestamp(data.createdAt),
+          updatedAt: this._convertTimestamp(data.updatedAt),
         });
-
-        const enhancedConversations = await Promise.all(contactNamePromises);
-
-        console.log(
-          `✅ Found ${enhancedConversations.length} active conversations for organization`
-        );
-
-        return {
-          conversations: enhancedConversations,
-          hasMore: conversationsQuery.docs.length === limit,
-          total: null, // Will be calculated separately if needed
-        };
       }
 
+      // Calculate pagination info correctly
+      const totalFetched = conversations.length;
+      const hasMore = totalFetched === limit; // If we got exactly 'limit' items, there might be more
+
       console.log(
-        `✅ Found ${conversations.length} active conversations for organization`
+        `✅ Returning ${totalFetched} conversations (hasMore: ${hasMore}, limit: ${limit}, offset: ${offset})`
       );
 
       return {
         conversations,
-        hasMore: conversationsQuery.docs.length === limit,
-        total: null,
+        totalCount: totalFetched, // Current page count
+        hasMore,
+        limit,
+        offset,
+        pagination: {
+          currentPage: Math.floor(offset / limit) + 1,
+          totalFetched,
+          hasMore,
+          nextOffset: offset + limit,
+        },
       };
     } catch (error) {
-      console.error("❌ Error getting conversations:", error);
+      console.error("❌ Error fetching active conversations:", error);
       return {
         conversations: [],
+        totalCount: 0,
         hasMore: false,
-        total: 0,
+        limit: options.limit || 25,
+        offset: options.offset || 0,
+        pagination: {
+          currentPage: 1,
+          totalFetched: 0,
+          hasMore: false,
+          nextOffset: 0,
+        },
       };
     }
   }
 
-  /**
-   * Get messages for a conversation
-   */
   /**
    * Get recent messages for AI context (last 3 messages)
    */
@@ -518,17 +747,39 @@ class ConversationService {
           timestamp = new Date();
         }
 
+        // Determine message type and alignment for frontend display
+        let messageType, alignment, sender;
+
+        if (data.direction === "incoming") {
+          messageType = "customer"; // White background, left alignment
+          alignment = "left";
+          sender = "customer";
+        } else {
+          alignment = "right";
+          if (data.isAI === true || data.senderType === "ai") {
+            messageType = "ai"; // Green background, right alignment
+            sender = "ai";
+          } else {
+            messageType = "admin"; // Blue background, right alignment
+            sender = "admin";
+          }
+        }
+
         return {
           id: doc.id,
           content: data.content || data.body || "",
-          sender:
-            data.direction === "incoming"
+          sender: sender,
+          messageType: data.senderType
+            ? data.senderType === "incoming"
               ? "customer"
-              : data.isAI
-              ? "ai"
-              : "admin",
+              : data.senderType === "admin"
+              ? "admin"
+              : data.senderType
+            : messageType,
+          alignment: alignment,
           timestamp: timestamp,
           isAI: data.isAI === true,
+          direction: data.direction,
         };
       });
 
@@ -547,24 +798,27 @@ class ConversationService {
     }
   }
 
-  async getConversationMessages(conversationId, limit = 100) {
+  async getConversationMessages(conversationId, options = {}) {
     try {
-      // Simple query without orderBy to avoid index requirements
+      const { limit = 50, offset = 0 } = options;
+
       console.log(
-        "📋 Fetching messages without orderBy to avoid indexing issues..."
+        `📋 Fetching messages for conversation ${conversationId} (limit: ${limit}, offset: ${offset})...`
       );
 
-      // First, get the conversation to know the contact ID
+      // First, get the conversation to know the contact ID and lead ID
       const conversationDoc = await this.db
         .collection("conversations")
         .doc(conversationId)
         .get();
 
       let contactNameFromDatabase = null;
+      let leadNameFromDatabase = null;
+
       if (conversationDoc.exists) {
         const conversationData = conversationDoc.data();
 
-        // Always fetch the contact name from the contacts collection (not from conversation.contactName)
+        // Fetch contact name from contacts collection
         if (conversationData.contactId) {
           contactNameFromDatabase = await this.getContactName(
             conversationData.contactId
@@ -573,51 +827,110 @@ class ConversationService {
             `🔍 Contact lookup: Found "${contactNameFromDatabase}" in contacts collection for ID: ${conversationData.contactId}`
           );
         }
+
+        // Fetch lead name from leads collection
+        if (conversationData.leadId) {
+          leadNameFromDatabase = await this.getLeadName(
+            conversationData.leadId
+          );
+          console.log(
+            `🔍 Lead lookup: Found "${leadNameFromDatabase}" in leads collection for ID: ${conversationData.leadId}`
+          );
+        }
       }
 
-      const messagesQuery = await this.db
+      // Build query with pagination
+      let messagesQuery = this.db
         .collection("messages")
         .where("conversationId", "==", conversationId)
-        .limit(limit)
-        .get();
+        .orderBy("timestamp", "desc") // Order by timestamp for pagination
+        .limit(limit);
 
-      const messages = messagesQuery.docs.map((doc) => {
+      // Add offset support using startAfter
+      if (offset > 0) {
+        const offsetQuery = await this.db
+          .collection("messages")
+          .where("conversationId", "==", conversationId)
+          .orderBy("timestamp", "desc")
+          .limit(offset)
+          .get();
+
+        if (!offsetQuery.empty) {
+          const lastDoc = offsetQuery.docs[offsetQuery.docs.length - 1];
+          messagesQuery = messagesQuery.startAfter(lastDoc);
+        }
+      }
+
+      const messagesSnapshot = await messagesQuery.get();
+
+      const messages = messagesSnapshot.docs.map((doc) => {
         const data = doc.data();
 
         // Convert Firestore timestamp to JavaScript Date
         let timestamp = data.timestamp;
         if (timestamp && timestamp.toDate) {
-          timestamp = timestamp.toDate().toISOString();
+          timestamp = timestamp.toDate();
         } else if (timestamp && timestamp._seconds) {
           timestamp = new Date(
             timestamp._seconds * 1000 + (timestamp._nanoseconds || 0) / 1000000
-          ).toISOString();
+          );
         } else {
-          timestamp = new Date().toISOString();
+          timestamp = new Date();
         }
 
-        // Determine if message is from AI
+        // Determine if message is from AI - check stored flag first, then content patterns
         const isAI =
           data.isAI === true ||
+          data.senderType === "ai" ||
           (data.direction === "outgoing" &&
-            data.from === process.env.WHATSAPP_PHONE_NUMBER_ID &&
             data.content &&
             (data.content.includes("AI assistant") ||
               data.content.includes("I'm Miryam") ||
               data.content.includes("university family") ||
               data.content.includes("Welcome to International University")));
 
-        // Determine sender name - prioritize database contact name over WhatsApp profile name
+        // Determine message type and sender info for frontend
         let senderName = "";
+        let messageType = "";
+        let alignment = "";
+
         if (data.direction === "incoming") {
-          // Priority: 1. Database contact name 2. WhatsApp profile name 3. Generic fallback
+          // Incoming messages: left alignment, white background
+          // Priority: Lead Name > Contact Name > WhatsApp Profile Name > Generic fallback
           senderName =
-            contactNameFromDatabase || data.profileName || "Unknown Contact";
+            leadNameFromDatabase ||
+            contactNameFromDatabase ||
+            data.profileName ||
+            "Unknown Contact";
+          messageType = "customer"; // For consistency with frontend expectations
+          alignment = "left";
           console.log(
-            `👤 Message sender: Database="${contactNameFromDatabase}" vs WhatsApp="${data.profileName}" -> Using: "${senderName}"`
+            `👤 Incoming message from: Lead="${leadNameFromDatabase}" vs Contact="${contactNameFromDatabase}" vs WhatsApp="${data.profileName}" -> Using: "${senderName}"`
           );
         } else {
-          senderName = isAI ? "Miryam" : "Admin";
+          // Outgoing messages: right alignment
+          alignment = "right";
+          if (isAI) {
+            senderName = "Miryam";
+            messageType = "ai"; // Green light background
+          } else {
+            senderName = "Admin";
+            messageType = "admin"; // Blue light background
+          }
+        }
+
+        // Use stored senderType if available and valid, otherwise use computed messageType
+        let finalMessageType = messageType;
+        if (data.senderType) {
+          if (data.senderType === "incoming") {
+            finalMessageType = "customer";
+          } else if (data.senderType === "ai") {
+            finalMessageType = "ai";
+          } else if (data.senderType === "admin") {
+            finalMessageType = "admin";
+          } else {
+            finalMessageType = data.senderType;
+          }
         }
 
         return {
@@ -626,21 +939,41 @@ class ConversationService {
           timestamp: timestamp,
           isAI: isAI,
           senderName: senderName,
+          messageType: finalMessageType, // 'customer' (left, white), 'ai' (right, green), 'admin' (right, blue)
+          alignment: alignment, // 'left' for incoming, 'right' for outgoing
+          direction: data.direction, // Preserve original direction
+          sender: finalMessageType, // Frontend expects this field for styling
         };
       });
 
       // Sort in memory by timestamp (ascending - oldest first)
-      messages.sort((a, b) => {
-        const timestampA = new Date(a.timestamp);
-        const timestampB = new Date(b.timestamp);
-        return timestampA - timestampB;
-      });
+      // Note: We fetched in DESC order for pagination, but display in ASC order
+      const sortedMessages = messages.reverse();
 
-      console.log(`✅ Found ${messages.length} messages for conversation`);
-      return messages;
+      // Calculate pagination info
+      const hasMore = messagesSnapshot.docs.length === limit;
+      const total = sortedMessages.length; // This is just the current page count
+
+      console.log(
+        `✅ Found ${sortedMessages.length} messages for conversation (hasMore: ${hasMore})`
+      );
+
+      return {
+        messages: sortedMessages,
+        hasMore,
+        total,
+        limit,
+        offset,
+      };
     } catch (error) {
       console.error("❌ Error getting messages:", error);
-      return [];
+      return {
+        messages: [],
+        hasMore: false,
+        total: 0,
+        limit: options.limit || 50,
+        offset: options.offset || 0,
+      };
     }
   }
 
@@ -657,6 +990,34 @@ class ConversationService {
       console.log(`👁️ Marked conversation ${conversationId} as read`);
     } catch (error) {
       console.error("❌ Error marking conversation as read:", error);
+    }
+  }
+
+  /**
+   * Get lead name by lead ID
+   */
+  async getLeadName(leadId) {
+    try {
+      if (!leadId) {
+        return null;
+      }
+
+      console.log(`🔍 Fetching lead name for ID: ${leadId}`);
+
+      const leadDoc = await this.db.collection("leads").doc(leadId).get();
+
+      if (leadDoc.exists) {
+        const leadData = leadDoc.data();
+        const leadName = leadData.name;
+        console.log(`✅ Found lead name: ${leadName} for ID: ${leadId}`);
+        return leadName;
+      }
+
+      console.log(`❌ No lead found for ID: ${leadId}`);
+      return null;
+    } catch (error) {
+      console.error("❌ Error fetching lead:", error);
+      return null;
     }
   }
 
@@ -1020,6 +1381,85 @@ class ConversationService {
     } catch (error) {
       console.error("❌ Error deleting multiple conversations:", error);
       throw error;
+    }
+  }
+
+  /**
+   * Update lead status in conversation for faster filtering
+   */
+  async updateConversationLeadStatus(phoneNumber, leadId, leadStatus) {
+    try {
+      console.log(
+        `🔄 Updating conversation lead status: ${phoneNumber} -> ${leadStatus}`
+      );
+
+      const conversationId = await this.findConversationByPhone(phoneNumber);
+      if (!conversationId) {
+        console.log(`⚠️ No conversation found for ${phoneNumber}`);
+        return false;
+      }
+
+      await this.db.collection("conversations").doc(conversationId).update({
+        leadStatus: leadStatus,
+        leadId: leadId,
+        updatedAt: new Date(),
+      });
+
+      console.log(
+        `✅ Updated conversation ${conversationId} with lead status: ${leadStatus}`
+      );
+      return true;
+    } catch (error) {
+      console.error("❌ Error updating conversation lead status:", error);
+      return false;
+    }
+  }
+
+  /**
+   * Bulk update lead statuses for multiple conversations
+   */
+  async bulkUpdateLeadStatuses(phoneToStatusMap) {
+    try {
+      console.log(
+        `🔄 Bulk updating ${
+          Object.keys(phoneToStatusMap).length
+        } conversation lead statuses`
+      );
+
+      const batch = this.db.batch();
+      let updateCount = 0;
+
+      for (const [phoneNumber, { leadId, leadStatus }] of Object.entries(
+        phoneToStatusMap
+      )) {
+        const conversationId = await this.findConversationByPhone(phoneNumber);
+        if (conversationId) {
+          const conversationRef = this.db
+            .collection("conversations")
+            .doc(conversationId);
+          batch.update(conversationRef, {
+            leadStatus: leadStatus,
+            leadId: leadId,
+            updatedAt: new Date(),
+          });
+          updateCount++;
+        }
+      }
+
+      if (updateCount > 0) {
+        await batch.commit();
+        console.log(
+          `✅ Bulk updated ${updateCount} conversation lead statuses`
+        );
+      }
+
+      return updateCount;
+    } catch (error) {
+      console.error(
+        "❌ Error bulk updating conversation lead statuses:",
+        error
+      );
+      return 0;
     }
   }
 }

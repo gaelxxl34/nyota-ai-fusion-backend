@@ -160,9 +160,11 @@ class LeadModel {
       }
 
       // Get the most recent timeline entry with a status
-      const timeline = leadData.timeline.sort(
-        (a, b) => new Date(b.date) - new Date(a.date)
-      );
+      const timeline = leadData.timeline.sort((a, b) => {
+        const dateA = a.date instanceof Date ? a.date : new Date(a.date || 0);
+        const dateB = b.date instanceof Date ? b.date : new Date(b.date || 0);
+        return dateB.getTime() - dateA.getTime();
+      });
       const latestStatusEntry = timeline.find((entry) => entry.status);
 
       return (
