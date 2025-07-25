@@ -452,17 +452,17 @@ router.post("/application-form", validateWebhookSource, async (req, res) => {
       JSON.stringify(formData, null, 2)
     );
 
-    // Extract the 10 specific application fields
-    const firstName = formData.firstname;
-    const lastName = formData.lastname;
-    const email = formData.email;
-    const phone = formData.phone;
-    const countryOfBirth = formData.country_of_birth;
-    const gender = formData.gender;
-    const modeOfStudy = formData.mode_of_study;
-    const intake = formData.intake;
-    const courseOfInterest = formData.course_of_interest;
-    const courseOfInterest2 = formData.course_of_interest2;
+    // Extract only the 10 specific application fields we need
+    const firstName = formData["First Name"];
+    const lastName = formData["Last Name"];
+    const email = formData["Email Address"];
+    const phone = formData["Telephone/Mobile No"];
+    const countryOfBirth = formData["Country of Birth"];
+    const gender = formData["Gender"];
+    const modeOfStudy = formData["Mode of Study"];
+    const intake = formData["Preferred Intake"];
+    const courseOfInterest = formData["Preferred Program"];
+    const courseOfInterest2 = formData["Other Sources"]; // Using as secondary course option
 
     // Combine first and last name
     const name = `${firstName || ""} ${lastName || ""}`.trim() || "Unknown";
@@ -487,7 +487,7 @@ router.post("/application-form", validateWebhookSource, async (req, res) => {
     // Since submitApplication handles lead checking and creation internally,
     // we can use it directly
     try {
-      // Create application data with all 10 fields mapped to expected format
+      // Create application data with the 10 specific fields mapped to expected format
       const applicationData = {
         name,
         email,
@@ -495,9 +495,8 @@ router.post("/application-form", validateWebhookSource, async (req, res) => {
         countryOfBirth,
         gender,
         modeOfStudy,
-        preferredIntake: intake, // Map intake to preferredIntake
-        preferredProgram: courseOfInterest, // Map courseOfInterest to preferredProgram
-        // Note: courseOfInterest2 can be stored as additional info
+        preferredIntake: intake,
+        preferredProgram: courseOfInterest,
         additionalInfo: {
           firstName,
           lastName,
@@ -561,6 +560,8 @@ router.post("/application-form", validateWebhookSource, async (req, res) => {
         courseOfInterest,
         modeOfStudy,
         intake,
+        gender,
+        countryOfBirth,
       },
     });
   } catch (error) {
