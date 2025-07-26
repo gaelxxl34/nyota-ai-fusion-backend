@@ -104,6 +104,17 @@ class AIService {
     const searchTerms = userMessage.toLowerCase();
     const keywordMatches = [];
 
+    // Check for questions about programs not offered
+    const notOfferedKeywords = [
+      "mphil",
+      "master of philosophy",
+      "botany",
+      "plant science",
+    ];
+    const hasNotOfferedKeyword = notOfferedKeywords.some((keyword) =>
+      searchTerms.includes(keyword)
+    );
+
     // Find items that match keywords from user's question
     this.knowledgeItems.forEach((item) => {
       let score = 0;
@@ -114,6 +125,14 @@ class AIService {
         searchTerms.includes(item.question)
       ) {
         score += 10;
+      }
+
+      // Boost score for "not offered" questions when user asks about non-existent programs
+      if (
+        hasNotOfferedKeyword &&
+        item.category.toLowerCase().includes("not offered")
+      ) {
+        score += 15;
       }
 
       // Check for individual word matches
@@ -230,6 +249,13 @@ PERSONALITY RULES:
 - Focus on solving their questions and encouraging applications
 - Don't start responses with "Hi there!" or "Hello there!" - just answer directly
 
+STRICT ACCURACY RULES:
+- ONLY provide information that is explicitly available in the provided knowledge base
+- If a program or course is NOT mentioned in the knowledge base, clearly state that IUEA does not offer it
+- NEVER make up, assume, or hallucinate information about programs, fees, durations, or requirements
+- If you don't have specific information, direct them to contact admissions at apply@iuea.ac.ug or +256 706 026496
+- Be honest when you don't have information rather than guessing
+
 YOUR MAIN GOAL: Guide interested people to apply at https://iuea.ac.ug/Applicationform/
 
 When someone expresses interest in applying or asks about applications, provide this link: https://iuea.ac.ug/Applicationform/
@@ -250,6 +276,32 @@ CONTEXT AWARENESS:
       if (relevantKnowledge) {
         systemPrompt += relevantKnowledge;
       }
+
+      // Add explicit list of available programs to prevent hallucination
+      systemPrompt += `
+
+IMPORTANT - IUEA PROGRAMS OFFERED (COMPLETE LIST):
+
+BACHELOR PROGRAMS:
+- Business: Business Administration, Public Administration, Procurement & Logistics Management, Tourism & Hotel Management, Human Resource Management, Journalism & Communication Studies
+- Law & Humanities: Laws (LLB), International Relations & Diplomatic Studies  
+- Science & Technology: Computer Science, Information Technology, Software Engineering, Climate Smart Agriculture, Environmental Science & Management
+- Engineering: Electrical Engineering, Civil Engineering, Architecture, Petroleum Engineering, Mechatronics & Robotics, Communications Engineering, Mining Engineering
+
+MASTER PROGRAMS (ONLY THESE THREE):
+- Master of Business Administration (MBA)
+- Master of Information Technology
+- Master of International Relations and Diplomatic Studies
+
+DIPLOMA PROGRAMS:
+- Engineering: Electrical Engineering, Civil Engineering, Architecture
+
+IUEA DOES NOT OFFER:
+- Any MPhil (Master of Philosophy) programs
+- Any Botany or Plant Science programs
+- Any PhD programs (coming soon for Business Admin, Information Systems, Technology Management)
+
+If asked about programs not on this list, clearly state that IUEA does not offer them.`;
 
       systemPrompt += contextPrompt;
 
