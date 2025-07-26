@@ -6,6 +6,10 @@ const WebhookForwarder = require("../services/webhookForwarder");
 const LeadService = require("../services/leadService");
 const whatsappMessageService = require("../services/whatsappMessageService");
 const ApplicationService = require("../services/applicationService");
+const WhatsAppValidationService = require("../services/whatsappValidationService");
+
+// Initialize services
+const whatsappValidator = new WhatsAppValidationService();
 
 // Protection middleware
 const validateWebhookSource = (req, res, next) => {
@@ -52,6 +56,34 @@ router.post("/wordpress", validateWebhookSource, async (req, res) => {
         success: false,
         error: "Email is required",
       });
+    }
+
+    // Validate phone number if provided (no messages sent)
+    let validatedPhone = null;
+    let phoneValidationResult = null;
+    if (phone && phone.trim()) {
+      try {
+        phoneValidationResult = await whatsappValidator.validateNumber(phone);
+        if (!phoneValidationResult.isValid) {
+          return res.status(400).json({
+            success: false,
+            error: phoneValidationResult.error,
+            message:
+              "Please check your phone number and provide a valid WhatsApp number.",
+          });
+        }
+        validatedPhone = phoneValidationResult.normalizedNumber;
+        console.log(
+          `✅ WordPress phone validated: ${validatedPhone} (${phoneValidationResult.validationType})`
+        );
+      } catch (validationError) {
+        console.error("❌ WordPress phone validation error:", validationError);
+        return res.status(400).json({
+          success: false,
+          error:
+            "Phone number validation failed. Please provide a valid phone number.",
+        });
+      }
     }
 
     // Initialize services
@@ -115,7 +147,8 @@ router.post("/wordpress", validateWebhookSource, async (req, res) => {
         lastName,
         name,
         email,
-        phone,
+        phone: validatedPhone || phone, // Use validated phone number if available
+        phoneValidation: phoneValidationResult, // Store validation info
         message,
         status: initialStatus,
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -141,8 +174,9 @@ router.post("/wordpress", validateWebhookSource, async (req, res) => {
         const welcomeMessage = `Hello ${name}! 👋\n\nThank you for your interest in IUEA (International University of East Africa)! 🎓\n\nWe're excited to help you with your educational journey. Are you interested in any specific program? Our admissions team will contact you soon to discuss your options.\n\nBest regards,\nIUEA Admissions Team`;
 
         // Send message asynchronously - don't wait for response
+        const phoneToUse = validatedPhone || phone;
         whatsappMessageService
-          .sendMessage(phone, welcomeMessage, "text", {
+          .sendMessage(phoneToUse, welcomeMessage, "text", {
             source: "wordpress_webhook",
             leadId: leadId.id, // Use the actual ID string
             messageType: "welcome",
@@ -249,6 +283,34 @@ router.post("/google-ads", validateWebhookSource, async (req, res) => {
       });
     }
 
+    // Validate phone number if provided (no messages sent)
+    let validatedPhone = null;
+    let phoneValidationResult = null;
+    if (phone && phone.trim()) {
+      try {
+        phoneValidationResult = await whatsappValidator.validateNumber(phone);
+        if (!phoneValidationResult.isValid) {
+          return res.status(400).json({
+            success: false,
+            error: phoneValidationResult.error,
+            message:
+              "Please check your phone number and provide a valid WhatsApp number.",
+          });
+        }
+        validatedPhone = phoneValidationResult.normalizedNumber;
+        console.log(
+          `✅ Google Ads phone validated: ${validatedPhone} (${phoneValidationResult.validationType})`
+        );
+      } catch (validationError) {
+        console.error("❌ Google Ads phone validation error:", validationError);
+        return res.status(400).json({
+          success: false,
+          error:
+            "Phone number validation failed. Please provide a valid phone number.",
+        });
+      }
+    }
+
     // Initialize services
     const db = admin.firestore();
     const leadService = new LeadService(db);
@@ -318,7 +380,8 @@ router.post("/google-ads", validateWebhookSource, async (req, res) => {
         lastName,
         name,
         email,
-        phone: phone || null,
+        phone: validatedPhone || phone || null,
+        phoneValidation: phoneValidationResult,
         program: programInterested,
         googleAdsInfo: {
           campaignId:
@@ -356,8 +419,9 @@ router.post("/google-ads", validateWebhookSource, async (req, res) => {
         }We're excited to help you with your educational journey. Our admissions team will contact you soon to discuss your options and answer any questions you may have.\n\nBest regards,\nIUEA Admissions Team`;
 
         // Send message asynchronously - don't wait for response
+        const phoneToUse = validatedPhone || phone;
         whatsappMessageService
-          .sendMessage(phone, welcomeMessage, "text", {
+          .sendMessage(phoneToUse, welcomeMessage, "text", {
             source: "google_ads_webhook",
             leadId: leadId.id,
             messageType: "welcome",
@@ -473,6 +537,37 @@ router.post("/application-form", validateWebhookSource, async (req, res) => {
         success: false,
         error: "Email is required",
       });
+    }
+
+    // Validate phone number if provided (no messages sent)
+    let validatedPhone = null;
+    let phoneValidationResult = null;
+    if (phone && phone.trim()) {
+      try {
+        phoneValidationResult = await whatsappValidator.validateNumber(phone);
+        if (!phoneValidationResult.isValid) {
+          return res.status(400).json({
+            success: false,
+            error: phoneValidationResult.error,
+            message:
+              "Please check your phone number and provide a valid WhatsApp number.",
+          });
+        }
+        validatedPhone = phoneValidationResult.normalizedNumber;
+        console.log(
+          `✅ Application form phone validated: ${validatedPhone} (${phoneValidationResult.validationType})`
+        );
+      } catch (validationError) {
+        console.error(
+          "❌ Application form phone validation error:",
+          validationError
+        );
+        return res.status(400).json({
+          success: false,
+          error:
+            "Phone number validation failed. Please provide a valid phone number.",
+        });
+      }
     }
 
     // Initialize services
@@ -592,7 +687,8 @@ router.post("/application-form", validateWebhookSource, async (req, res) => {
       const applicationData = {
         name,
         email,
-        phoneNumber: phone,
+        phoneNumber: validatedPhone || phone,
+        phoneValidation: phoneValidationResult,
         countryOfBirth,
         gender: normalizeGender(gender),
         modeOfStudy: normalizeModeOfStudy(modeOfStudy),
@@ -750,6 +846,37 @@ router.post("/receive", async (req, res) => {
       formData.program_interest ||
       formData["Preferred Program"];
 
+    // Validate phone number if provided (no messages sent)
+    let validatedPhone = null;
+    let phoneValidationResult = null;
+    if (phone && phone.trim()) {
+      try {
+        phoneValidationResult = await whatsappValidator.validateNumber(phone);
+        if (!phoneValidationResult.isValid) {
+          return res.status(400).json({
+            success: false,
+            error: phoneValidationResult.error,
+            message:
+              "Please check your phone number and provide a valid WhatsApp number.",
+          });
+        }
+        validatedPhone = phoneValidationResult.normalizedNumber;
+        console.log(
+          `✅ Generic webhook phone validated: ${validatedPhone} (${phoneValidationResult.validationType})`
+        );
+      } catch (validationError) {
+        console.error(
+          "❌ Generic webhook phone validation error:",
+          validationError
+        );
+        return res.status(400).json({
+          success: false,
+          error:
+            "Phone number validation failed. Please provide a valid phone number.",
+        });
+      }
+    }
+
     // Initialize services
     const db = admin.firestore();
     const leadService = new LeadService(db);
@@ -758,7 +885,8 @@ router.post("/receive", async (req, res) => {
     const leadData = {
       name,
       email,
-      phone,
+      phone: validatedPhone || phone,
+      phoneValidation: phoneValidationResult,
       program,
       rawData: formData, // Store full payload for debugging
       status: "INQUIRY",
@@ -768,9 +896,12 @@ router.post("/receive", async (req, res) => {
     const leadId = await leadService.createLead(leadData, LEAD_SOURCES.OTHER);
 
     // Send WhatsApp welcome message if phone is provided
-    if (phone) {
+    if (validatedPhone || phone) {
       try {
-        await whatsappMessageService.sendWelcomeMessage(phone, name);
+        await whatsappMessageService.sendWelcomeMessage(
+          validatedPhone || phone,
+          name
+        );
       } catch (whatsappError) {
         console.error("❌ Failed to send WhatsApp message:", whatsappError);
       }
@@ -820,6 +951,34 @@ router.post("/meta-ads", validateWebhookSource, async (req, res) => {
         success: false,
         error: "Either email or phone is required",
       });
+    }
+
+    // Validate phone number if provided (no messages sent)
+    let validatedPhone = null;
+    let phoneValidationResult = null;
+    if (phone && phone.trim()) {
+      try {
+        phoneValidationResult = await whatsappValidator.validateNumber(phone);
+        if (!phoneValidationResult.isValid) {
+          return res.status(400).json({
+            success: false,
+            error: phoneValidationResult.error,
+            message:
+              "Please check your phone number and provide a valid WhatsApp number.",
+          });
+        }
+        validatedPhone = phoneValidationResult.normalizedNumber;
+        console.log(
+          `✅ Meta Ads phone validated: ${validatedPhone} (${phoneValidationResult.validationType})`
+        );
+      } catch (validationError) {
+        console.error("❌ Meta Ads phone validation error:", validationError);
+        return res.status(400).json({
+          success: false,
+          error:
+            "Phone number validation failed. Please provide a valid phone number.",
+        });
+      }
     }
 
     // Initialize services
@@ -976,7 +1135,8 @@ router.post("/meta-ads", validateWebhookSource, async (req, res) => {
         lastName,
         name,
         email,
-        phone,
+        phone: validatedPhone || phone,
+        phoneValidation: phoneValidationResult,
         program,
         country,
         status: "INQUIRY",
@@ -1010,8 +1170,9 @@ router.post("/meta-ads", validateWebhookSource, async (req, res) => {
         }\n\nOur admissions team will contact you soon to discuss your options.\n\nBest regards,\nAdmissions Team`;
 
         // Send message asynchronously - don't wait for response
+        const phoneToUse = validatedPhone || phone;
         whatsappMessageService
-          .sendMessage(phone, welcomeMessage, "text", {
+          .sendMessage(phoneToUse, welcomeMessage, "text", {
             source: "meta_ads_webhook",
             leadId: leadId.id, // Use the actual ID string
             messageType:

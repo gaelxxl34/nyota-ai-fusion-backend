@@ -2,9 +2,11 @@ const express = require("express");
 const router = express.Router();
 const { admin } = require("../config/firebase.config");
 const WebhookForwarder = require("../services/webhookForwarder");
+const WhatsAppValidationService = require("../services/whatsappValidationService");
 
-// Initialize webhook forwarder
+// Initialize services
 const forwarder = new WebhookForwarder();
+const whatsappValidator = new WhatsAppValidationService();
 
 // Webhook endpoint to receive form data
 router.post("/receive", async (req, res) => {
@@ -72,6 +74,54 @@ router.post("/receive", async (req, res) => {
       });
     }
 
+    // Validate WhatsApp phone number if provided
+    if (phone) {
+      console.log(`📞 Validating WhatsApp number: ${phone}`);
+
+      try {
+        const phoneValidation = await whatsappValidator.validateNumber(phone);
+
+        if (!phoneValidation.isValid) {
+          console.log(
+            `❌ Phone validation failed for ${phone}:`,
+            phoneValidation.error
+          );
+          return res.status(400).json({
+            success: false,
+            error: phoneValidation.error || "Invalid phone number provided",
+            details: {
+              providedNumber: phone,
+              normalizedNumber: phoneValidation.normalizedNumber,
+              validationType: phoneValidation.validationType,
+            },
+            suggestion:
+              "Please check the phone number and ensure it's a valid WhatsApp number.",
+          });
+        }
+
+        console.log(
+          `✅ Phone validation successful for ${phone} (${phoneValidation.normalizedNumber})`
+        );
+
+        // Use the normalized number for further processing
+        const validatedPhone = phoneValidation.normalizedNumber;
+
+        // Update the phone variable to use the normalized number
+        Object.assign(formData, { validatedPhone, phoneValidation });
+      } catch (validationError) {
+        console.error("❌ Phone validation service error:", validationError);
+
+        // For service errors, we can either:
+        // 1. Allow the submission (lenient approach)
+        // 2. Block the submission (strict approach)
+
+        // Using lenient approach - log warning but continue
+        console.warn(
+          `⚠️ Phone validation service unavailable, allowing submission for ${phone}`
+        );
+      }
+    }
+
     const db = admin.firestore();
 
     // Check if contact already exists with this email
@@ -110,7 +160,8 @@ router.post("/receive", async (req, res) => {
     const contactData = {
       name: name || "Unknown",
       email: email,
-      phone: phone || "",
+      phone: formData.validatedPhone || phone || "", // Use validated phone number if available
+      phoneValidation: formData.phoneValidation || null, // Store validation info
       program: program || "",
       source: formData.source || "Webhook",
       formType: formType,
@@ -427,6 +478,57 @@ router.get("/applications", async (req, res) => {
       error: "Failed to fetch applications",
       details: error.message,
       stack: process.env.NODE_ENV === "development" ? error.stack : undefined,
+    });
+  }
+});
+
+// Phone number validation endpoint for frontend forms
+router.post("/validate-phone", async (req, res) => {
+  try {
+    const { phoneNumber } = req.body;
+
+    if (!phoneNumber) {
+      return res.status(400).json({
+        success: false,
+        error: "Phone number is required",
+      });
+    }
+
+    console.log(`📞 Validating phone number: ${phoneNumber}`);
+
+    const validation = await whatsappValidator.validateNumber(phoneNumber);
+
+    console.log(`📊 Validation result:`, validation);
+
+    // Return appropriate response based on validation result
+    if (validation.isValid) {
+      res.json({
+        success: true,
+        isValid: true,
+        normalizedNumber: validation.normalizedNumber,
+        validationType: validation.validationType,
+        isWhatsAppValid: validation.isWhatsAppValid,
+        message: validation.isWhatsAppValid
+          ? "Valid WhatsApp number"
+          : "Valid phone number format (WhatsApp status unknown)",
+      });
+    } else {
+      res.status(400).json({
+        success: false,
+        isValid: false,
+        error: validation.error,
+        normalizedNumber: validation.normalizedNumber,
+        validationType: validation.validationType,
+        suggestion:
+          "Please check the phone number and ensure it's a valid WhatsApp number.",
+      });
+    }
+  } catch (error) {
+    console.error("❌ Error validating phone number:", error);
+    res.status(500).json({
+      success: false,
+      error: "Phone validation service temporarily unavailable",
+      details: error.message,
     });
   }
 });

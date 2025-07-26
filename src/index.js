@@ -71,6 +71,24 @@ function startServer() {
   // Import and set up routes
   app.use("/api/auth", require("./routes/auth.routes"));
 
+  // Webhook routes
+  try {
+    const webhookRoutes = require("./routes/webhook.routes");
+    app.use("/api/webhook", webhookRoutes);
+    console.log("✅ Webhook routes loaded");
+  } catch (error) {
+    console.warn("❌ Webhook routes not loaded:", error.message);
+  }
+
+  // Enhanced webhook routes
+  try {
+    const enhancedWebhookRoutes = require("./routes/enhanced-webhook.routes");
+    app.use("/api/enhanced-webhook", enhancedWebhookRoutes);
+    console.log("✅ Enhanced webhook routes loaded");
+  } catch (error) {
+    console.warn("❌ Enhanced webhook routes not loaded:", error.message);
+  }
+
   // Lead management routes
   try {
     const { getFirestore } = require("firebase-admin/firestore");
