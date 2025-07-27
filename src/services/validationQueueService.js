@@ -238,7 +238,19 @@ class ValidationQueueService {
         .where("processed", "==", false)
         .orderBy("createdAt", "desc")
         .limit(1)
-        .get();
+        .get()
+        .catch((error) => {
+          if (
+            error.code === 9 &&
+            error.details?.includes("requires an index")
+          ) {
+            console.warn(
+              "⚠️ Firestore index not yet created for validation status query. Please create the index using the link in the error message."
+            );
+            return { empty: true };
+          }
+          throw error;
+        });
 
       if (snapshot.empty) {
         return null;
@@ -272,7 +284,19 @@ class ValidationQueueService {
         .collection(this.collectionName)
         .where("validationStatus", "==", "PENDING")
         .where("createdAt", "<=", timeoutThreshold)
-        .get();
+        .get()
+        .catch((error) => {
+          if (
+            error.code === 9 &&
+            error.details?.includes("requires an index")
+          ) {
+            console.warn(
+              "⚠️ Firestore index not yet created for validation timeout query. Please create the index using the link in the error message."
+            );
+            return { empty: true, docs: [] };
+          }
+          throw error;
+        });
 
       const batch = this.db.batch();
       let timeoutCount = 0;
