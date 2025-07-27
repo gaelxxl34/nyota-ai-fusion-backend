@@ -169,8 +169,7 @@ function startServer() {
     );
 
     // Start background job to process validation timeouts
-    const ValidationQueueService = require("./services/validationQueueService");
-    const validationQueueService = new ValidationQueueService();
+    const validationQueueService = require("./services/validationQueueService");
 
     // Process timeouts every 10 seconds
     setInterval(async () => {
