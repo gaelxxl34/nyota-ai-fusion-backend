@@ -64,16 +64,30 @@ class ValidationQueueService {
     errorCode = null
   ) {
     try {
-      // Find the validation entry by message ID
-      const snapshot = await this.db
+      // Normalize phone number to handle different formats
+      const normalizedPhone = phoneNumber.replace(/^\+/, "").replace(/\D/g, "");
+
+      // Find the validation entry by message ID first
+      let snapshot = await this.db
         .collection(this.collectionName)
         .where("validationMessageId", "==", messageId)
-        .where("validatedPhone", "==", phoneNumber)
         .limit(1)
         .get();
 
       if (snapshot.empty) {
-        console.log(`⚠️ No validation entry found for message ${messageId}`);
+        // Try finding by both message ID and phone number
+        snapshot = await this.db
+          .collection(this.collectionName)
+          .where("validationMessageId", "==", messageId)
+          .where("validatedPhone", "==", normalizedPhone)
+          .limit(1)
+          .get();
+      }
+
+      if (snapshot.empty) {
+        console.log(
+          `⚠️ No validation entry found for message ${messageId} and phone ${normalizedPhone}`
+        );
         return null;
       }
 
@@ -84,7 +98,29 @@ class ValidationQueueService {
       };
 
       if (status === "FAILED" && errorCode) {
-        updateData.validationError = `Error ${errorCode}: Number not on WhatsApp`;
+        // Handle specific error codes with user-friendly messages
+        let errorMessage = "";
+        switch (errorCode) {
+          case 131026:
+            errorMessage =
+              "This phone number is not registered on WhatsApp. Please provide a valid WhatsApp number.";
+            break;
+          case 131047:
+            errorMessage =
+              "This WhatsApp number exists but cannot receive messages at this time. Please ensure the number is active.";
+            break;
+          case 131051:
+            errorMessage =
+              "Invalid phone number format. Please check the number and try again.";
+            break;
+          case 131052:
+            errorMessage = "Phone number not registered on WhatsApp.";
+            break;
+          default:
+            errorMessage = `WhatsApp validation failed (Error ${errorCode}). Please check your phone number.`;
+        }
+
+        updateData.validationError = errorMessage;
         updateData.validationErrorCode = errorCode;
       }
 
@@ -225,10 +261,52 @@ class ValidationQueueService {
   }
 
   /**
+   * Process timeout for pending validations
+   */
+  async processTimeouts() {
+    try {
+      const now = new Date();
+      const timeoutThreshold = new Date(now.getTime() - 30 * 1000); // 30 seconds timeout
+
+      const snapshot = await this.db
+        .collection(this.collectionName)
+        .where("validationStatus", "==", "PENDING")
+        .where("createdAt", "<=", timeoutThreshold)
+        .get();
+
+      const batch = this.db.batch();
+      let timeoutCount = 0;
+
+      snapshot.forEach((doc) => {
+        batch.update(doc.ref, {
+          validationStatus: "TIMEOUT",
+          validationError:
+            "WhatsApp validation timed out. The number may not be on WhatsApp or is unreachable.",
+          validationUpdatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+        timeoutCount++;
+      });
+
+      if (timeoutCount > 0) {
+        await batch.commit();
+        console.log(`⏱️ Timed out ${timeoutCount} pending validations`);
+      }
+
+      return timeoutCount;
+    } catch (error) {
+      console.error("❌ Error processing validation timeouts:", error);
+      throw error;
+    }
+  }
+
+  /**
    * Clean up expired entries
    */
   async cleanupExpiredEntries() {
     try {
+      // First process timeouts
+      await this.processTimeouts();
+
       const now = new Date();
       const snapshot = await this.db
         .collection(this.collectionName)

@@ -286,25 +286,20 @@ class WhatsAppMessageService {
       // Check if this is a validation message that failed
       if (statusType === "failed" && recipientId && errors.length > 0) {
         const errorCode = errors[0]?.code;
+        const errorTitle = errors[0]?.title || "Unknown error";
+        const errorDetails = errors[0]?.error_data?.details || "";
 
-        // Check for "not on WhatsApp" error codes
-        if (
-          errorCode === 131026 ||
-          errorCode === 131051 ||
-          errorCode === 131052
-        ) {
-          console.log(
-            `❌ WhatsApp validation failed for ${recipientId} - Number not on WhatsApp`
-          );
+        console.log(
+          `❌ WhatsApp message failed for ${recipientId} - Error ${errorCode}: ${errorTitle} (${errorDetails})`
+        );
 
-          // Update lead validation status if this was a validation message
-          await this.updateLeadValidationStatus(
-            recipientId,
-            messageId,
-            false,
-            errorCode
-          );
-        }
+        // Always update validation status for failed messages
+        await this.updateLeadValidationStatus(
+          recipientId,
+          messageId,
+          false,
+          errorCode
+        );
       } else if (statusType === "delivered" && recipientId) {
         console.log(
           `✅ WhatsApp validation successful for ${recipientId} - Message delivered`
