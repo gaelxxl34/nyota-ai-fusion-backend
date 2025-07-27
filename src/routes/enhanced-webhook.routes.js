@@ -242,7 +242,6 @@ const validateWhatsAppNumber = async (
       return {
         isValid: true,
         normalizedPhone,
-        is24HourRestricted: false,
         validationResult: webhookResult,
         conversationId: conversationResult.conversationId,
       };
@@ -302,39 +301,43 @@ const validateWhatsAppNumber = async (
           },
         };
       } else if (is24HourError) {
-        // Number is valid but has 24-hour restriction - this is OK, create lead and conversation
-        logger.debug(
-          `WhatsApp number ${normalizedPhone} is valid but has 24-hour restriction`
+        // 24-hour policy error means we can't send messages to this number
+        // Treat this as invalid for validation purposes since we can't actually contact them
+        const errorMessage =
+          "Phone number validation failed. This WhatsApp number cannot receive messages due to 24-hour policy restrictions.";
+
+        logger.error(
+          `WhatsApp validation failed for ${normalizedPhone}: 24-hour policy restriction (${webhookResult.error})`
         );
 
-        // Create conversation even with 24-hour restriction since the number is valid
-        const conversationResult =
-          await whatsappMessageService.createConversationAfterValidation(
-            normalizedPhone,
-            testMessage,
-            validationResult.messageId,
-            {
-              contactName: name,
-              source: source,
-            }
-          );
-
-        if (conversationResult.success) {
-          logger.debug(
-            `Conversation created for 24hr restricted number ${normalizedPhone}: ${conversationResult.conversationId}`
-          );
-        } else {
-          logger.warn(
-            `Failed to create conversation for 24hr restricted number ${normalizedPhone}: ${conversationResult.error}`
-          );
+        if (isElementorForm) {
+          return {
+            isValid: false,
+            errorResponse: {
+              status: 400,
+              body: {
+                success: false,
+                message: errorMessage,
+                data: {
+                  message: errorMessage,
+                  errors: {
+                    phone: errorMessage,
+                  },
+                },
+              },
+            },
+          };
         }
 
         return {
-          isValid: true,
-          normalizedPhone,
-          is24HourRestricted: true,
-          validationResult: webhookResult,
-          conversationId: conversationResult.conversationId,
+          isValid: false,
+          errorResponse: {
+            status: 400,
+            body: {
+              success: false,
+              error: errorMessage,
+            },
+          },
         };
       } else {
         // Some other error - treat as invalid to be safe
@@ -459,8 +462,6 @@ router.post("/wordpress", validateWebhookSource, async (req, res) => {
     // No lead will be created unless the WhatsApp number is valid
     let validatedPhone = null;
     let whatsappValidationResult = null;
-    let is24HourRestricted = false;
-
     if (phone && phone.trim()) {
       logger.debug(`Starting WhatsApp validation for ${phone}`);
 
@@ -485,11 +486,8 @@ router.post("/wordpress", validateWebhookSource, async (req, res) => {
       // If we get here, the WhatsApp number is valid
       validatedPhone = validation.normalizedPhone;
       whatsappValidationResult = validation.validationResult;
-      is24HourRestricted = validation.is24HourRestricted;
 
-      logger.info(
-        `WhatsApp validation successful for ${validatedPhone}, 24hr restricted: ${is24HourRestricted}`
-      );
+      logger.info(`WhatsApp validation successful for ${validatedPhone}`);
     } else {
       // If no phone number provided, we can still create the lead (email-only lead)
       logger.debug("No phone number provided - creating email-only lead");
@@ -572,9 +570,7 @@ router.post("/wordpress", validateWebhookSource, async (req, res) => {
     // Update lead with WhatsApp validation results
     if (phone && phone.trim() && validatedPhone) {
       // Update lead with WhatsApp validation status
-      const whatsappStatus = is24HourRestricted
-        ? "VALID_24HR_LIMIT"
-        : "VALIDATED";
+      const whatsappStatus = "VALIDATED";
 
       await leadService.updateLead(leadId.id || leadId, {
         lastWhatsAppContact: admin.firestore.FieldValue.serverTimestamp(),
@@ -582,12 +578,8 @@ router.post("/wordpress", validateWebhookSource, async (req, res) => {
         whatsappValid: true, // Number is confirmed valid
       });
 
-      if (is24HourRestricted) {
-        statusNote += " (WhatsApp number verified but has 24-hour restriction)";
-      } else {
-        statusNote += " (WhatsApp number verified and validation message sent)";
-        // Note: No additional welcome message needed - validation message serves as initial contact
-      }
+      statusNote += " (WhatsApp number verified and validation message sent)";
+      // Note: No additional welcome message needed - validation message serves as initial contact
     } else if (!phone) {
       statusNote += " (No phone number provided - email-only lead)";
     }
@@ -664,7 +656,6 @@ router.post("/google-ads", validateWebhookSource, async (req, res) => {
     // No lead will be created unless the WhatsApp number is valid
     let validatedPhone = null;
     let whatsappValidationResult = null;
-    let is24HourRestricted = false;
 
     if (phone && phone.trim()) {
       logger.debug(`Starting WhatsApp validation for ${phone}`);
@@ -690,11 +681,8 @@ router.post("/google-ads", validateWebhookSource, async (req, res) => {
       // If we get here, the WhatsApp number is valid
       validatedPhone = validation.normalizedPhone;
       whatsappValidationResult = validation.validationResult;
-      is24HourRestricted = validation.is24HourRestricted;
 
-      logger.info(
-        `WhatsApp validation successful for ${validatedPhone}, 24hr restricted: ${is24HourRestricted}`
-      );
+      logger.info(`WhatsApp validation successful for ${validatedPhone}`);
     } else {
       // If no phone number provided, we can still create the lead (email-only lead)
       logger.debug("No phone number provided - creating email-only lead");
@@ -791,9 +779,7 @@ router.post("/google-ads", validateWebhookSource, async (req, res) => {
     // Update lead with WhatsApp validation results
     if (phone && phone.trim() && validatedPhone) {
       // Update lead with WhatsApp validation status
-      const whatsappStatus = is24HourRestricted
-        ? "VALID_24HR_LIMIT"
-        : "VALIDATED";
+      const whatsappStatus = "VALIDATED";
 
       await leadService.updateLead(leadId.id || leadId, {
         lastWhatsAppContact: admin.firestore.FieldValue.serverTimestamp(),
@@ -801,12 +787,8 @@ router.post("/google-ads", validateWebhookSource, async (req, res) => {
         whatsappValid: true, // Number is confirmed valid
       });
 
-      if (is24HourRestricted) {
-        statusNote += " (WhatsApp number verified but has 24-hour restriction)";
-      } else {
-        statusNote += " (WhatsApp number verified and validation message sent)";
-        // Note: No additional welcome message needed - validation message serves as initial contact
-      }
+      statusNote += " (WhatsApp number verified and validation message sent)";
+      // Note: No additional welcome message needed - validation message serves as initial contact
     } else if (!phone) {
       statusNote += " (No phone number provided - email-only lead)";
     }
@@ -1296,7 +1278,6 @@ router.post("/meta-ads", validateWebhookSource, async (req, res) => {
     // No lead will be created unless the WhatsApp number is valid
     let validatedPhone = null;
     let whatsappValidationResult = null;
-    let is24HourRestricted = false;
 
     if (phone && phone.trim()) {
       logger.debug(`Starting WhatsApp validation for ${phone}`);
@@ -1322,11 +1303,8 @@ router.post("/meta-ads", validateWebhookSource, async (req, res) => {
       // If we get here, the WhatsApp number is valid
       validatedPhone = validation.normalizedPhone;
       whatsappValidationResult = validation.validationResult;
-      is24HourRestricted = validation.is24HourRestricted;
 
-      logger.info(
-        `WhatsApp validation successful for ${validatedPhone}, 24hr restricted: ${is24HourRestricted}`
-      );
+      logger.info(`WhatsApp validation successful for ${validatedPhone}`);
     } else if (!email) {
       // Meta Ads requires either email OR phone
       return res.status(400).json({
@@ -1504,9 +1482,7 @@ router.post("/meta-ads", validateWebhookSource, async (req, res) => {
     // Update lead with WhatsApp validation results
     if (phone && phone.trim() && validatedPhone) {
       // Update lead with WhatsApp validation status
-      const whatsappStatus = is24HourRestricted
-        ? "VALID_24HR_LIMIT"
-        : "VALIDATED";
+      const whatsappStatus = "VALIDATED";
 
       await leadService.updateLead(leadId.id || leadId, {
         lastWhatsAppContact: admin.firestore.FieldValue.serverTimestamp(),
@@ -1514,12 +1490,8 @@ router.post("/meta-ads", validateWebhookSource, async (req, res) => {
         whatsappValid: true, // Number is confirmed valid
       });
 
-      if (is24HourRestricted) {
-        statusNote += " (WhatsApp number verified but has 24-hour restriction)";
-      } else {
-        statusNote += " (WhatsApp number verified and validation message sent)";
-        // Note: No additional welcome message needed - validation message serves as initial contact
-      }
+      statusNote += " (WhatsApp number verified and validation message sent)";
+      // Note: No additional welcome message needed - validation message serves as initial contact
     } else if (!phone) {
       statusNote += " (No phone number provided - email-only lead)";
     }
