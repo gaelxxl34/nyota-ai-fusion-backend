@@ -130,7 +130,7 @@ const validateWhatsAppNumber = async (
   );
 
   // Create a simple test message based on source
-  const testMessage = `Hello ${name}! This is a verification message to confirm your WhatsApp number. We will contact you soon regarding your inquiry.`;
+const testMessage = `Hello ${name}, thank you for your interest in IUEA! We’ve received your inquiry and are here to support you. How can we assist you in joining the IUEA family?`;
 
   try {
     // Send the validation message without creating conversation
