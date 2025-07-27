@@ -284,15 +284,16 @@ class WhatsAppValidationService {
 
           if (messageResponse.data && messageResponse.data.messages) {
             console.log(
-              `✅ Welcome message sent successfully to: ${normalizedNumber}`
+              `📤 Welcome message initiated for: ${normalizedNumber} - Awaiting delivery confirmation`
             );
             return {
-              isValid: true,
-              isWhatsAppValid: true,
+              isValid: false, // Changed to false - not valid until delivery confirmed
+              isWhatsAppValid: null, // Unknown until delivery status received
               error: null,
               normalizedNumber: normalizedNumber,
-              validationType: "welcome_message_sent",
-              note: "Verified via welcome message",
+              validationType: "validation_pending",
+              messageId: messageResponse.data.messages[0].id, // Store message ID for tracking
+              note: "Validation message sent, awaiting delivery confirmation",
             };
           }
         } catch (messageError) {

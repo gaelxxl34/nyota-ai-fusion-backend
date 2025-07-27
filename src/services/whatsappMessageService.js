@@ -3,6 +3,7 @@
  * Handles WhatsApp message processing, AI responses, and broadcasting
  */
 
+const admin = require("firebase-admin");
 const aiService = require("./ai.service");
 const ConversationService = require("./conversationService");
 const { broadcastMessage } = require("./broadcastService");
@@ -10,6 +11,7 @@ const { broadcastMessage } = require("./broadcastService");
 class WhatsAppMessageService {
   constructor() {
     this.conversationService = new ConversationService();
+    this.db = admin.firestore();
   }
 
   /**
@@ -273,11 +275,44 @@ class WhatsAppMessageService {
     try {
       const messageId = status.id;
       const statusType = status.status;
+      const recipientId = status.recipient_id;
+      const errors = status.errors || [];
       const timestamp = status.timestamp
         ? new Date(status.timestamp * 1000)
         : new Date();
 
       console.log(`📊 Message ${messageId} status updated to ${statusType}`);
+
+      // Check if this is a validation message that failed
+      if (statusType === "failed" && recipientId && errors.length > 0) {
+        const errorCode = errors[0]?.code;
+
+        // Check for "not on WhatsApp" error codes
+        if (
+          errorCode === 131026 ||
+          errorCode === 131051 ||
+          errorCode === 131052
+        ) {
+          console.log(
+            `❌ WhatsApp validation failed for ${recipientId} - Number not on WhatsApp`
+          );
+
+          // Update lead validation status if this was a validation message
+          await this.updateLeadValidationStatus(
+            recipientId,
+            messageId,
+            false,
+            errorCode
+          );
+        }
+      } else if (statusType === "delivered" && recipientId) {
+        console.log(
+          `✅ WhatsApp validation successful for ${recipientId} - Message delivered`
+        );
+
+        // Update lead validation status to confirmed
+        await this.updateLeadValidationStatus(recipientId, messageId, true);
+      }
 
       // Update message status in database with current timestamp
       await this.conversationService.updateMessageStatus(
@@ -320,6 +355,45 @@ class WhatsAppMessageService {
       messageContent,
       profileName,
     };
+  }
+
+  /**
+   * Update lead validation status based on message delivery status
+   */
+  async updateLeadValidationStatus(
+    phoneNumber,
+    messageId,
+    isValid,
+    errorCode = null
+  ) {
+    try {
+      const LeadService = require("./leadService");
+      const leadService = new LeadService(this.db);
+
+      // Find lead by phone number
+      const lead = await leadService.findLeadByPhone(phoneNumber);
+
+      if (lead && lead.whatsappValidationMessageId === messageId) {
+        const updateData = {
+          whatsappValidationStatus: isValid ? "VALID" : "INVALID",
+          whatsappValidated: isValid,
+          whatsappValidationDate: admin.firestore.FieldValue.serverTimestamp(),
+        };
+
+        if (!isValid && errorCode) {
+          updateData.whatsappValidationError = `Error ${errorCode}: Number not on WhatsApp`;
+        }
+
+        await leadService.updateLead(lead.id, updateData);
+        console.log(
+          `📱 Updated lead ${lead.id} WhatsApp validation status to: ${
+            isValid ? "VALID" : "INVALID"
+          }`
+        );
+      }
+    } catch (error) {
+      console.error("❌ Error updating lead validation status:", error);
+    }
   }
 
   /**

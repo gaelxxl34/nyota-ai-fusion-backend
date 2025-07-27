@@ -69,7 +69,12 @@ router.post("/wordpress", validateWebhookSource, async (req, res) => {
     if (phone && phone.trim()) {
       try {
         phoneValidationResult = await whatsappValidator.validateNumber(phone);
-        if (!phoneValidationResult.isValid) {
+
+        // Check if validation shows the number is definitely invalid
+        if (
+          !phoneValidationResult.isValid &&
+          phoneValidationResult.validationType !== "validation_pending"
+        ) {
           return res.status(400).json({
             success: false,
             error: phoneValidationResult.error,
@@ -77,9 +82,17 @@ router.post("/wordpress", validateWebhookSource, async (req, res) => {
               "Please check your phone number and provide a valid WhatsApp number.",
           });
         }
+
+        // For pending validation, we'll proceed but mark the lead accordingly
+        if (phoneValidationResult.validationType === "validation_pending") {
+          console.log(
+            `⏳ WordPress phone validation pending for: ${phoneValidationResult.normalizedNumber}`
+          );
+        }
+
         validatedPhone = phoneValidationResult.normalizedNumber;
         console.log(
-          `✅ WordPress phone validated: ${validatedPhone} (${phoneValidationResult.validationType})`
+          `📱 WordPress phone validation status: ${validatedPhone} (${phoneValidationResult.validationType})`
         );
       } catch (validationError) {
         console.error("❌ WordPress phone validation error:", validationError);
@@ -157,6 +170,14 @@ router.post("/wordpress", validateWebhookSource, async (req, res) => {
         message,
         status: initialStatus,
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        // Track WhatsApp validation status
+        whatsappValidationStatus:
+          phoneValidationResult?.validationType === "validation_pending"
+            ? "PENDING"
+            : phoneValidationResult?.isWhatsAppValid
+            ? "VALID"
+            : "INVALID",
+        whatsappValidationMessageId: phoneValidationResult?.messageId || null,
       };
 
       leadId = await leadService.createLead(leadData, LEAD_SOURCES.WEBSITE);
@@ -244,6 +265,17 @@ router.post("/wordpress", validateWebhookSource, async (req, res) => {
       leadId: leadId?.id || leadId,
       actionTaken,
       statusNote,
+      whatsappValidation: phoneValidationResult
+        ? {
+            status: phoneValidationResult.validationType,
+            isPending:
+              phoneValidationResult.validationType === "validation_pending",
+            message:
+              phoneValidationResult.validationType === "validation_pending"
+                ? "WhatsApp validation in progress. Lead created but awaiting confirmation."
+                : phoneValidationResult.note,
+          }
+        : null,
     });
   } catch (error) {
     console.error("❌ Error processing WordPress webhook:", error);
