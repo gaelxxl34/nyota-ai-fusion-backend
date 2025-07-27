@@ -9,7 +9,12 @@ const ApplicationService = require("../services/applicationService");
 const WhatsAppValidationService = require("../services/whatsappValidationService");
 
 // Initialize services
-const whatsappValidator = new WhatsAppValidationService();
+const whatsappValidator = new WhatsAppValidationService(
+  process.env.WHATSAPP_ACCESS_TOKEN,
+  process.env.WHATSAPP_PHONE_NUMBER_ID
+);
+// Skip profile checks in production - go directly to message validation
+whatsappValidator.skipProfileChecks = true;
 
 // Protection middleware
 const validateWebhookSource = (req, res, next) => {

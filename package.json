@@ -5,13 +5,12 @@
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",
-    "dev": "nodemon src/index.js",
-    "test": "jest",
-    "install-deps": "npm install axios --save"
+    "dev": "nodemon src/index.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.56.0",
     "axios": "^1.10.0",
+    "bcryptjs": "^3.0.2",
     "cors": "^2.8.5",
     "dotenv": "^16.3.1",
     "express": "^4.18.2",
@@ -21,7 +20,6 @@
     "nodemailer": "^6.10.1"
   },
   "devDependencies": {
-    "jest": "^29.7.0",
     "nodemon": "^3.0.1"
   }
 }

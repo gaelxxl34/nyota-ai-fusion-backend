@@ -9,8 +9,7 @@ const authenticateUser = async (req, res, next) => {
       req.user = {
         uid: "dev_user_123",
         email: "dev@example.com",
-        role: "admin",
-        organizationId: "dev_org_123",
+        role: "superAdmin",
       };
       return next();
     }
@@ -32,8 +31,7 @@ const authenticateUser = async (req, res, next) => {
       req.user = {
         uid: decodedToken.uid,
         email: decodedToken.email,
-        role: decodedToken.role || "user",
-        organizationId: decodedToken.organizationId || "default_org",
+        role: decodedToken.role || "teamMember",
       };
       console.log(
         `✅ Firebase authenticated user: ${req.user.email || req.user.uid} (${
@@ -63,8 +61,7 @@ const authenticateUser = async (req, res, next) => {
         req.user = {
           uid: decoded.uid,
           email: decoded.email,
-          role: decoded.role || "user",
-          organizationId: decoded.organizationId || "default_org",
+          role: decoded.role || "teamMember",
         };
 
         console.log(

@@ -2,13 +2,15 @@ const axios = require("axios");
 
 /**
  * WhatsApp Phone Number Validation Service
- * 🔒 GUARANTEED NO MESSAGE SENDING - Uses lookup endpoints only
+ * Uses welcome message for validation when other methods fail
  */
 class WhatsAppValidationService {
   constructor(accessToken, phoneNumberId) {
     this.accessToken = accessToken;
     this.phoneNumberId = phoneNumberId;
     this.baseUrl = `https://graph.facebook.com/v17.0/${phoneNumberId}`;
+    this.enableMessageValidation = true; // Can be disabled if needed
+    this.skipProfileChecks = true; // Skip unreliable profile checks in production
   }
 
   /**
@@ -45,19 +47,13 @@ class WhatsAppValidationService {
       };
     }
 
-    // Check for invalid pattern: 0 immediately after any country code
+    // Check for invalid pattern: 0 immediately after country code (1-3 digits only)
     let hasInvalidZero = false;
     let countryCode = "";
     let suggestedNumber = "";
 
-    // Check for 4-digit country codes followed by 0 (rare but possible)
-    if (normalized.match(/^([1-9][0-9][0-9][0-9])0\d+$/)) {
-      countryCode = normalized.substring(0, 4);
-      suggestedNumber = countryCode + normalized.substring(5);
-      hasInvalidZero = true;
-    }
     // Check for 3-digit country codes followed by 0
-    else if (normalized.match(/^([1-9][0-9][0-9])0\d+$/)) {
+    if (normalized.match(/^([1-9][0-9][0-9])0\d+$/)) {
       countryCode = normalized.substring(0, 3);
       suggestedNumber = countryCode + normalized.substring(4);
       hasInvalidZero = true;
@@ -143,120 +139,225 @@ class WhatsAppValidationService {
       }
 
       // 🔒 METHOD 1: Try WhatsApp Business Profile lookup (no messages)
-      try {
-        console.log(
-          `🔍 Checking WhatsApp Business Profile for: ${normalizedNumber}`
-        );
-
-        const profileResponse = await axios.get(
-          `${this.baseUrl}/whatsapp_business_profile`,
-          {
-            headers: {
-              Authorization: `Bearer ${this.accessToken}`,
-              "Content-Type": "application/json",
-            },
-            params: {
-              phone_number: normalizedNumber,
-            },
-            timeout: 10000,
-          }
-        );
-
-        if (profileResponse.data) {
+      if (!this.skipProfileChecks) {
+        try {
           console.log(
-            `✅ WhatsApp Business Profile found for: ${normalizedNumber}`
+            `🔍 Checking WhatsApp Business Profile for: ${normalizedNumber}`
           );
-          return {
-            isValid: true,
-            isWhatsAppValid: true,
-            error: null,
-            normalizedNumber: normalizedNumber,
-            validationType: "whatsapp_business_profile",
-            note: "Verified via WhatsApp Business Profile lookup",
-          };
-        }
-      } catch (profileError) {
-        console.log(`ℹ️ Business profile check failed, trying phone info...`);
-      }
 
-      // 🔒 METHOD 2: Try phone number info lookup (no messages)
-      try {
-        console.log(`🔍 Checking phone number info for: ${normalizedNumber}`);
+          const profileResponse = await axios.get(
+            `${this.baseUrl}/whatsapp_business_profile`,
+            {
+              headers: {
+                Authorization: `Bearer ${this.accessToken}`,
+                "Content-Type": "application/json",
+              },
+              params: {
+                phone_number: normalizedNumber,
+              },
+              timeout: 10000,
+            }
+          );
 
-        const phoneInfoResponse = await axios.get(
-          `${this.baseUrl}/${normalizedNumber}`,
-          {
-            headers: {
-              Authorization: `Bearer ${this.accessToken}`,
-              "Content-Type": "application/json",
-            },
-            timeout: 10000,
-          }
-        );
-
-        if (phoneInfoResponse.data && phoneInfoResponse.data.verified_name) {
-          console.log(`✅ Phone number info found for: ${normalizedNumber}`);
-          return {
-            isValid: true,
-            isWhatsAppValid: true,
-            error: null,
-            normalizedNumber: normalizedNumber,
-            validationType: "whatsapp_phone_info",
-            note: "Verified via WhatsApp phone info lookup",
-          };
-        }
-      } catch (phoneInfoError) {
-        // Check for specific WhatsApp API errors that indicate invalid number
-        if (phoneInfoError.response?.data?.error) {
-          const errorCode = phoneInfoError.response.data.error.code;
-          const errorMessage = phoneInfoError.response.data.error.message;
-
-          // Common error codes for numbers not on WhatsApp
-          if (
-            errorCode === 131056 || // Number is not a WhatsApp number
-            errorCode === 131051 || // Invalid phone number
-            errorCode === 131052 || // Phone number not registered
-            errorCode === 100 || // Invalid parameter
-            errorMessage.includes("not a WhatsApp user") ||
-            errorMessage.includes("phone number is not registered") ||
-            errorMessage.includes("Invalid phone number")
-          ) {
-            console.log(`❌ Number not on WhatsApp: ${normalizedNumber}`);
-            return {
-              isValid: false,
-              isWhatsAppValid: false,
-              error:
-                "This phone number is not registered on WhatsApp. Please provide a valid WhatsApp number.",
-              normalizedNumber: normalizedNumber,
-              validationType: "whatsapp_lookup_failed",
-            };
-          }
-
-          // Rate limiting - allow through with warning
-          if (
-            errorCode === 4 ||
-            errorCode === 10 ||
-            errorCode === 613 ||
-            errorCode === 80007
-          ) {
-            console.warn(
-              `⚠️ WhatsApp API rate limited for: ${normalizedNumber}`
+          if (profileResponse.data) {
+            console.log(
+              `✅ WhatsApp Business Profile found for: ${normalizedNumber}`
             );
             return {
               isValid: true,
-              isWhatsAppValid: null,
+              isWhatsAppValid: true,
               error: null,
               normalizedNumber: normalizedNumber,
-              validationType: "format_fallback",
-              note: "WhatsApp API temporarily unavailable, validated format only",
+              validationType: "whatsapp_business_profile",
+              note: "Verified via WhatsApp Business Profile lookup",
             };
           }
+        } catch (profileError) {
+          console.log(`ℹ️ Business profile check failed, trying phone info...`);
         }
-
-        console.log(`ℹ️ Phone info lookup failed: ${phoneInfoError.message}`);
       }
 
-      // If both lookups failed without explicit "not on WhatsApp" errors,
+      // 🔒 METHOD 2: Try phone number info lookup (no messages)
+      if (!this.skipProfileChecks) {
+        try {
+          console.log(`🔍 Checking phone number info for: ${normalizedNumber}`);
+
+          const phoneInfoResponse = await axios.get(
+            `${this.baseUrl}/${normalizedNumber}`,
+            {
+              headers: {
+                Authorization: `Bearer ${this.accessToken}`,
+                "Content-Type": "application/json",
+              },
+              timeout: 10000,
+            }
+          );
+
+          if (phoneInfoResponse.data && phoneInfoResponse.data.verified_name) {
+            console.log(`✅ Phone number info found for: ${normalizedNumber}`);
+            return {
+              isValid: true,
+              isWhatsAppValid: true,
+              error: null,
+              normalizedNumber: normalizedNumber,
+              validationType: "whatsapp_phone_info",
+              note: "Verified via WhatsApp phone info lookup",
+            };
+          }
+        } catch (phoneInfoError) {
+          // Check for specific WhatsApp API errors that indicate invalid number
+          if (phoneInfoError.response?.data?.error) {
+            const errorCode = phoneInfoError.response.data.error.code;
+            const errorMessage = phoneInfoError.response.data.error.message;
+
+            // Common error codes for numbers not on WhatsApp
+            if (
+              errorCode === 131056 || // Number is not a WhatsApp number
+              errorCode === 131051 || // Invalid phone number
+              errorCode === 131052 || // Phone number not registered
+              errorCode === 100 || // Invalid parameter
+              errorMessage.includes("not a WhatsApp user") ||
+              errorMessage.includes("phone number is not registered") ||
+              errorMessage.includes("Invalid phone number")
+            ) {
+              console.log(`❌ Number not on WhatsApp: ${normalizedNumber}`);
+              return {
+                isValid: false,
+                isWhatsAppValid: false,
+                error:
+                  "This phone number is not registered on WhatsApp. Please provide a valid WhatsApp number.",
+                normalizedNumber: normalizedNumber,
+                validationType: "whatsapp_lookup_failed",
+              };
+            }
+
+            // Rate limiting - allow through with warning
+            if (
+              errorCode === 4 ||
+              errorCode === 10 ||
+              errorCode === 613 ||
+              errorCode === 80007
+            ) {
+              console.warn(
+                `⚠️ WhatsApp API rate limited for: ${normalizedNumber}`
+              );
+              return {
+                isValid: true,
+                isWhatsAppValid: null,
+                error: null,
+                normalizedNumber: normalizedNumber,
+                validationType: "format_fallback",
+                note: "WhatsApp API temporarily unavailable, validated format only",
+              };
+            }
+          }
+
+          console.log(`ℹ️ Phone info lookup failed: ${phoneInfoError.message}`);
+        }
+      }
+
+      // 🔍 METHOD 3: Try sending a welcome message as final validation
+      if (this.enableMessageValidation) {
+        try {
+          console.log(
+            `📨 Attempting welcome message validation for: ${normalizedNumber}`
+          );
+
+          const messageResponse = await axios.post(
+            `${this.baseUrl}/messages`,
+            {
+              messaging_product: "whatsapp",
+              to: normalizedNumber,
+              type: "text",
+              text: {
+                body: "Welcome to IUEA family! We are happy to see your interest.",
+              },
+            },
+            {
+              headers: {
+                Authorization: `Bearer ${this.accessToken}`,
+                "Content-Type": "application/json",
+              },
+              timeout: 5000,
+            }
+          );
+
+          if (messageResponse.data && messageResponse.data.messages) {
+            console.log(
+              `✅ Welcome message sent successfully to: ${normalizedNumber}`
+            );
+            return {
+              isValid: true,
+              isWhatsAppValid: true,
+              error: null,
+              normalizedNumber: normalizedNumber,
+              validationType: "welcome_message_sent",
+              note: "Verified via welcome message",
+            };
+          }
+        } catch (messageError) {
+          if (messageError.response?.data?.error) {
+            const errorCode = messageError.response.data.error.code;
+            const errorMessage = messageError.response.data.error.message || "";
+
+            // Check for "not on WhatsApp" specific errors
+            if (
+              errorCode === 131026 || // Recipient is not a valid WhatsApp user
+              errorCode === 131047 || // Re-engagement required (user hasn't interacted in 24h)
+              errorCode === 131051 || // Unsupported WhatsApp recipient
+              errorCode === 131052 || // Media download error
+              errorCode === 131053 || // Media upload error
+              errorCode === 132015 || // Customer has not initiated conversation
+              errorMessage.toLowerCase().includes("not a whatsapp user") ||
+              errorMessage.toLowerCase().includes("invalid whatsapp number") ||
+              errorMessage.toLowerCase().includes("phone number not found")
+            ) {
+              console.log(
+                `❌ Number not on WhatsApp (via message test): ${normalizedNumber}`
+              );
+              return {
+                isValid: false,
+                isWhatsAppValid: false,
+                error:
+                  "This phone number is not registered on WhatsApp. Please provide a valid WhatsApp number.",
+                normalizedNumber: normalizedNumber,
+                validationType: "message_validation_failed",
+              };
+            }
+
+            // Rate limiting - still accept the number
+            if (
+              errorCode === 4 ||
+              errorCode === 10 ||
+              errorCode === 613 ||
+              errorCode === 80007 ||
+              errorCode === 131031 // Message rate limit hit
+            ) {
+              console.warn(`⚠️ WhatsApp API rate limited during message test`);
+              return {
+                isValid: true,
+                isWhatsAppValid: null,
+                error: null,
+                normalizedNumber: normalizedNumber,
+                validationType: "format_fallback",
+                note: "Rate limited - accepted based on format",
+              };
+            }
+          }
+
+          console.log(
+            `ℹ️ Welcome message failed but not definitive: ${messageError.message}`
+          );
+          if (messageError.response?.data) {
+            console.log(
+              `   Error details:`,
+              JSON.stringify(messageError.response.data, null, 2)
+            );
+          }
+        }
+      }
+
+      // If all methods failed without explicit "not on WhatsApp" errors,
       // fall back to format validation (number might be valid but API issues)
       console.log(`⚠️ WhatsApp lookup inconclusive for: ${normalizedNumber}`);
       return {
@@ -281,8 +382,8 @@ class WhatsAppValidationService {
   }
 
   /**
-   * 🚀 MAIN VALIDATION METHOD - NO MESSAGES SENT
-   * Uses WhatsApp Business API lookup endpoints only
+   * 🚀 MAIN VALIDATION METHOD
+   * Tries multiple validation methods including a welcome message as last resort
    */
   async validateNumber(phoneNumber) {
     try {

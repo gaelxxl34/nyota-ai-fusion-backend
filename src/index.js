@@ -11,7 +11,7 @@ async function initializeFirebase() {
     // Check if Firebase is already initialized
     if (getApps().length === 0) {
       console.log("Loading Firebase credentials from serviceAccountKey.json");
-      const serviceAccount = require("./serviceAccountKey.json");
+      const serviceAccount = require("../serviceAccountKey.json");
 
       initializeApp({
         credential: cert(serviceAccount),
@@ -71,19 +71,28 @@ function startServer() {
   // Import and set up routes
   app.use("/api/auth", require("./routes/auth.routes"));
 
-  // Webhook routes
+  // Super Admin routes (Super Admin only)
   try {
-    const webhookRoutes = require("./routes/webhook.routes");
-    app.use("/api/webhook", webhookRoutes);
-    console.log("✅ Webhook routes loaded");
+    const superAdminRoutes = require("./routes/super-admin.routes");
+    app.use("/api/super-admin", superAdminRoutes);
+    console.log("✅ Super Admin routes loaded");
   } catch (error) {
-    console.warn("❌ Webhook routes not loaded:", error.message);
+    console.warn("❌ Super Admin routes not loaded:", error.message);
+  }
+
+  // Admin routes (Admin role)
+  try {
+    const adminRoutes = require("./routes/admin.routes");
+    app.use("/api/admin", adminRoutes);
+    console.log("✅ Admin routes loaded");
+  } catch (error) {
+    console.warn("❌ Admin routes not loaded:", error.message);
   }
 
   // Enhanced webhook routes
   try {
     const enhancedWebhookRoutes = require("./routes/enhanced-webhook.routes");
-    app.use("/api/enhanced-webhook", enhancedWebhookRoutes);
+    app.use("/api/webhook", enhancedWebhookRoutes);
     console.log("✅ Enhanced webhook routes loaded");
   } catch (error) {
     console.warn("❌ Enhanced webhook routes not loaded:", error.message);
@@ -130,41 +139,11 @@ function startServer() {
     console.warn("❌ Application routes not loaded:", error.message);
   }
 
-  // Organization routes for organization admins
-  try {
-    const organizationRoutes = require("./routes/organization.routes");
-    app.use("/api/organization", organizationRoutes);
-  } catch (error) {
-    console.warn("Organization routes not loaded:", error.message);
-  }
+  // Team routes have been moved to admin routes
+  // Organization-specific routes have been removed since IUEA is single-org
 
-  // Admin organization routes for system admins
-  try {
-    const adminOrganizationRoutes = require("./routes/admin-organizations.routes");
-    app.use("/api/organizations", adminOrganizationRoutes);
-  } catch (error) {
-    console.warn("Admin organization routes not loaded:", error.message);
-  }
-
-  // Team routes - fix the path
-  app.use("/api/teams", require("./routes/team.routes"));
-
-  // Webhook routes - Legacy
-  try {
-    const webhookRoutes = require("./routes/webhook.routes");
-    app.use("/api/legacy-webhook", webhookRoutes);
-  } catch (error) {
-    console.warn("Legacy webhook routes not loaded:", error.message);
-  }
-
-  // Enhanced Webhook routes
-  try {
-    const enhancedWebhookRoutes = require("./routes/enhanced-webhook.routes");
-    app.use("/api/webhook", enhancedWebhookRoutes);
-    console.log("✅ Enhanced webhook routes loaded successfully");
-  } catch (error) {
-    console.error("❌ Enhanced webhook routes not loaded:", error.message);
-  }
+  // Team routes
+  app.use("/api/team", require("./routes/team.routes"));
 
   // WhatsApp routes
   try {
@@ -173,9 +152,6 @@ function startServer() {
   } catch (error) {
     console.warn("WhatsApp routes not loaded:", error.message);
   }
-
-  // Add team route for organization path
-  app.use("/organization/team", require("./routes/team.routes"));
 
   // Health check endpoint
   app.get("/health", (req, res) => {
