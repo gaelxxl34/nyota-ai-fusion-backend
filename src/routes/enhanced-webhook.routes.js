@@ -46,7 +46,7 @@ const validateWhatsAppNumber = async (
   // Basic length validation
   if (normalizedPhone.length < 10 || normalizedPhone.length > 15) {
     const errorMessage =
-      "Invalid phone number. Please enter a valid international phone number (10-15 digits).";
+      "Failed: Invalid phone number format. Please enter a valid international WhatsApp number (10-15 digits).";
 
     if (isElementorForm) {
       return {
@@ -58,6 +58,9 @@ const validateWhatsAppNumber = async (
             message: errorMessage,
             data: {
               message: errorMessage,
+              errors: {
+                phone: errorMessage,
+              },
             },
           },
         },
@@ -130,7 +133,7 @@ const validateWhatsAppNumber = async (
       logger.error(`WhatsApp validation failed: ${validationResult.error}`);
 
       const errorMessage =
-        "The phone number provided is not registered on WhatsApp. Please provide a valid WhatsApp number.";
+        "Failed: Please provide a valid WhatsApp number. The number you entered is not registered on WhatsApp.";
 
       if (isElementorForm) {
         return {
@@ -142,6 +145,9 @@ const validateWhatsAppNumber = async (
               message: errorMessage,
               data: {
                 message: errorMessage,
+                errors: {
+                  phone: errorMessage,
+                },
               },
             },
           },
@@ -184,7 +190,7 @@ const validateWhatsAppNumber = async (
     logger.error("WhatsApp validation error:", validationError);
 
     const errorMessage =
-      "Unable to verify WhatsApp number. Please ensure the number is correct and try again.";
+      "Failed: Unable to verify WhatsApp number. Please ensure the number is correct and registered on WhatsApp.";
 
     if (isElementorForm) {
       return {
@@ -196,6 +202,9 @@ const validateWhatsAppNumber = async (
             message: errorMessage,
             data: {
               message: errorMessage,
+              errors: {
+                phone: errorMessage,
+              },
             },
           },
         },
@@ -246,6 +255,9 @@ router.post("/wordpress", validateWebhookSource, async (req, res) => {
         message: "Email is required. Please provide a valid email address.",
         data: {
           message: "Email is required. Please provide a valid email address.",
+          errors: {
+            email: "Email is required. Please provide a valid email address.",
+          },
         },
       });
     }
@@ -265,6 +277,9 @@ router.post("/wordpress", validateWebhookSource, async (req, res) => {
 
       // If validation failed, return the error response
       if (!validation.isValid) {
+        logger.error(
+          `WhatsApp validation failed for ${phone} - Aborting lead creation`
+        );
         return res
           .status(validation.errorResponse.status)
           .json(validation.errorResponse.body);
@@ -409,15 +424,15 @@ router.post("/wordpress", validateWebhookSource, async (req, res) => {
 
     // Return user-friendly error message in Elementor format
     let userMessage =
-      "We're having trouble processing your submission. Please try again.";
+      "Failed: We're having trouble processing your submission. Please try again.";
 
     // Check for specific error types
     if (error.message && error.message.includes("validation")) {
       userMessage =
-        "Phone number validation failed. Please check your WhatsApp number and try again.";
+        "Failed: Phone number validation failed. Please provide a valid WhatsApp number.";
     } else if (error.message && error.message.includes("Firebase")) {
       userMessage =
-        "System temporarily unavailable. Please try again in a moment.";
+        "Failed: System temporarily unavailable. Please try again in a moment.";
     }
 
     // Elementor expects 200 status with success: false for errors
