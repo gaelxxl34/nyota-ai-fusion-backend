@@ -23,8 +23,11 @@ const validateWebhookSource = (req, res, next) => {
   next();
 };
 
+// Store pending validations - this will hold promises that resolve when webhook responds
+const pendingValidations = new Map();
+
 /**
- * Validates WhatsApp number by actually testing it
+ * Validates WhatsApp number by sending a test message and waiting for webhook response
  * @param {string} phone - The phone number to validate
  * @param {string} name - The name of the person (for personalized message)
  * @param {string} source - The source of the webhook (wordpress, google_ads, meta_ads)
@@ -130,7 +133,7 @@ const validateWhatsAppNumber = async (
   const testMessage = `Hello ${name}! This is a verification message to confirm your WhatsApp number. We will contact you soon regarding your inquiry.`;
 
   try {
-    // Test the WhatsApp number by sending a message
+    // Send the validation message
     const validationResult = await whatsappMessageService.sendMessage(
       normalizedPhone,
       testMessage,
@@ -142,27 +145,100 @@ const validateWhatsAppNumber = async (
     );
 
     logger.debug(
-      `WhatsApp validation result for ${normalizedPhone}:`,
+      `WhatsApp validation message sent for ${normalizedPhone}:`,
       validationResult
     );
 
     if (!validationResult.success) {
-      // Check if it's an invalid number (not on WhatsApp)
-      const isInvalidNumber =
-        validationResult.error &&
-        (validationResult.error.includes("131026") || // Message undeliverable
-          validationResult.error.includes("131051") || // Invalid/Unsupported recipient
-          validationResult.error.includes("not registered on WhatsApp") ||
-          validationResult.error.includes("Message undeliverable") ||
-          validationResult.error.includes("invalid number"));
+      // If sending failed immediately, it's definitely invalid
+      const errorMessage =
+        "Please provide a valid WhatsApp number. The number you entered is not registered on WhatsApp.";
 
-      // Check if it's a 24-hour window error (valid number but can't send messages)
+      logger.error(
+        `WhatsApp validation failed immediately for ${normalizedPhone}: ${validationResult.error}`
+      );
+
+      if (isElementorForm) {
+        return {
+          isValid: false,
+          errorResponse: {
+            status: 200,
+            body: {
+              success: false,
+              message: errorMessage,
+              data: {
+                message: errorMessage,
+                errors: {
+                  phone: errorMessage,
+                },
+              },
+            },
+          },
+        };
+      }
+
+      return {
+        isValid: false,
+        errorResponse: {
+          status: 400,
+          body: {
+            success: false,
+            error: errorMessage,
+          },
+        },
+      };
+    }
+
+    // Message was queued successfully, now wait for webhook response
+    const messageId =
+      validationResult.messageId || validationResult.whatsappMessageId;
+    logger.debug(
+      `Waiting for webhook response for message ${messageId} to ${normalizedPhone}`
+    );
+
+    // Create a promise that will resolve when the webhook responds
+    const validationPromise = new Promise((resolve, reject) => {
+      const timeoutId = setTimeout(() => {
+        pendingValidations.delete(messageId);
+        reject(new Error("Validation timeout - webhook response not received"));
+      }, 15000); // 15 second timeout
+
+      pendingValidations.set(messageId, {
+        resolve,
+        reject,
+        timeoutId,
+        phone: normalizedPhone,
+      });
+    });
+
+    // Wait for the webhook to respond
+    const webhookResult = await validationPromise;
+
+    if (webhookResult.success) {
+      // Message was delivered successfully
+      logger.debug(`WhatsApp validation successful for ${normalizedPhone}`);
+      return {
+        isValid: true,
+        normalizedPhone,
+        is24HourRestricted: false,
+        validationResult: webhookResult,
+      };
+    } else {
+      // Check the error type from webhook
+      const isInvalidNumber =
+        webhookResult.error &&
+        (webhookResult.error.includes("131026") || // Message undeliverable
+          webhookResult.error.includes("131051") || // Invalid/Unsupported recipient
+          webhookResult.error.includes("not registered on WhatsApp") ||
+          webhookResult.error.includes("Message undeliverable") ||
+          webhookResult.error.includes("invalid number"));
+
       const is24HourError =
-        validationResult.error &&
-        (validationResult.error.includes("24 hour") ||
-          validationResult.error.includes("outside the allowed window") ||
-          validationResult.error.includes("template message") ||
-          validationResult.error.includes("131047"));
+        webhookResult.error &&
+        (webhookResult.error.includes("24 hour") ||
+          webhookResult.error.includes("outside the allowed window") ||
+          webhookResult.error.includes("template message") ||
+          webhookResult.error.includes("131047"));
 
       if (isInvalidNumber) {
         // This is an invalid WhatsApp number - don't create lead
@@ -170,7 +246,7 @@ const validateWhatsAppNumber = async (
           "Please provide a valid WhatsApp number. The number you entered is not registered on WhatsApp.";
 
         logger.error(
-          `WhatsApp validation failed for ${normalizedPhone}: Invalid number`
+          `WhatsApp validation failed for ${normalizedPhone}: Invalid number (${webhookResult.error})`
         );
 
         if (isElementorForm) {
@@ -211,7 +287,7 @@ const validateWhatsAppNumber = async (
           isValid: true,
           normalizedPhone,
           is24HourRestricted: true,
-          validationResult,
+          validationResult: webhookResult,
         };
       } else {
         // Some other error - treat as invalid to be safe
@@ -219,7 +295,7 @@ const validateWhatsAppNumber = async (
           "Unable to verify WhatsApp number. Please ensure the number is correct and registered on WhatsApp.";
 
         logger.error(
-          `WhatsApp validation failed for ${normalizedPhone}: ${validationResult.error}`
+          `WhatsApp validation failed for ${normalizedPhone}: ${webhookResult.error}`
         );
 
         if (isElementorForm) {
@@ -253,15 +329,6 @@ const validateWhatsAppNumber = async (
         };
       }
     }
-
-    // Validation successful - number is valid
-    logger.debug(`WhatsApp validation successful for ${normalizedPhone}`);
-    return {
-      isValid: true,
-      normalizedPhone,
-      is24HourRestricted: false,
-      validationResult,
-    };
   } catch (validationError) {
     logger.error(
       `WhatsApp validation error for ${normalizedPhone}:`,
@@ -472,30 +539,7 @@ router.post("/wordpress", validateWebhookSource, async (req, res) => {
         statusNote += " (WhatsApp number verified but has 24-hour restriction)";
       } else {
         statusNote += " (WhatsApp number verified and validation message sent)";
-
-        // Send additional welcome message only for new leads (validation message was already sent)
-        if (actionTaken === "created_new_lead") {
-          const welcomeMessage = `Welcome to IUEA! 🎓\n\nWe've received your inquiry and our admissions team will contact you soon to discuss your educational journey.\n\nAre you interested in any specific program? Feel free to let us know!\n\nBest regards,\nIUEA Admissions Team`;
-
-          // Send follow-up welcome message after a delay
-          setTimeout(() => {
-            whatsappMessageService
-              .sendMessage(validatedPhone, welcomeMessage, "text", {
-                source: "wordpress_webhook_followup",
-                leadId: leadId.id || leadId,
-                messageType: "welcome",
-              })
-              .then((result) => {
-                logger.debug(
-                  `Follow-up welcome message sent to ${validatedPhone}:`,
-                  result
-                );
-              })
-              .catch((error) => {
-                logger.error("Error sending follow-up welcome message:", error);
-              });
-          }, 5000); // 5 second delay for follow-up
-        }
+        // Note: No additional welcome message needed - validation message serves as initial contact
       }
     } else if (!phone) {
       statusNote += " (No phone number provided - email-only lead)";
@@ -714,38 +758,7 @@ router.post("/google-ads", validateWebhookSource, async (req, res) => {
         statusNote += " (WhatsApp number verified but has 24-hour restriction)";
       } else {
         statusNote += " (WhatsApp number verified and validation message sent)";
-
-        // Send additional welcome message only for new leads (validation message was already sent)
-        if (actionTaken === "created_new_lead") {
-          const welcomeMessage = `Welcome to IUEA! 🎓\n\n${
-            programInterested
-              ? `We see you're interested in: ${programInterested}\n\n`
-              : ""
-          }Thank you for your interest through our Google Ad. Our admissions team will contact you soon.\n\nFeel free to ask any questions!\n\nBest regards,\nIUEA Admissions Team`;
-
-          // Send follow-up welcome message after a delay
-          setTimeout(() => {
-            whatsappMessageService
-              .sendMessage(validatedPhone, welcomeMessage, "text", {
-                source: "google_ads_webhook_followup",
-                leadId: leadId.id || leadId,
-                messageType: "welcome",
-                program: programInterested,
-              })
-              .then((result) => {
-                logger.debug(
-                  `Google Ads follow-up welcome message sent to ${validatedPhone}:`,
-                  result
-                );
-              })
-              .catch((error) => {
-                logger.error(
-                  "Error sending Google Ads follow-up welcome message:",
-                  error
-                );
-              });
-          }, 5000); // 5 second delay for follow-up
-        }
+        // Note: No additional welcome message needed - validation message serves as initial contact
       }
     } else if (!phone) {
       statusNote += " (No phone number provided - email-only lead)";
@@ -1458,45 +1471,7 @@ router.post("/meta-ads", validateWebhookSource, async (req, res) => {
         statusNote += " (WhatsApp number verified but has 24-hour restriction)";
       } else {
         statusNote += " (WhatsApp number verified and validation message sent)";
-
-        // Send additional welcome message only for new leads OR new phone numbers (validation message was already sent)
-        const shouldSendFollowup =
-          actionTaken === "created_new_lead" ||
-          (actionTaken === "updated_existing_lead" &&
-            statusNote.includes("New phone number added"));
-
-        if (shouldSendFollowup) {
-          const welcomeMessage = `Welcome! 🎓\n\n${
-            program
-              ? `We've noted your interest in the ${program} program.`
-              : "Our team will help you find the right program for you."
-          }\n\nWe've received your inquiry through Facebook/Instagram and our admissions team will contact you soon.\n\nBest regards,\nAdmissions Team`;
-
-          // Send follow-up welcome message after a delay
-          setTimeout(() => {
-            whatsappMessageService
-              .sendMessage(validatedPhone, welcomeMessage, "text", {
-                source: "meta_ads_webhook_followup",
-                leadId: leadId.id || leadId,
-                messageType:
-                  actionTaken === "created_new_lead"
-                    ? "welcome"
-                    : "new_number_welcome",
-              })
-              .then((result) => {
-                logger.debug(
-                  `Meta Ads follow-up welcome message sent to ${validatedPhone}:`,
-                  result
-                );
-              })
-              .catch((error) => {
-                logger.error(
-                  "Error sending Meta Ads follow-up welcome message:",
-                  error
-                );
-              });
-          }, 5000); // 5 second delay for follow-up
-        }
+        // Note: No additional welcome message needed - validation message serves as initial contact
       }
     } else if (!phone) {
       statusNote += " (No phone number provided - email-only lead)";
@@ -1526,6 +1501,8 @@ router.post("/meta-ads", validateWebhookSource, async (req, res) => {
   }
 });
 
-// Validation status endpoint removed - no longer needed with simplified approach
-
-module.exports = router;
+// Export both the router and the pendingValidations for use by WhatsApp webhook
+module.exports = {
+  router,
+  pendingValidations,
+};

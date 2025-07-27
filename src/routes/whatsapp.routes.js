@@ -135,6 +135,63 @@ async function processIncomingMessage(message, metadata) {
 async function processMessageStatus(status) {
   try {
     await whatsappMessageService.processMessageStatus(status);
+
+    // Also check for pending validations from enhanced webhook routes
+    const messageId = status.id;
+    const messageStatus = status.status; // sent, delivered, read, failed
+    const errors = status.errors || [];
+
+    // Import pendingValidations from enhanced webhook routes
+    try {
+      const { pendingValidations } = require("./enhanced-webhook.routes");
+
+      // Check if this message ID has a pending validation
+      if (pendingValidations && pendingValidations.has(messageId)) {
+        const validation = pendingValidations.get(messageId);
+
+        // Clear the timeout
+        clearTimeout(validation.timeoutId);
+
+        // Remove from pending validations
+        pendingValidations.delete(messageId);
+
+        if (messageStatus === "failed") {
+          // Message failed - resolve with error details
+          const errorInfo =
+            errors.length > 0 ? errors[0] : { message: "Unknown error" };
+          const errorMessage = `${errorInfo.code}: ${errorInfo.message} (${
+            errorInfo.error_data?.details || "Unknown details"
+          })`;
+
+          console.log(
+            `📞 Validation failed for ${validation.phone}: ${errorMessage}`
+          );
+
+          validation.resolve({
+            success: false,
+            error: errorMessage,
+            code: errorInfo.code,
+          });
+        } else if (messageStatus === "sent" || messageStatus === "delivered") {
+          // Message was sent/delivered successfully
+          console.log(
+            `📞 Validation successful for ${validation.phone}: ${messageStatus}`
+          );
+
+          validation.resolve({
+            success: true,
+            status: messageStatus,
+          });
+        }
+        // For other statuses (read, etc.), we don't need to do anything
+      }
+    } catch (importError) {
+      // Enhanced webhook routes might not be available - ignore this error
+      console.debug(
+        "Enhanced webhook validation not available:",
+        importError.message
+      );
+    }
   } catch (error) {
     console.error("❌ Error processing message status:", error);
   }

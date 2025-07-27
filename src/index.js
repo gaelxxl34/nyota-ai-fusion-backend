@@ -91,7 +91,9 @@ function startServer() {
 
   // Enhanced webhook routes
   try {
-    const enhancedWebhookRoutes = require("./routes/enhanced-webhook.routes");
+    const {
+      router: enhancedWebhookRoutes,
+    } = require("./routes/enhanced-webhook.routes");
     app.use("/api/webhook", enhancedWebhookRoutes);
     console.log("✅ Enhanced webhook routes loaded");
   } catch (error) {
