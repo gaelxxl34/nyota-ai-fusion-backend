@@ -381,10 +381,22 @@ class ConversationService {
         (errorMessage.includes("24 hour") ||
           errorMessage.includes("outside the allowed window") ||
           errorMessage.includes("template message") ||
-          errorMessage.includes("131026")) // WhatsApp error code for 24-hour window
+          errorMessage.includes("131047")) // WhatsApp error code for 24-hour window
       ) {
         console.log(
           "📍 24-hour window policy error detected. Number is valid but can't send free-form message."
+        );
+      }
+
+      // Log specific error details for invalid number errors
+      if (
+        errorMessage &&
+        (errorMessage.includes("131026") || // Message undeliverable - not on WhatsApp
+          errorMessage.includes("131051") || // Invalid/Unsupported recipient
+          errorMessage.includes("Message undeliverable"))
+      ) {
+        console.log(
+          "❌ Invalid WhatsApp number detected. Number is not registered on WhatsApp."
         );
       }
 
