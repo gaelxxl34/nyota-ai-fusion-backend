@@ -168,17 +168,7 @@ function startServer() {
       `📡 Webhook endpoint: http://172.16.117.123:${port}/api/webhook/receive`
     );
 
-    // Start background job to process validation timeouts
-    const validationQueueService = require("./services/validationQueueService");
-
-    // Process timeouts every 10 seconds
-    setInterval(async () => {
-      try {
-        await validationQueueService.processTimeouts();
-      } catch (error) {
-        console.error("Error processing validation timeouts:", error);
-      }
-    }, 10000); // 10 seconds
+    // Validation queue service removed - no longer needed // 10 seconds
 
     console.log(
       "⏱️ Started validation timeout processor (runs every 10 seconds)"

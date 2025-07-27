@@ -368,13 +368,29 @@ class ConversationService {
         data: response.data,
       };
     } catch (error) {
+      const errorMessage =
+        error.response?.data?.error?.message || error.message;
       console.error(
         "❌ WhatsApp API Error:",
         error.response?.data || error.message
       );
+
+      // Log specific error details for 24-hour window errors
+      if (
+        errorMessage &&
+        (errorMessage.includes("24 hour") ||
+          errorMessage.includes("outside the allowed window") ||
+          errorMessage.includes("template message") ||
+          errorMessage.includes("131026")) // WhatsApp error code for 24-hour window
+      ) {
+        console.log(
+          "📍 24-hour window policy error detected. Number is valid but can't send free-form message."
+        );
+      }
+
       return {
         success: false,
-        error: error.response?.data?.error?.message || error.message,
+        error: errorMessage,
       };
     }
   }

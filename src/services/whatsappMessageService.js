@@ -354,6 +354,7 @@ class WhatsAppMessageService {
 
   /**
    * Update lead validation status based on message delivery status
+   * @deprecated - No longer needed with simplified validation approach
    */
   async updateLeadValidationStatus(
     phoneNumber,
@@ -361,51 +362,11 @@ class WhatsAppMessageService {
     isValid,
     errorCode = null
   ) {
-    try {
-      // First, check validation queue
-      const validationQueueService = require("./validationQueueService");
-      const status = isValid ? "VALID" : "FAILED";
-
-      const queueResult = await validationQueueService.updateValidationStatus(
-        phoneNumber,
-        messageId,
-        status,
-        errorCode
-      );
-
-      if (queueResult) {
-        console.log(`📱 Updated validation queue status to: ${status}`);
-        return;
-      }
-
-      // If not in queue, check for existing lead (backward compatibility)
-      const LeadService = require("./leadService");
-      const leadService = new LeadService(this.db);
-
-      // Find lead by phone number
-      const lead = await leadService.findLeadByPhone(phoneNumber);
-
-      if (lead && lead.whatsappValidationMessageId === messageId) {
-        const updateData = {
-          whatsappValidationStatus: isValid ? "VALID" : "INVALID",
-          whatsappValidated: isValid,
-          whatsappValidationDate: admin.firestore.FieldValue.serverTimestamp(),
-        };
-
-        if (!isValid && errorCode) {
-          updateData.whatsappValidationError = `Error ${errorCode}: Number not on WhatsApp`;
-        }
-
-        await leadService.updateLead(lead.id, updateData);
-        console.log(
-          `📱 Updated lead ${lead.id} WhatsApp validation status to: ${
-            isValid ? "VALID" : "INVALID"
-          }`
-        );
-      }
-    } catch (error) {
-      console.error("❌ Error updating lead validation status:", error);
-    }
+    // Validation queue removed - this function is no longer used
+    console.log(
+      "updateLeadValidationStatus called but skipped - validation queue removed"
+    );
+    return;
   }
 
   /**
