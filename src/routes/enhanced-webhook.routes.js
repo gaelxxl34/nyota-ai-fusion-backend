@@ -476,7 +476,12 @@ router.post("/wordpress", validateWebhookSource, async (req, res) => {
       // If validation failed, return the error response immediately - NO LEAD CREATION
       if (!validation.isValid) {
         logger.error(
-          `WhatsApp validation failed for ${phone} - ABORTING lead creation`
+          `WhatsApp validation failed for ${phone} - ABORTING lead creation`,
+          validation.errorResponse.body
+        );
+        logger.info(
+          `WordPress webhook ERROR response for ${phone}:`,
+          validation.errorResponse.body
         );
         return res
           .status(validation.errorResponse.status)
@@ -584,13 +589,19 @@ router.post("/wordpress", validateWebhookSource, async (req, res) => {
       statusNote += " (No phone number provided - email-only lead)";
     }
 
-    res.status(200).json({
+    const successResponse = {
       success: true,
       message: "WordPress webhook processed successfully",
       leadId: leadId?.id || leadId,
       actionTaken,
       statusNote,
-    });
+    };
+
+    logger.info(
+      `WordPress webhook SUCCESS response for ${phone}:`,
+      successResponse
+    );
+    res.status(200).json(successResponse);
   } catch (error) {
     logger.error("Error processing WordPress webhook:", error);
 
