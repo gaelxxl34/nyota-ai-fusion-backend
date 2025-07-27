@@ -275,7 +275,7 @@ const validateWhatsAppNumber = async (
           return {
             isValid: false,
             errorResponse: {
-              status: 200,
+              status: 400, // Changed to 400 to trigger Elementor error handling
               body: {
                 success: false,
                 message: errorMessage,
@@ -283,8 +283,17 @@ const validateWhatsAppNumber = async (
                   message: errorMessage,
                   errors: {
                     phone: errorMessage,
+                    "Phone Number": errorMessage, // Include exact field name from form
+                  },
+                  // Add additional formats that Elementor might expect
+                  invalid_fields: {
+                    phone: errorMessage,
+                    "Phone Number": errorMessage,
                   },
                 },
+                // Alternative format for Elementor compatibility
+                error: true,
+                error_message: errorMessage,
               },
             },
           };
@@ -421,6 +430,41 @@ const validateWhatsAppNumber = async (
 };
 
 /**
+ * Test endpoint to understand Elementor's expectations
+ * This endpoint will help debug the exact format Elementor needs
+ */
+router.post("/wordpress-test", async (req, res) => {
+  logger.info("WordPress TEST endpoint hit with data:", req.body);
+  logger.info("Request headers:", req.headers);
+
+  // Test different response formats
+  const testCase = req.body.test_case || "error";
+
+  if (testCase === "error") {
+    // Test error response
+    logger.info("Sending TEST error response");
+    return res.status(400).json({
+      success: false,
+      message: "TEST: This is a test error message",
+      data: {
+        message: "TEST: This is a test error message",
+        errors: {
+          phone: "TEST: Invalid phone number",
+          "Phone Number": "TEST: Invalid phone number",
+        },
+      },
+    });
+  } else {
+    // Test success response
+    logger.info("Sending TEST success response");
+    return res.status(200).json({
+      success: true,
+      message: "TEST: Form submitted successfully",
+    });
+  }
+});
+
+/**
  * Process WordPress website inquiries
  * This handles form submissions from the WordPress website
  * Expected fields: firstname, lastname, email, phone, message
@@ -445,14 +489,15 @@ router.post("/wordpress", validateWebhookSource, async (req, res) => {
 
     // Validate required fields
     if (!email) {
-      // Elementor expects 200 status with success: false for form validation errors
-      return res.status(200).json({
+      // Try 422 status (Unprocessable Entity) which is standard for validation errors
+      return res.status(422).json({
         success: false,
         message: "Email is required. Please provide a valid email address.",
         data: {
           message: "Email is required. Please provide a valid email address.",
           errors: {
             email: "Email is required. Please provide a valid email address.",
+            Email: "Email is required. Please provide a valid email address.", // Include exact field name
           },
         },
       });
@@ -483,9 +528,29 @@ router.post("/wordpress", validateWebhookSource, async (req, res) => {
           `WordPress webhook ERROR response for ${phone}:`,
           validation.errorResponse.body
         );
-        return res
+
+        // Set explicit headers for Elementor
+        res.setHeader("Content-Type", "application/json");
+        res.setHeader("X-Validation-Failed", "true");
+
+        // Log the exact response being sent
+        logger.info(
+          `Sending validation error response with status ${validation.errorResponse.status}:`,
+          JSON.stringify(validation.errorResponse.body, null, 2)
+        );
+
+        // Add debugging to understand what Elementor receives
+        logger.debug(`Response headers:`, res.getHeaders());
+
+        // Send the response
+        const response = res
           .status(validation.errorResponse.status)
           .json(validation.errorResponse.body);
+
+        // Log that response was sent
+        logger.info(`Response sent to Elementor form for failed validation`);
+
+        return response;
       }
 
       // If we get here, the WhatsApp number is valid
@@ -618,13 +683,16 @@ router.post("/wordpress", validateWebhookSource, async (req, res) => {
         "Failed: System temporarily unavailable. Please try again in a moment.";
     }
 
-    // Elementor expects 200 status with success: false for errors
-    res.status(200).json({
+    // Use 400 status for errors to ensure Elementor recognizes the failure
+    res.status(400).json({
       success: false,
       message: userMessage,
       data: {
         message: userMessage,
       },
+      // Add alternative error format
+      error: true,
+      error_message: userMessage,
     });
   }
 });
