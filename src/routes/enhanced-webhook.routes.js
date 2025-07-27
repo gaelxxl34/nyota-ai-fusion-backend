@@ -6,6 +6,7 @@ const WebhookForwarder = require("../services/webhookForwarder");
 const LeadService = require("../services/leadService");
 const whatsappMessageService = require("../services/whatsappMessageService");
 const ApplicationService = require("../services/applicationService");
+const logger = require("../utils/logger");
 
 // Protection middleware
 const validateWebhookSource = (req, res, next) => {
@@ -23,6 +24,198 @@ const validateWebhookSource = (req, res, next) => {
 };
 
 /**
+ * Centralized WhatsApp validation function
+ * @param {string} phone - The phone number to validate
+ * @param {string} name - The name of the person (for personalized message)
+ * @param {string} source - The source of the webhook (wordpress, google_ads, meta_ads)
+ * @param {boolean} isElementorForm - Whether this is from an Elementor form
+ * @returns {Object} Validation result with success status and appropriate error response
+ */
+const validateWhatsAppNumber = async (
+  phone,
+  name,
+  source,
+  isElementorForm = false
+) => {
+  // Normalize the phone number - remove + and non-digits
+  const normalizedPhone = phone
+    .toString()
+    .replace(/^\+/, "")
+    .replace(/\D/g, "");
+
+  // Basic length validation
+  if (normalizedPhone.length < 10 || normalizedPhone.length > 15) {
+    const errorMessage =
+      "Invalid phone number. Please enter a valid international phone number (10-15 digits).";
+
+    if (isElementorForm) {
+      return {
+        isValid: false,
+        errorResponse: {
+          status: 200,
+          body: {
+            success: false,
+            message: errorMessage,
+            data: {
+              message: errorMessage,
+            },
+          },
+        },
+      };
+    }
+
+    return {
+      isValid: false,
+      errorResponse: {
+        status: 400,
+        body: {
+          success: false,
+          error: errorMessage,
+        },
+      },
+    };
+  }
+
+  logger.debug(`Phone normalized: ${normalizedPhone} (source: ${source})`);
+  logger.debug(`Testing WhatsApp number: ${normalizedPhone}`);
+
+  // Wait 2 seconds before testing to avoid rate limits
+  await new Promise((resolve) => setTimeout(resolve, 2000));
+
+  // Customize test message based on source
+  let testMessage;
+  switch (source) {
+    case "wordpress":
+      testMessage = `Hello ${name}! 👋\n\nThank you for your interest in IUEA. We're processing your inquiry.\n\nThis is a verification message to confirm your WhatsApp number.`;
+      break;
+    case "google_ads":
+      testMessage = `Hello ${name}! 👋\n\nThank you for your interest in IUEA through our Google Ad. We're processing your inquiry.\n\nThis is a verification message to confirm your WhatsApp number.`;
+      break;
+    case "meta_ads":
+      testMessage = `Hello ${name}! 👋\n\nThank you for your interest in our programs through Facebook/Instagram. We're processing your inquiry.\n\nThis is a verification message to confirm your WhatsApp number.`;
+      break;
+    default:
+      testMessage = `Hello ${name}! 👋\n\nThank you for your interest. We're processing your inquiry.\n\nThis is a verification message to confirm your WhatsApp number.`;
+  }
+
+  try {
+    const validationResult = await whatsappMessageService.sendMessage(
+      normalizedPhone,
+      testMessage,
+      "text",
+      {
+        source: `${source}_webhook_validation`,
+        messageType: "validation",
+      }
+    );
+
+    // Check if it's a 24-hour window error (which means number is valid but can't receive messages)
+    const is24HourError =
+      validationResult?.error &&
+      (validationResult.error.includes("24 hour") ||
+        validationResult.error.includes("outside the allowed window") ||
+        validationResult.error.includes("template message") ||
+        validationResult.error.includes("131047")); // WhatsApp error code for 24-hour window
+
+    // Check for invalid number errors
+    const isInvalidNumber =
+      validationResult?.error &&
+      (validationResult.error.includes("131026") || // Not a valid WhatsApp user
+        validationResult.error.includes("131051") || // Invalid/Unsupported recipient
+        validationResult.error.includes("not registered on WhatsApp") ||
+        validationResult.error.includes("invalid number"));
+
+    if (!validationResult.success && !is24HourError) {
+      // Real error - number not on WhatsApp
+      logger.error(`WhatsApp validation failed: ${validationResult.error}`);
+
+      const errorMessage =
+        "The phone number provided is not registered on WhatsApp. Please provide a valid WhatsApp number.";
+
+      if (isElementorForm) {
+        return {
+          isValid: false,
+          errorResponse: {
+            status: 200,
+            body: {
+              success: false,
+              message: errorMessage,
+              data: {
+                message: errorMessage,
+              },
+            },
+          },
+        };
+      }
+
+      return {
+        isValid: false,
+        errorResponse: {
+          status: 400,
+          body: {
+            success: false,
+            error: errorMessage,
+            details: validationResult.error,
+          },
+        },
+      };
+    }
+
+    if (is24HourError) {
+      logger.debug(
+        `WhatsApp number valid but can't send due to 24-hour policy`
+      );
+      return {
+        isValid: true,
+        normalizedPhone,
+        is24HourRestricted: true,
+        validationResult,
+      };
+    }
+
+    logger.debug(`WhatsApp validation successful`);
+    return {
+      isValid: true,
+      normalizedPhone,
+      is24HourRestricted: false,
+      validationResult,
+    };
+  } catch (validationError) {
+    logger.error("WhatsApp validation error:", validationError);
+
+    const errorMessage =
+      "Unable to verify WhatsApp number. Please ensure the number is correct and try again.";
+
+    if (isElementorForm) {
+      return {
+        isValid: false,
+        errorResponse: {
+          status: 200,
+          body: {
+            success: false,
+            message: errorMessage,
+            data: {
+              message: errorMessage,
+            },
+          },
+        },
+      };
+    }
+
+    return {
+      isValid: false,
+      errorResponse: {
+        status: 400,
+        body: {
+          success: false,
+          error: errorMessage,
+        },
+      },
+    };
+  }
+};
+
+/**
  * Process WordPress website inquiries
  * This handles form submissions from the WordPress website
  * Expected fields: firstname, lastname, email, phone, message
@@ -30,10 +223,7 @@ const validateWebhookSource = (req, res, next) => {
 router.post("/wordpress", validateWebhookSource, async (req, res) => {
   try {
     const formData = req.body;
-    console.log(
-      "📨 WordPress webhook received:",
-      JSON.stringify(formData, null, 2)
-    );
+    logger.webhook("WordPress", formData);
 
     // Extract data using exact field names provided by developer
     // Handle both lowercase and capitalized field names from Elementor
@@ -50,88 +240,39 @@ router.post("/wordpress", validateWebhookSource, async (req, res) => {
 
     // Validate required fields
     if (!email) {
-      return res.status(400).json({
+      // Elementor expects 200 status with success: false for form validation errors
+      return res.status(200).json({
         success: false,
-        error: "Email is required",
+        message: "Email is required. Please provide a valid email address.",
+        data: {
+          message: "Email is required. Please provide a valid email address.",
+        },
       });
     }
 
-    // Simple phone number formatting without complex validation
+    // WhatsApp validation if phone is provided
     let validatedPhone = null;
     let whatsappValidationResult = null;
 
     if (phone && phone.trim()) {
-      // Just normalize the phone number - remove + and non-digits
-      validatedPhone = phone.toString().replace(/^\+/, "").replace(/\D/g, "");
+      // Use centralized validation function
+      const validation = await validateWhatsAppNumber(
+        phone,
+        name,
+        "wordpress",
+        true
+      );
 
-      // Basic length check
-      if (validatedPhone.length < 10 || validatedPhone.length > 15) {
-        return res.status(400).json({
-          success: false,
-          error:
-            "Invalid phone number length. Please provide a valid international phone number.",
-        });
+      // If validation failed, return the error response
+      if (!validation.isValid) {
+        return res
+          .status(validation.errorResponse.status)
+          .json(validation.errorResponse.body);
       }
 
-      console.log(`📱 WordPress phone normalized: ${validatedPhone}`);
-
-      // Test WhatsApp number BEFORE creating lead
-      console.log(`🔍 Testing WhatsApp number: ${validatedPhone}`);
-
-      // Wait 2 seconds before testing
-      await new Promise((resolve) => setTimeout(resolve, 2000));
-
-      // Test message to validate number
-      const testMessage = `Hello ${name}! 👋\n\nThank you for your interest in IUEA. We're processing your inquiry.\n\nThis is a verification message to confirm your WhatsApp number.`;
-
-      try {
-        whatsappValidationResult = await whatsappMessageService.sendMessage(
-          validatedPhone,
-          testMessage,
-          "text",
-          {
-            source: "wordpress_webhook_validation",
-            messageType: "validation",
-          }
-        );
-
-        // Check if it's a 24-hour window error (which means number is valid)
-        const is24HourError =
-          whatsappValidationResult?.error &&
-          (whatsappValidationResult.error.includes("24 hour") ||
-            whatsappValidationResult.error.includes(
-              "outside the allowed window"
-            ) ||
-            whatsappValidationResult.error.includes("template message"));
-
-        if (!whatsappValidationResult.success && !is24HourError) {
-          // Real error - number not on WhatsApp
-          console.error(
-            `❌ WhatsApp validation failed: ${whatsappValidationResult.error}`
-          );
-          return res.status(400).json({
-            success: false,
-            error:
-              "The provided phone number is not registered on WhatsApp. Please provide a valid WhatsApp number.",
-            details: whatsappValidationResult.error,
-          });
-        }
-
-        if (is24HourError) {
-          console.log(
-            `✅ WhatsApp number valid but can't send due to 24-hour policy`
-          );
-        } else {
-          console.log(`✅ WhatsApp validation successful`);
-        }
-      } catch (validationError) {
-        console.error("❌ WhatsApp validation error:", validationError);
-        return res.status(400).json({
-          success: false,
-          error:
-            "Unable to verify WhatsApp number. Please ensure the number is correct and has WhatsApp installed.",
-        });
-      }
+      // If we get here, the number is either valid or has 24-hour restriction
+      validatedPhone = validation.normalizedPhone;
+      whatsappValidationResult = validation.validationResult;
     }
 
     // If we get here, validation was successful or not required
@@ -146,13 +287,13 @@ router.post("/wordpress", validateWebhookSource, async (req, res) => {
 
     // First check by phone number if available
     if (phone && phone.trim()) {
-      console.log(`🔍 Checking for existing lead with phone: ${phone}`);
+      logger.debug(`Checking for existing lead with phone: ${phone}`);
       existingLead = await leadService.findLeadByPhone(phone);
     }
 
     // If no lead found by phone, check by email
     if (!existingLead && email) {
-      console.log(`🔍 Checking for existing lead with email: ${email}`);
+      logger.debug(`Checking for existing lead with email: ${email}`);
       existingLead = await leadService.findLeadByEmail(email);
     }
 
@@ -161,8 +302,8 @@ router.post("/wordpress", validateWebhookSource, async (req, res) => {
 
     if (existingLead) {
       // Update existing lead with WordPress inquiry information
-      console.log(
-        `♻️ Updating existing lead ${existingLead.id} with WordPress inquiry data`
+      logger.info(
+        `Updating existing lead ${existingLead.id} with WordPress inquiry data`
       );
 
       // Use the existing lead ID
@@ -209,17 +350,16 @@ router.post("/wordpress", validateWebhookSource, async (req, res) => {
     }
 
     // Update WhatsApp status based on validation result
-    if (phone && phone.trim() && whatsappValidationResult) {
-      // We already validated the number, so just update the lead status
-      const is24HourError =
-        whatsappValidationResult?.error &&
-        (whatsappValidationResult.error.includes("24 hour") ||
-          whatsappValidationResult.error.includes(
-            "outside the allowed window"
-          ) ||
-          whatsappValidationResult.error.includes("template message"));
+    if (phone && phone.trim() && validatedPhone) {
+      // Get validation result from our centralized validation
+      const validation = await validateWhatsAppNumber(
+        phone,
+        name,
+        "wordpress",
+        true
+      );
 
-      if (is24HourError) {
+      if (validation.is24HourRestricted) {
         await leadService.updateLead(leadId.id || leadId, {
           lastWhatsAppStatus: "VALID_24HR_LIMIT",
           lastWhatsAppContact: admin.firestore.FieldValue.serverTimestamp(),
@@ -227,7 +367,7 @@ router.post("/wordpress", validateWebhookSource, async (req, res) => {
         });
         statusNote +=
           " (WhatsApp number verified but can't send messages due to 24-hour policy)";
-      } else if (whatsappValidationResult.success) {
+      } else if (validation.isValid && !validation.is24HourRestricted) {
         await leadService.updateLead(leadId.id || leadId, {
           lastWhatsAppStatus: "SUCCESS",
           lastWhatsAppContact: admin.firestore.FieldValue.serverTimestamp(),
@@ -242,13 +382,13 @@ router.post("/wordpress", validateWebhookSource, async (req, res) => {
           // Send asynchronously - don't wait
           setTimeout(() => {
             whatsappMessageService
-              .sendMessage(validatedPhone || phone, welcomeMessage, "text", {
+              .sendMessage(validatedPhone, welcomeMessage, "text", {
                 source: "wordpress_webhook_followup",
                 leadId: leadId.id || leadId,
                 messageType: "welcome",
               })
               .catch((error) => {
-                console.error("❌ Error sending follow-up message:", error);
+                logger.error("Error sending follow-up message:", error);
               });
           }, 5000); // 5 second delay for follow-up
         }
@@ -265,31 +405,28 @@ router.post("/wordpress", validateWebhookSource, async (req, res) => {
       statusNote,
     });
   } catch (error) {
-    console.error("❌ Error processing WordPress webhook:", error);
-    console.error("Stack trace:", error.stack);
+    logger.error("Error processing WordPress webhook:", error);
 
-    // Return user-friendly error message
+    // Return user-friendly error message in Elementor format
     let userMessage =
       "We're having trouble processing your submission. Please try again.";
-    let errorCode = "GENERAL_ERROR";
 
     // Check for specific error types
     if (error.message && error.message.includes("validation")) {
       userMessage =
         "Phone number validation failed. Please check your WhatsApp number and try again.";
-      errorCode = "VALIDATION_ERROR";
     } else if (error.message && error.message.includes("Firebase")) {
       userMessage =
         "System temporarily unavailable. Please try again in a moment.";
-      errorCode = "SYSTEM_ERROR";
     }
 
-    res.status(500).json({
+    // Elementor expects 200 status with success: false for errors
+    res.status(200).json({
       success: false,
-      error: userMessage,
-      errorCode: errorCode,
-      details:
-        process.env.NODE_ENV === "development" ? error.message : undefined,
+      message: userMessage,
+      data: {
+        message: userMessage,
+      },
     });
   }
 });
@@ -301,10 +438,7 @@ router.post("/wordpress", validateWebhookSource, async (req, res) => {
 router.post("/google-ads", validateWebhookSource, async (req, res) => {
   try {
     const formData = req.body;
-    console.log(
-      "📨 Google Ads webhook received:",
-      JSON.stringify(formData, null, 2)
-    );
+    logger.webhook("Google Ads", formData);
 
     // Extract data using direct field names (like WordPress webhook)
     const firstName = formData.firstname || formData.first_name;
@@ -321,88 +455,39 @@ router.post("/google-ads", validateWebhookSource, async (req, res) => {
 
     // Validate required fields
     if (!email) {
-      return res.status(400).json({
+      // Elementor expects 200 status with success: false for form validation errors
+      return res.status(200).json({
         success: false,
-        error: "Email is required",
+        message: "Email is required. Please provide a valid email address.",
+        data: {
+          message: "Email is required. Please provide a valid email address.",
+        },
       });
     }
 
-    // Simple phone number formatting without complex validation
+    // WhatsApp validation if phone is provided
     let validatedPhone = null;
     let whatsappValidationResult = null;
 
     if (phone && phone.trim()) {
-      // Just normalize the phone number - remove + and non-digits
-      validatedPhone = phone.toString().replace(/^\+/, "").replace(/\D/g, "");
+      // Use centralized validation function
+      const validation = await validateWhatsAppNumber(
+        phone,
+        name,
+        "google_ads",
+        true
+      );
 
-      // Basic length check
-      if (validatedPhone.length < 10 || validatedPhone.length > 15) {
-        return res.status(400).json({
-          success: false,
-          error:
-            "Invalid phone number length. Please provide a valid international phone number.",
-        });
+      // If validation failed, return the error response
+      if (!validation.isValid) {
+        return res
+          .status(validation.errorResponse.status)
+          .json(validation.errorResponse.body);
       }
 
-      console.log(`📱 Google Ads phone normalized: ${validatedPhone}`);
-
-      // Test WhatsApp number BEFORE creating lead
-      console.log(`🔍 Testing WhatsApp number: ${validatedPhone}`);
-
-      // Wait 2 seconds before testing
-      await new Promise((resolve) => setTimeout(resolve, 2000));
-
-      // Test message to validate number
-      const testMessage = `Hello ${name}! 👋\n\nThank you for your interest in IUEA through our Google Ad. We're processing your inquiry.\n\nThis is a verification message to confirm your WhatsApp number.`;
-
-      try {
-        whatsappValidationResult = await whatsappMessageService.sendMessage(
-          validatedPhone,
-          testMessage,
-          "text",
-          {
-            source: "google_ads_webhook_validation",
-            messageType: "validation",
-          }
-        );
-
-        // Check if it's a 24-hour window error (which means number is valid)
-        const is24HourError =
-          whatsappValidationResult?.error &&
-          (whatsappValidationResult.error.includes("24 hour") ||
-            whatsappValidationResult.error.includes(
-              "outside the allowed window"
-            ) ||
-            whatsappValidationResult.error.includes("template message"));
-
-        if (!whatsappValidationResult.success && !is24HourError) {
-          // Real error - number not on WhatsApp
-          console.error(
-            `❌ WhatsApp validation failed: ${whatsappValidationResult.error}`
-          );
-          return res.status(400).json({
-            success: false,
-            error:
-              "The provided phone number is not registered on WhatsApp. Please provide a valid WhatsApp number.",
-            details: whatsappValidationResult.error,
-          });
-        }
-
-        if (is24HourError) {
-          console.log(
-            `✅ WhatsApp number valid but can't send due to 24-hour policy`
-          );
-        } else {
-          console.log(`✅ WhatsApp validation successful`);
-        }
-      } catch (validationError) {
-        console.error("❌ WhatsApp validation error:", validationError);
-        return res.status(400).json({
-          success: false,
-          error:
-            "Unable to verify WhatsApp number. Please ensure the number is correct and has WhatsApp installed.",
-        });
-      }
+      // If we get here, the number is either valid or has 24-hour restriction
+      validatedPhone = validation.normalizedPhone;
+      whatsappValidationResult = validation.validationResult;
     }
 
     // Initialize services
@@ -415,13 +500,13 @@ router.post("/google-ads", validateWebhookSource, async (req, res) => {
 
     // First check by phone number
     if (phone && phone.trim()) {
-      console.log(`🔍 Checking for existing lead with phone: ${phone}`);
+      logger.debug(`Checking for existing lead with phone: ${phone}`);
       existingLead = await leadService.findLeadByPhone(phone);
     }
 
     // If no lead found by phone, check by email
     if (!existingLead && email) {
-      console.log(`🔍 Checking for existing lead with email: ${email}`);
+      logger.debug(`Checking for existing lead with email: ${email}`);
       existingLead = await leadService.findLeadByEmail(email);
     }
 
@@ -430,8 +515,8 @@ router.post("/google-ads", validateWebhookSource, async (req, res) => {
 
     if (existingLead) {
       // Update existing lead with Google Ads information
-      console.log(
-        `♻️ Updating existing lead ${existingLead.id} with Google Ads data`
+      logger.info(
+        `Updating existing lead ${existingLead.id} with Google Ads data`
       );
 
       // Update the lead with Google Ads info (using a simpler approach)
@@ -467,7 +552,7 @@ router.post("/google-ads", validateWebhookSource, async (req, res) => {
       }) with Google Ads inquiry`;
     } else {
       // Create new lead
-      console.log(`🆕 Creating new lead for Google Ads inquiry`);
+      logger.info(`Creating new lead for Google Ads inquiry`);
 
       const leadData = {
         firstName,
@@ -494,17 +579,16 @@ router.post("/google-ads", validateWebhookSource, async (req, res) => {
     }
 
     // Update WhatsApp status based on validation result
-    if (phone && phone.trim() && whatsappValidationResult) {
-      // We already validated the number, so just update the lead status
-      const is24HourError =
-        whatsappValidationResult?.error &&
-        (whatsappValidationResult.error.includes("24 hour") ||
-          whatsappValidationResult.error.includes(
-            "outside the allowed window"
-          ) ||
-          whatsappValidationResult.error.includes("template message"));
+    if (phone && phone.trim() && validatedPhone) {
+      // Get validation result from our centralized validation
+      const validation = await validateWhatsAppNumber(
+        phone,
+        name,
+        "google_ads",
+        true
+      );
 
-      if (is24HourError) {
+      if (validation.is24HourRestricted) {
         await leadService.updateLead(leadId.id || leadId, {
           lastWhatsAppStatus: "VALID_24HR_LIMIT",
           lastWhatsAppContact: admin.firestore.FieldValue.serverTimestamp(),
@@ -512,7 +596,7 @@ router.post("/google-ads", validateWebhookSource, async (req, res) => {
         });
         statusNote +=
           " (WhatsApp number verified but can't send messages due to 24-hour policy)";
-      } else if (whatsappValidationResult.success) {
+      } else if (validation.isValid && !validation.is24HourRestricted) {
         await leadService.updateLead(leadId.id || leadId, {
           lastWhatsAppStatus: "SUCCESS",
           lastWhatsAppContact: admin.firestore.FieldValue.serverTimestamp(),
@@ -531,14 +615,14 @@ router.post("/google-ads", validateWebhookSource, async (req, res) => {
           // Send asynchronously - don't wait
           setTimeout(() => {
             whatsappMessageService
-              .sendMessage(validatedPhone || phone, welcomeMessage, "text", {
+              .sendMessage(validatedPhone, welcomeMessage, "text", {
                 source: "google_ads_webhook_followup",
                 leadId: leadId.id || leadId,
                 messageType: "welcome",
                 program: programInterested,
               })
               .catch((error) => {
-                console.error("❌ Error sending follow-up message:", error);
+                logger.error("Error sending follow-up message:", error);
               });
           }, 5000); // 5 second delay for follow-up
         }
@@ -562,11 +646,28 @@ router.post("/google-ads", validateWebhookSource, async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("❌ Error processing Google Ads webhook:", error);
-    res.status(500).json({
+    logger.error("Error processing Google Ads webhook:", error);
+
+    // Return user-friendly error message in Elementor format
+    let userMessage =
+      "We're having trouble processing your submission. Please try again.";
+
+    // Check for specific error types
+    if (error.message && error.message.includes("validation")) {
+      userMessage =
+        "Phone number validation failed. Please check your WhatsApp number and try again.";
+    } else if (error.message && error.message.includes("Firebase")) {
+      userMessage =
+        "System temporarily unavailable. Please try again in a moment.";
+    }
+
+    // Elementor expects 200 status with success: false for errors
+    res.status(200).json({
       success: false,
-      error: "Failed to process Google Ads webhook",
-      details: error.message,
+      message: userMessage,
+      data: {
+        message: userMessage,
+      },
     });
   }
 });
@@ -579,10 +680,7 @@ router.post("/google-ads", validateWebhookSource, async (req, res) => {
 router.post("/application-form", validateWebhookSource, async (req, res) => {
   try {
     const formData = req.body;
-    console.log(
-      "📨 Application form webhook received:",
-      JSON.stringify(formData, null, 2)
-    );
+    logger.webhook("Application Form", formData);
 
     // Extract only the 10 specific application fields we need
     const firstName = formData["First Name"];
@@ -601,28 +699,37 @@ router.post("/application-form", validateWebhookSource, async (req, res) => {
 
     // Validate required fields
     if (!email) {
-      return res.status(400).json({
+      // Elementor expects 200 status with success: false for form validation errors
+      return res.status(200).json({
         success: false,
-        error: "Email is required",
+        message: "Email is required. Please provide a valid email address.",
+        data: {
+          message: "Email is required. Please provide a valid email address.",
+        },
       });
     }
 
-    // Simple phone number formatting without complex validation
+    // WhatsApp validation if phone is provided (Application form doesn't strictly require WhatsApp validation)
     let validatedPhone = null;
     if (phone && phone.trim()) {
-      // Just normalize the phone number - remove + and non-digits
-      validatedPhone = phone.toString().replace(/^\+/, "").replace(/\D/g, "");
+      // Use centralized validation function but only for formatting, not blocking
+      const validation = await validateWhatsAppNumber(
+        phone,
+        name,
+        "application",
+        true
+      );
 
-      // Basic length check
-      if (validatedPhone.length < 10 || validatedPhone.length > 15) {
-        return res.status(400).json({
-          success: false,
-          error:
-            "Invalid phone number length. Please provide a valid international phone number.",
-        });
+      // For application form, we don't block on WhatsApp validation
+      // Just use the normalized phone number
+      if (validation.normalizedPhone) {
+        validatedPhone = validation.normalizedPhone;
+      } else {
+        // If validation failed, still normalize the phone for storage
+        validatedPhone = phone.toString().replace(/^\+/, "").replace(/\D/g, "");
       }
 
-      console.log(`📱 Application form phone normalized: ${validatedPhone}`);
+      logger.debug(`Application form phone normalized: ${validatedPhone}`);
     }
 
     // Initialize services
@@ -732,8 +839,8 @@ router.post("/application-form", validateWebhookSource, async (req, res) => {
         }
 
         // Default fallback - if no match found, use the first available program
-        console.warn(
-          `⚠️ Unknown program "${value}", defaulting to bachelor_information_technology`
+        logger.warn(
+          `Unknown program "${value}", defaulting to bachelor_information_technology`
         );
         return "bachelor_information_technology";
       };
@@ -761,10 +868,7 @@ router.post("/application-form", validateWebhookSource, async (req, res) => {
         },
       };
 
-      console.log(
-        "🔄 Normalized application data:",
-        JSON.stringify(applicationData, null, 2)
-      );
+      logger.debug("Normalized application data:", applicationData);
 
       const result = await applicationService.submitApplication(
         applicationData
@@ -794,15 +898,19 @@ router.post("/application-form", validateWebhookSource, async (req, res) => {
         statusNote += " (No phone number provided for WhatsApp confirmation)";
       }
 
-      console.log(
-        `📋 Application processed: ${result.application.id}, Lead: ${result.lead?.id}`
+      logger.info(
+        `Application processed: ${result.application.id}, Lead: ${result.lead?.id}`
       );
     } catch (submitError) {
-      console.error("❌ Error submitting application:", submitError);
-      return res.status(500).json({
+      logger.error("Error submitting application:", submitError);
+
+      // Elementor expects 200 status with success: false for errors
+      return res.status(200).json({
         success: false,
-        error: "Failed to submit application",
-        details: submitError.message,
+        message: "Failed to submit application. Please try again.",
+        data: {
+          message: "Failed to submit application. Please try again.",
+        },
       });
     }
 
@@ -827,11 +935,28 @@ router.post("/application-form", validateWebhookSource, async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("❌ Error processing application form webhook:", error);
-    res.status(500).json({
+    logger.error("Error processing application form webhook:", error);
+
+    // Return user-friendly error message in Elementor format
+    let userMessage =
+      "We're having trouble processing your application. Please try again.";
+
+    // Check for specific error types
+    if (error.message && error.message.includes("validation")) {
+      userMessage =
+        "Application validation failed. Please check your information and try again.";
+    } else if (error.message && error.message.includes("Firebase")) {
+      userMessage =
+        "System temporarily unavailable. Please try again in a moment.";
+    }
+
+    // Elementor expects 200 status with success: false for errors
+    res.status(200).json({
       success: false,
-      error: "Failed to process application form webhook",
-      details: error.message,
+      message: userMessage,
+      data: {
+        message: userMessage,
+      },
     });
   }
 });
@@ -840,10 +965,7 @@ router.post("/application-form", validateWebhookSource, async (req, res) => {
 router.post("/receive", async (req, res) => {
   try {
     const formData = req.body;
-    console.log(
-      "📨 Generic webhook received:",
-      JSON.stringify(formData, null, 2)
-    );
+    logger.webhook("Generic", formData);
 
     // Attempt to detect the source based on payload structure
     let detectedSource = "unknown";
@@ -915,7 +1037,7 @@ router.post("/receive", async (req, res) => {
         });
       }
 
-      console.log(`📱 Generic webhook phone normalized: ${validatedPhone}`);
+      logger.debug(`Generic webhook phone normalized: ${validatedPhone}`);
     }
 
     // Initialize services
@@ -943,7 +1065,7 @@ router.post("/receive", async (req, res) => {
           name
         );
       } catch (whatsappError) {
-        console.error("❌ Failed to send WhatsApp message:", whatsappError);
+        logger.error("Failed to send WhatsApp message:", whatsappError);
       }
     }
 
@@ -953,7 +1075,7 @@ router.post("/receive", async (req, res) => {
       leadId,
     });
   } catch (error) {
-    console.error("❌ Error processing generic webhook:", error);
+    logger.error("Error processing generic webhook:", error);
     res.status(500).json({
       success: false,
       error: "Failed to process generic webhook",
@@ -969,10 +1091,7 @@ router.post("/receive", async (req, res) => {
 router.post("/meta-ads", validateWebhookSource, async (req, res) => {
   try {
     const formData = req.body;
-    console.log(
-      "📨 Meta Ads webhook received:",
-      JSON.stringify(formData, null, 2)
-    );
+    logger.webhook("Meta Ads", formData);
 
     // Extract data using exact field names from Meta Ads lead forms
     const firstName = formData.first_name || formData.firstname || "";
@@ -993,84 +1112,29 @@ router.post("/meta-ads", validateWebhookSource, async (req, res) => {
       });
     }
 
-    // Simple phone number formatting without complex validation
+    // WhatsApp validation if phone is provided
     let validatedPhone = null;
     let whatsappValidationResult = null;
 
     if (phone && phone.trim()) {
-      // Just normalize the phone number - remove + and non-digits
-      validatedPhone = phone.toString().replace(/^\+/, "").replace(/\D/g, "");
+      // Use centralized validation function (Meta Ads is not on Elementor, so isElementorForm = false)
+      const validation = await validateWhatsAppNumber(
+        phone,
+        firstName || name,
+        "meta_ads",
+        false
+      );
 
-      // Basic length check
-      if (validatedPhone.length < 10 || validatedPhone.length > 15) {
-        return res.status(400).json({
-          success: false,
-          error:
-            "Invalid phone number length. Please provide a valid international phone number.",
-        });
+      // If validation failed, return the error response
+      if (!validation.isValid) {
+        return res
+          .status(validation.errorResponse.status)
+          .json(validation.errorResponse.body);
       }
 
-      console.log(`📱 Meta Ads phone normalized: ${validatedPhone}`);
-
-      // Test WhatsApp number BEFORE creating lead
-      console.log(`🔍 Testing WhatsApp number: ${validatedPhone}`);
-
-      // Wait 2 seconds before testing
-      await new Promise((resolve) => setTimeout(resolve, 2000));
-
-      // Test message to validate number
-      const testMessage = `Hello ${
-        firstName || "there"
-      }! 👋\n\nThank you for your interest in our programs through Facebook/Instagram. We're processing your inquiry.\n\nThis is a verification message to confirm your WhatsApp number.`;
-
-      try {
-        whatsappValidationResult = await whatsappMessageService.sendMessage(
-          validatedPhone,
-          testMessage,
-          "text",
-          {
-            source: "meta_ads_webhook_validation",
-            messageType: "validation",
-          }
-        );
-
-        // Check if it's a 24-hour window error (which means number is valid)
-        const is24HourError =
-          whatsappValidationResult?.error &&
-          (whatsappValidationResult.error.includes("24 hour") ||
-            whatsappValidationResult.error.includes(
-              "outside the allowed window"
-            ) ||
-            whatsappValidationResult.error.includes("template message"));
-
-        if (!whatsappValidationResult.success && !is24HourError) {
-          // Real error - number not on WhatsApp
-          console.error(
-            `❌ WhatsApp validation failed: ${whatsappValidationResult.error}`
-          );
-          return res.status(400).json({
-            success: false,
-            error:
-              "The provided phone number is not registered on WhatsApp. Please provide a valid WhatsApp number.",
-            details: whatsappValidationResult.error,
-          });
-        }
-
-        if (is24HourError) {
-          console.log(
-            `✅ WhatsApp number valid but can't send due to 24-hour policy`
-          );
-        } else {
-          console.log(`✅ WhatsApp validation successful`);
-        }
-      } catch (validationError) {
-        console.error("❌ WhatsApp validation error:", validationError);
-        return res.status(400).json({
-          success: false,
-          error:
-            "Unable to verify WhatsApp number. Please ensure the number is correct and has WhatsApp installed.",
-        });
-      }
+      // If we get here, the number is either valid or has 24-hour restriction
+      validatedPhone = validation.normalizedPhone;
+      whatsappValidationResult = validation.validationResult;
     }
 
     // Initialize services
@@ -1083,13 +1147,13 @@ router.post("/meta-ads", validateWebhookSource, async (req, res) => {
 
     // First check by phone number
     if (phone && phone.trim()) {
-      console.log(`🔍 Checking for existing lead with phone: ${phone}`);
+      logger.debug(`Checking for existing lead with phone: ${phone}`);
       existingLead = await leadService.findLeadByPhone(phone);
     }
 
     // If no lead found by phone, check by email
     if (!existingLead && email) {
-      console.log(`🔍 Checking for existing lead with email: ${email}`);
+      logger.debug(`Checking for existing lead with email: ${email}`);
       existingLead = await leadService.findLeadByEmail(email);
     }
 
@@ -1098,8 +1162,8 @@ router.post("/meta-ads", validateWebhookSource, async (req, res) => {
 
     if (existingLead) {
       // Update existing lead with Meta Ads information
-      console.log(
-        `♻️ Updating existing lead ${existingLead.id} with Meta Ads data`
+      logger.info(
+        `Updating existing lead ${existingLead.id} with Meta Ads data`
       );
 
       // Update the lead with Meta Ads info
@@ -1117,7 +1181,7 @@ router.post("/meta-ads", validateWebhookSource, async (req, res) => {
 
         if (!existingPhones.includes(phone)) {
           hasNewPhoneNumber = true;
-          console.log(`📱 Adding new phone number ${phone} to existing lead`);
+          logger.debug(`Adding new phone number ${phone} to existing lead`);
 
           // Update lead with additional phone number
           try {
@@ -1137,8 +1201,8 @@ router.post("/meta-ads", validateWebhookSource, async (req, res) => {
               });
             }
           } catch (updateError) {
-            console.error(
-              "❌ Failed to update lead with new phone number:",
+            logger.error(
+              "Failed to update lead with new phone number:",
               updateError
             );
           }
@@ -1157,7 +1221,7 @@ router.post("/meta-ads", validateWebhookSource, async (req, res) => {
 
         if (!existingEmails.includes(email)) {
           hasNewEmail = true;
-          console.log(`📧 Adding new email ${email} to existing lead`);
+          logger.debug(`Adding new email ${email} to existing lead`);
 
           // Update lead with additional email
           try {
@@ -1177,10 +1241,7 @@ router.post("/meta-ads", validateWebhookSource, async (req, res) => {
               });
             }
           } catch (updateError) {
-            console.error(
-              "❌ Failed to update lead with new email:",
-              updateError
-            );
+            logger.error("Failed to update lead with new email:", updateError);
           }
         }
       }
@@ -1220,7 +1281,7 @@ router.post("/meta-ads", validateWebhookSource, async (req, res) => {
       }
     } else {
       // Create new lead record with Meta Ads source
-      console.log(`🆕 Creating new lead for Meta Ads inquiry`);
+      logger.info(`Creating new lead for Meta Ads inquiry`);
 
       const leadData = {
         firstName,
@@ -1243,17 +1304,16 @@ router.post("/meta-ads", validateWebhookSource, async (req, res) => {
     }
 
     // Update WhatsApp status based on validation result
-    if (phone && phone.trim() && whatsappValidationResult) {
-      // We already validated the number, so just update the lead status
-      const is24HourError =
-        whatsappValidationResult?.error &&
-        (whatsappValidationResult.error.includes("24 hour") ||
-          whatsappValidationResult.error.includes(
-            "outside the allowed window"
-          ) ||
-          whatsappValidationResult.error.includes("template message"));
+    if (phone && phone.trim() && validatedPhone) {
+      // Get validation result from our centralized validation
+      const validation = await validateWhatsAppNumber(
+        phone,
+        firstName || name,
+        "meta_ads",
+        false
+      );
 
-      if (is24HourError) {
+      if (validation.is24HourRestricted) {
         await leadService.updateLead(leadId.id || leadId, {
           lastWhatsAppStatus: "VALID_24HR_LIMIT",
           lastWhatsAppContact: admin.firestore.FieldValue.serverTimestamp(),
@@ -1261,7 +1321,7 @@ router.post("/meta-ads", validateWebhookSource, async (req, res) => {
         });
         statusNote +=
           " (WhatsApp number verified but can't send messages due to 24-hour policy)";
-      } else if (whatsappValidationResult.success) {
+      } else if (validation.isValid && !validation.is24HourRestricted) {
         await leadService.updateLead(leadId.id || leadId, {
           lastWhatsAppStatus: "SUCCESS",
           lastWhatsAppContact: admin.firestore.FieldValue.serverTimestamp(),
@@ -1285,7 +1345,7 @@ router.post("/meta-ads", validateWebhookSource, async (req, res) => {
           // Send asynchronously - don't wait
           setTimeout(() => {
             whatsappMessageService
-              .sendMessage(validatedPhone || phone, welcomeMessage, "text", {
+              .sendMessage(validatedPhone, welcomeMessage, "text", {
                 source: "meta_ads_webhook_followup",
                 leadId: leadId.id || leadId,
                 messageType:
@@ -1294,7 +1354,7 @@ router.post("/meta-ads", validateWebhookSource, async (req, res) => {
                     : "new_number_welcome",
               })
               .catch((error) => {
-                console.error("❌ Error sending follow-up message:", error);
+                logger.error("Error sending follow-up message:", error);
               });
           }, 5000); // 5 second delay for follow-up
         }
@@ -1319,7 +1379,7 @@ router.post("/meta-ads", validateWebhookSource, async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("❌ Error processing Meta Ads webhook:", error);
+    logger.error("Error processing Meta Ads webhook:", error);
     return res.status(500).json({
       success: false,
       error: "Failed to process Meta Ads webhook",
