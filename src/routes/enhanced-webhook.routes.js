@@ -133,11 +133,10 @@ const validateWhatsAppNumber = async (
   const testMessage = `Hello ${name}! This is a verification message to confirm your WhatsApp number. We will contact you soon regarding your inquiry.`;
 
   try {
-    // Send the validation message
-    const validationResult = await whatsappMessageService.sendMessage(
+    // Send the validation message without creating conversation
+    const validationResult = await whatsappMessageService.sendValidationMessage(
       normalizedPhone,
       testMessage,
-      "text",
       {
         source: `${source}_validation_test`,
         messageType: "validation",
@@ -215,13 +214,37 @@ const validateWhatsAppNumber = async (
     const webhookResult = await validationPromise;
 
     if (webhookResult.success) {
-      // Message was delivered successfully
+      // Message was delivered successfully - now create the conversation
       logger.debug(`WhatsApp validation successful for ${normalizedPhone}`);
+
+      // Create conversation after successful validation
+      const conversationResult =
+        await whatsappMessageService.createConversationAfterValidation(
+          normalizedPhone,
+          testMessage,
+          validationResult.messageId,
+          {
+            contactName: name,
+            source: source,
+          }
+        );
+
+      if (conversationResult.success) {
+        logger.debug(
+          `Conversation created for validated number ${normalizedPhone}: ${conversationResult.conversationId}`
+        );
+      } else {
+        logger.warn(
+          `Failed to create conversation for validated number ${normalizedPhone}: ${conversationResult.error}`
+        );
+      }
+
       return {
         isValid: true,
         normalizedPhone,
         is24HourRestricted: false,
         validationResult: webhookResult,
+        conversationId: conversationResult.conversationId,
       };
     } else {
       // Check the error type from webhook
@@ -279,15 +302,39 @@ const validateWhatsAppNumber = async (
           },
         };
       } else if (is24HourError) {
-        // Number is valid but has 24-hour restriction - this is OK, create lead
+        // Number is valid but has 24-hour restriction - this is OK, create lead and conversation
         logger.debug(
           `WhatsApp number ${normalizedPhone} is valid but has 24-hour restriction`
         );
+
+        // Create conversation even with 24-hour restriction since the number is valid
+        const conversationResult =
+          await whatsappMessageService.createConversationAfterValidation(
+            normalizedPhone,
+            testMessage,
+            validationResult.messageId,
+            {
+              contactName: name,
+              source: source,
+            }
+          );
+
+        if (conversationResult.success) {
+          logger.debug(
+            `Conversation created for 24hr restricted number ${normalizedPhone}: ${conversationResult.conversationId}`
+          );
+        } else {
+          logger.warn(
+            `Failed to create conversation for 24hr restricted number ${normalizedPhone}: ${conversationResult.error}`
+          );
+        }
+
         return {
           isValid: true,
           normalizedPhone,
           is24HourRestricted: true,
           validationResult: webhookResult,
+          conversationId: conversationResult.conversationId,
         };
       } else {
         // Some other error - treat as invalid to be safe

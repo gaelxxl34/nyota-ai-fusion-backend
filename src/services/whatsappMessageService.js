@@ -388,6 +388,46 @@ class WhatsAppMessageService {
       return { success: false, error: error.message };
     }
   }
+
+  /**
+   * Send a WhatsApp validation message without creating conversation
+   * Used for phone number validation - conversation created only after validation succeeds
+   */
+  async sendValidationMessage(phoneNumber, message, metadata = {}) {
+    try {
+      return await this.conversationService.sendValidationMessage(
+        phoneNumber,
+        message
+      );
+    } catch (error) {
+      console.error("❌ Error sending validation message:", error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
+   * Create conversation after successful validation
+   * Should be called only after validation message has been confirmed as delivered
+   */
+  async createConversationAfterValidation(
+    phoneNumber,
+    validationMessage,
+    messageId,
+    metadata = {}
+  ) {
+    try {
+      return await this.conversationService.createConversationWithValidationMessage(
+        phoneNumber,
+        validationMessage,
+        metadata.leadId,
+        metadata.contactName,
+        messageId
+      );
+    } catch (error) {
+      console.error("❌ Error creating conversation after validation:", error);
+      return { success: false, error: error.message };
+    }
+  }
 }
 
 module.exports = new WhatsAppMessageService();

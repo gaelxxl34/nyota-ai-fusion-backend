@@ -408,6 +408,118 @@ class ConversationService {
   }
 
   /**
+   * Send WhatsApp validation message without creating conversation
+   * Used for phone number validation - only creates conversation after validation succeeds
+   */
+  async sendValidationMessage(phoneNumber, message) {
+    try {
+      // Directly send WhatsApp message without creating conversation
+      const whatsappResult = await this.sendWhatsAppMessage(
+        phoneNumber,
+        message
+      );
+
+      if (whatsappResult.success) {
+        console.log(
+          `📤 Sent validation message to ${phoneNumber}: "${message}"`
+        );
+        return {
+          success: true,
+          messageId: whatsappResult.messageId,
+          whatsappMessageId: whatsappResult.whatsappMessageId,
+        };
+      } else {
+        console.log(
+          `❌ WhatsApp validation message failed for ${phoneNumber}: ${whatsappResult.error}`
+        );
+        return {
+          success: false,
+          error: whatsappResult.error,
+        };
+      }
+    } catch (error) {
+      console.error("❌ Error sending validation message:", error);
+      return {
+        success: false,
+        error: error.message,
+      };
+    }
+  }
+
+  /**
+   * Create conversation after successful validation and store the validation message
+   * This should only be called after WhatsApp validation has succeeded
+   */
+  async createConversationWithValidationMessage(
+    phoneNumber,
+    message,
+    leadId = null,
+    contactName = null,
+    messageId = null
+  ) {
+    try {
+      // Create or get conversation now that we know the number is valid
+      const conversationId = await this.createOrGetConversation(
+        phoneNumber,
+        leadId,
+        contactName
+      );
+
+      // Store the validation message that was already sent
+      if (messageId) {
+        const messageDoc = {
+          messageId: messageId,
+          conversationId: conversationId,
+          from: process.env.WHATSAPP_PHONE_NUMBER_ID,
+          to: phoneNumber,
+          content: message,
+          messageType: "text",
+          senderType: "admin", // Validation message is from admin
+          direction: "outgoing",
+          timestamp: new Date(),
+          status: "sent",
+          createdAt: new Date(),
+          isAI: false,
+          automated: true, // Validation messages are automated
+          senderName: "System",
+        };
+
+        await this.db.collection("messages").add(messageDoc);
+
+        // Update conversation with the validation message
+        await this.db
+          .collection("conversations")
+          .doc(conversationId)
+          .update({
+            lastMessage: message,
+            lastMessageTime: new Date(),
+            lastMessageFrom: "agent",
+            updatedAt: new Date(),
+            messageCount: FieldValue.increment(1),
+          });
+
+        console.log(
+          `📝 Stored validation message in conversation ${conversationId} for ${phoneNumber}`
+        );
+      }
+
+      return {
+        success: true,
+        conversationId: conversationId,
+      };
+    } catch (error) {
+      console.error(
+        "❌ Error creating conversation with validation message:",
+        error
+      );
+      return {
+        success: false,
+        error: error.message,
+      };
+    }
+  }
+
+  /**
    * Update message status
    */
   async updateMessageStatus(messageId, status, timestamp) {
