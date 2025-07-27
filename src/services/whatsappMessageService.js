@@ -367,6 +367,23 @@ class WhatsAppMessageService {
     errorCode = null
   ) {
     try {
+      // First, check validation queue
+      const validationQueueService = require("./validationQueueService");
+      const status = isValid ? "VALID" : "FAILED";
+
+      const queueResult = await validationQueueService.updateValidationStatus(
+        phoneNumber,
+        messageId,
+        status,
+        errorCode
+      );
+
+      if (queueResult) {
+        console.log(`📱 Updated validation queue status to: ${status}`);
+        return;
+      }
+
+      // If not in queue, check for existing lead (backward compatibility)
       const LeadService = require("./leadService");
       const leadService = new LeadService(this.db);
 

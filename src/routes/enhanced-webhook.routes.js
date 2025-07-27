@@ -70,24 +70,31 @@ router.post("/wordpress", validateWebhookSource, async (req, res) => {
       try {
         phoneValidationResult = await whatsappValidator.validateNumber(phone);
 
-        // Check if validation shows the number is definitely invalid
-        if (
-          !phoneValidationResult.isValid &&
-          phoneValidationResult.validationType !== "validation_pending"
-        ) {
+        // Check validation result
+        if (!phoneValidationResult.isValid) {
+          // If validation is pending, tell the user to wait
+          if (phoneValidationResult.validationType === "validation_pending") {
+            console.log(
+              `⏳ WordPress phone validation pending for: ${phoneValidationResult.normalizedNumber}`
+            );
+            return res.status(202).json({
+              success: false,
+              error: "WhatsApp validation in progress",
+              message:
+                "We're verifying your WhatsApp number. Please try submitting the form again in a few seconds.",
+              validationStatus: "pending",
+              retryAfter: 5, // seconds
+            });
+          }
+
+          // If validation failed, reject the submission
           return res.status(400).json({
             success: false,
             error: phoneValidationResult.error,
             message:
               "Please check your phone number and provide a valid WhatsApp number.",
+            validationStatus: "failed",
           });
-        }
-
-        // For pending validation, we'll proceed but mark the lead accordingly
-        if (phoneValidationResult.validationType === "validation_pending") {
-          console.log(
-            `⏳ WordPress phone validation pending for: ${phoneValidationResult.normalizedNumber}`
-          );
         }
 
         validatedPhone = phoneValidationResult.normalizedNumber;
@@ -102,6 +109,37 @@ router.post("/wordpress", validateWebhookSource, async (req, res) => {
             "Phone number validation failed. Please provide a valid phone number.",
         });
       }
+    }
+
+    // If validation was successful, proceed with normal flow
+    if (
+      phoneValidationResult &&
+      phoneValidationResult.validationType === "validation_pending"
+    ) {
+      // Create validation queue entry instead of lead
+      const validationQueueService = require("../services/validationQueueService");
+
+      const queueEntry = await validationQueueService.createValidationEntry(
+        {
+          firstName,
+          lastName,
+          name,
+          email,
+          phone,
+          message,
+          source: "WEBSITE",
+        },
+        phoneValidationResult
+      );
+
+      return res.status(202).json({
+        success: true,
+        message: "Form submission received. WhatsApp validation in progress.",
+        validationId: queueEntry.id,
+        validationStatus: "pending",
+        instruction:
+          "Please wait while we verify your WhatsApp number. This usually takes a few seconds.",
+      });
     }
 
     // Initialize services
@@ -1294,5 +1332,100 @@ router.post("/meta-ads", validateWebhookSource, async (req, res) => {
     });
   }
 });
+
+/**
+ * Check WhatsApp validation status
+ * This endpoint should be called after initial validation is triggered
+ */
+router.post(
+  "/check-validation-status",
+  validateWebhookSource,
+  async (req, res) => {
+    try {
+      const { validationId, phone } = req.body;
+
+      if (!validationId && !phone) {
+        return res.status(400).json({
+          success: false,
+          error: "Either validationId or phone number is required",
+        });
+      }
+
+      const validationQueueService = require("../services/validationQueueService");
+
+      // Check validation status
+      let validationStatus;
+      if (validationId) {
+        const doc = await admin
+          .firestore()
+          .collection("whatsapp_validation_queue")
+          .doc(validationId)
+          .get();
+
+        if (!doc.exists) {
+          return res.status(404).json({
+            success: false,
+            error: "Validation not found",
+          });
+        }
+
+        validationStatus = doc.data();
+      } else {
+        validationStatus = await validationQueueService.checkValidationStatus(
+          phone
+        );
+
+        if (!validationStatus) {
+          return res.status(404).json({
+            success: false,
+            error: "No pending validation found for this phone number",
+          });
+        }
+      }
+
+      // Return status based on validation state
+      if (validationStatus.validationStatus === "PENDING") {
+        return res.status(202).json({
+          success: false,
+          status: "pending",
+          message: "WhatsApp validation in progress. Please wait.",
+          retryAfter: 2,
+        });
+      } else if (validationStatus.validationStatus === "VALID") {
+        return res.status(200).json({
+          success: true,
+          status: "validated",
+          message:
+            "WhatsApp number validated successfully! Your inquiry has been submitted.",
+          leadId: validationStatus.leadId,
+          leadCreated: validationStatus.leadCreated,
+        });
+      } else if (validationStatus.validationStatus === "FAILED") {
+        return res.status(400).json({
+          success: false,
+          status: "failed",
+          message:
+            "WhatsApp validation failed. Please ensure you have WhatsApp installed and the number is correct.",
+          error:
+            validationStatus.validationError ||
+            "Number not registered on WhatsApp",
+        });
+      } else if (validationStatus.validationStatus === "TIMEOUT") {
+        return res.status(408).json({
+          success: false,
+          status: "timeout",
+          message:
+            "WhatsApp validation timed out. Please try submitting the form again.",
+        });
+      }
+    } catch (error) {
+      console.error("❌ Error checking validation status:", error);
+      return res.status(500).json({
+        success: false,
+        error: "Failed to check validation status",
+      });
+    }
+  }
+);
 
 module.exports = router;
