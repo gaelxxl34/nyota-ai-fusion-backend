@@ -285,7 +285,7 @@ router.get("/:id", ensureLeadService, async (req, res) => {
 router.put("/:id/status", ensureLeadService, async (req, res) => {
   try {
     const { id } = req.params;
-    const { status, notes, updatedBy } = req.body;
+    const { status, notes, updatedBy, forceUpdate = false } = req.body;
 
     if (!status) {
       return res.status(400).json({ error: "Status is required" });
@@ -299,7 +299,8 @@ router.put("/:id/status", ensureLeadService, async (req, res) => {
       id,
       status,
       notes,
-      updatedBy
+      updatedBy,
+      forceUpdate // Pass the force update flag
     );
 
     res.json({
@@ -389,6 +390,40 @@ router.put("/:id/follow-up", ensureLeadService, async (req, res) => {
     });
   } catch (error) {
     console.error("❌ Error setting follow-up date:", error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
+/**
+ * Delete a lead
+ * DELETE /api/leads/:id
+ */
+router.delete("/:id", ensureLeadService, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Get the lead first to ensure it exists
+    const lead = await leadService.getLeadById(id);
+    if (!lead) {
+      return res.status(404).json({
+        success: false,
+        error: "Lead not found",
+      });
+    }
+
+    // Delete the lead
+    await leadService.deleteLead(id);
+
+    res.json({
+      success: true,
+      message: "Lead deleted successfully",
+      data: { id },
+    });
+  } catch (error) {
+    console.error("❌ Error deleting lead:", error);
     res.status(500).json({
       success: false,
       error: error.message,

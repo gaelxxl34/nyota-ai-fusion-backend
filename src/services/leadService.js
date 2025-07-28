@@ -376,21 +376,61 @@ class LeadService {
   /**
    * Update lead status
    */
-  async updateLeadStatus(leadId, newStatus, notes = "", updatedBy = null) {
+  async updateLeadStatus(
+    leadId,
+    newStatus,
+    notes = "",
+    updatedBy = null,
+    forceUpdate = false
+  ) {
     try {
       const lead = await this.getLeadById(leadId);
       if (!lead) {
         throw new Error("Lead not found");
       }
 
-      const updatedLead = LeadModel.updateStatus(
-        lead,
-        newStatus,
-        notes,
-        updatedBy
-      );
+      let updatedLead;
 
-      await this.db.collection(this.collection).doc(leadId).update(updatedLead);
+      if (forceUpdate) {
+        // Admin force update - bypass transition rules
+        console.log(
+          `⚠️ Force updating lead ${leadId} status from ${lead.status} to ${newStatus}`
+        );
+
+        // Create timeline entry manually
+        const timelineEntry = {
+          type: "STATUS_CHANGE",
+          status: newStatus,
+          notes:
+            notes || `Status force-updated from ${lead.status} to ${newStatus}`,
+          metadata: {
+            previousStatus: lead.status,
+            updatedBy: updatedBy || "system",
+            forceUpdate: true,
+          },
+          timestamp: new Date(),
+        };
+
+        const timeline = [...(lead.timeline || []), timelineEntry];
+
+        // Only update the fields we need to change
+        await this.db.collection(this.collection).doc(leadId).update({
+          status: newStatus,
+          timeline,
+          updatedAt: new Date(),
+        });
+
+        // Return the updated lead
+        updatedLead = await this.getLeadById(leadId);
+      } else {
+        // Normal update with transition validation
+        updatedLead = LeadModel.updateStatus(lead, newStatus, notes, updatedBy);
+
+        await this.db
+          .collection(this.collection)
+          .doc(leadId)
+          .update(updatedLead);
+      }
 
       console.log(`✅ Lead ${leadId} status updated to ${newStatus}`);
 
@@ -477,6 +517,63 @@ class LeadService {
       return await this.getLeadById(leadId);
     } catch (error) {
       console.error("❌ Error updating lead:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Delete a lead
+   */
+  async deleteLead(leadId) {
+    try {
+      // Get the lead first to clean up any related data
+      const lead = await this.getLeadById(leadId);
+      if (!lead) {
+        throw new Error("Lead not found");
+      }
+
+      // Delete any related conversations
+      if (lead.phoneNumber || lead.phone) {
+        try {
+          const ConversationService = require("./conversationService");
+          const conversationService = new ConversationService();
+          // Find and delete conversations associated with this lead
+          const conversations =
+            await conversationService.findConversationsByPhone(
+              lead.phoneNumber || lead.phone
+            );
+          for (const conversation of conversations) {
+            if (conversation.leadId === leadId) {
+              await conversationService.deleteConversation(conversation.id);
+            }
+          }
+        } catch (cleanupError) {
+          console.warn(
+            "⚠️ Failed to clean up lead conversations:",
+            cleanupError.message
+          );
+        }
+      }
+
+      // Delete the lead document
+      await this.db.collection(this.collection).doc(leadId).delete();
+
+      console.log(`✅ Lead ${leadId} deleted successfully`);
+
+      // Broadcast lead deletion to all connected clients
+      broadcastMessage(
+        {
+          leadId: leadId,
+          phone: lead.phone,
+          email: lead.email,
+          deletedAt: new Date(),
+        },
+        "lead_deleted"
+      );
+
+      return true;
+    } catch (error) {
+      console.error("❌ Error deleting lead:", error);
       throw error;
     }
   }
