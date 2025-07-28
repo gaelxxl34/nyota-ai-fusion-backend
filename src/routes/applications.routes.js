@@ -42,7 +42,7 @@ const initializeApplicationService = (
  */
 router.post("/submit", ensureApplicationService, async (req, res) => {
   try {
-    const applicationData = req.body;
+    const { submittedBy, ...applicationData } = req.body;
 
     if (!applicationData) {
       return res.status(400).json({
@@ -51,7 +51,28 @@ router.post("/submit", ensureApplicationService, async (req, res) => {
       });
     }
 
-    const result = await applicationService.submitApplication(applicationData);
+    // If submittedBy is included in the request, use it
+    // Otherwise, try to use the authenticated user info from the middleware
+    const submitterInfo =
+      submittedBy ||
+      (req.user
+        ? {
+            uid: req.user.uid,
+            email: req.user.email,
+            role: req.user.role,
+            submittedAt: new Date().toISOString(),
+          }
+        : null);
+
+    // Add submittedBy to the application data
+    const dataWithSubmitter = {
+      ...applicationData,
+      submittedBy: submitterInfo,
+    };
+
+    const result = await applicationService.submitApplication(
+      dataWithSubmitter
+    );
 
     res.status(201).json({
       success: true,

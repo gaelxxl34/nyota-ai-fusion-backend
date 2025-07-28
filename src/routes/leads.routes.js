@@ -32,17 +32,31 @@ const initializeLeadService = (firestore) => {
  */
 router.post("/", ensureLeadService, async (req, res) => {
   try {
-    const { contactInfo, source, ...additionalData } = req.body;
+    const { contactInfo, source, submittedBy, ...additionalData } = req.body;
 
     if (!contactInfo) {
       return res.status(400).json({ error: "Contact information is required" });
     }
 
-    const lead = await leadService.createLead(
-      contactInfo,
-      source,
-      additionalData
-    );
+    // If submittedBy is included in the request, use it
+    // Otherwise, try to use the authenticated user info from the middleware
+    const submitterInfo =
+      submittedBy ||
+      (req.user
+        ? {
+            uid: req.user.uid,
+            email: req.user.email,
+            role: req.user.role,
+            submittedAt: new Date().toISOString(),
+          }
+        : null);
+
+    const leadData = {
+      ...additionalData,
+      submittedBy: submitterInfo,
+    };
+
+    const lead = await leadService.createLead(contactInfo, source, leadData);
 
     res.status(201).json({
       success: true,

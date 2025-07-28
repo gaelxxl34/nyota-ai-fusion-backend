@@ -3,19 +3,25 @@ const { getAuth } = require("firebase-admin/auth");
 
 const authenticateUser = async (req, res, next) => {
   try {
+    console.log("=== AUTH MIDDLEWARE ===");
+    console.log("URL:", req.url);
+    console.log("Auth header:", req.headers.authorization);
+
     // Only bypass authentication if explicitly enabled and no JWT secret
     if (process.env.DISABLE_AUTH === "true" && !process.env.JWT_SECRET) {
       console.log("🔓 Development mode: Bypassing authentication");
       req.user = {
         uid: "dev_user_123",
         email: "dev@example.com",
-        role: "superAdmin",
+        role: "organizationAdmin",
+        organizationId: "iuea",
       };
       return next();
     }
 
     const authHeader = req.headers.authorization;
     if (!authHeader) {
+      console.log("❌ No authorization header");
       return res.status(401).json({ message: "No token provided" });
     }
 
@@ -28,10 +34,24 @@ const authenticateUser = async (req, res, next) => {
       // Try Firebase token first
       console.log("🔐 Verifying Firebase token...");
       const decodedToken = await getAuth().verifyIdToken(token);
+
+      // Get additional user data from Firestore
+      const userDoc = await admin
+        .firestore()
+        .collection("users")
+        .doc(decodedToken.uid)
+        .get();
+      const userData = userDoc.exists ? userDoc.data() : {};
+
       req.user = {
         uid: decodedToken.uid,
-        email: decodedToken.email,
-        role: decodedToken.role || "teamMember",
+        email: decodedToken.email || userData.email,
+        role:
+          decodedToken.role ||
+          userData.role ||
+          userData.jobRole ||
+          "teamMember",
+        name: userData.name || userData.displayName,
       };
       console.log(
         `✅ Firebase authenticated user: ${req.user.email || req.user.uid} (${
@@ -61,7 +81,8 @@ const authenticateUser = async (req, res, next) => {
         req.user = {
           uid: decoded.uid,
           email: decoded.email,
-          role: decoded.role || "teamMember",
+          role: decoded.role || decoded.jobRole || "teamMember",
+          name: decoded.name || decoded.displayName,
         };
 
         console.log(

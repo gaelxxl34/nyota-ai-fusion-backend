@@ -1,4 +1,8 @@
-const { hasPermission, canViewLeadStage } = require("../config/roles.config");
+const {
+  hasPermission,
+  canViewLeadStage,
+  PERMISSIONS,
+} = require("../config/roles.config");
 
 /**
  * Middleware to check if user has required permission
@@ -24,6 +28,11 @@ const requirePermission = (permission) => {
     next();
   };
 };
+
+/**
+ * Alias for requirePermission for better naming consistency
+ */
+const checkPermission = requirePermission;
 
 /**
  * Middleware to filter leads based on user's role stage access
@@ -103,6 +112,7 @@ const checkRole = (allowedRoles) => {
 
 module.exports = {
   requirePermission,
+  checkPermission,
   filterLeadsByRole,
   requireAnyPermission,
   checkRole,

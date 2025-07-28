@@ -141,6 +141,15 @@ function startServer() {
     console.warn("❌ Application routes not loaded:", error.message);
   }
 
+  // Analytics routes
+  try {
+    const analyticsRoutes = require("./routes/analytics.routes");
+    app.use("/api/analytics", analyticsRoutes);
+    console.log("✅ Analytics routes loaded");
+  } catch (error) {
+    console.warn("❌ Analytics routes not loaded:", error.message);
+  }
+
   // Team routes have been moved to admin routes
   // Organization-specific routes have been removed since IUEA is single-org
 

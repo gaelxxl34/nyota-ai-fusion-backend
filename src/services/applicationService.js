@@ -36,6 +36,18 @@ class ApplicationService {
         ApplicationModel.createApplication(applicationData);
       console.log(`📋 Creating application for ${applicationData.name}...`);
 
+      // If submittedBy info is provided, add it to the timeline
+      if (applicationData.submittedBy) {
+        applicationDoc.timeline[0] = {
+          ...applicationDoc.timeline[0],
+          submittedBy: applicationData.submittedBy,
+          notes: `Application submitted through online form by ${
+            applicationData.submittedBy.name ||
+            applicationData.submittedBy.email
+          } (${applicationData.submittedBy.role})`,
+        };
+      }
+
       // 3. Check if lead exists (by phone or email)
       let existingLead = null;
 

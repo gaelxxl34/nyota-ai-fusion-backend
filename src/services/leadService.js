@@ -132,6 +132,17 @@ class LeadService {
       // Add any additional data
       const fullLeadData = { ...leadData, ...additionalData };
 
+      // If submittedBy info is provided, add it to the timeline
+      if (additionalData.submittedBy) {
+        fullLeadData.timeline[0] = {
+          ...fullLeadData.timeline[0],
+          submittedBy: additionalData.submittedBy,
+          notes: `Lead created from ${source || "unknown source"} by ${
+            additionalData.submittedBy.name || additionalData.submittedBy.email
+          } (${additionalData.submittedBy.role})`,
+        };
+      }
+
       // Validate
       const validation = LeadModel.validate(fullLeadData);
       if (!validation.isValid) {
