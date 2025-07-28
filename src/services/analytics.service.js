@@ -1,5 +1,6 @@
 const admin = require("firebase-admin");
 const logger = require("../utils/logger");
+const { LeadModel } = require("../models/lead.model");
 
 const db = admin.firestore();
 
@@ -56,9 +57,15 @@ class AnalyticsService {
       leadsSnapshot.forEach((doc) => {
         const lead = doc.data();
 
+        // Get current status from timeline
+        const currentStatus = LeadModel.getCurrentStatus(lead);
+
         // Count all-time status
-        if (lead.status && allTimeStatusCounts.hasOwnProperty(lead.status)) {
-          allTimeStatusCounts[lead.status]++;
+        if (
+          currentStatus &&
+          allTimeStatusCounts.hasOwnProperty(currentStatus)
+        ) {
+          allTimeStatusCounts[currentStatus]++;
         }
 
         // Check if lead was created in the time range
@@ -71,7 +78,7 @@ class AnalyticsService {
           if (debugInfo.length < 5) {
             debugInfo.push({
               leadId: doc.id,
-              status: lead.status,
+              status: currentStatus,
               timelineDate: createdDate.toISOString(),
               isRecent: createdDate >= startDate,
             });
@@ -80,8 +87,8 @@ class AnalyticsService {
           if (createdDate >= startDate) {
             recentLeads++;
             // Only count status if lead was created in the time range
-            if (lead.status && statusCounts.hasOwnProperty(lead.status)) {
-              statusCounts[lead.status]++;
+            if (currentStatus && statusCounts.hasOwnProperty(currentStatus)) {
+              statusCounts[currentStatus]++;
             }
           }
         }
@@ -236,7 +243,7 @@ class AnalyticsService {
             submittedByExamples.push({
               leadId: leadDoc.id,
               submittedBy: lead.submittedBy,
-              status: lead.status,
+              status: LeadModel.getCurrentStatus(lead),
             });
           }
         }
@@ -314,12 +321,13 @@ class AnalyticsService {
                 timeline[0].date?.toDate() || new Date(timeline[0].date);
               if (createdDate >= startDate) {
                 metrics.leadsSubmitted++;
+                const currentStatus = LeadModel.getCurrentStatus(lead);
                 logger.info(
-                  `[Agent Performance] Found lead submitted by ${user.email}: ${leadDoc.id}, status: ${lead.status}`
+                  `[Agent Performance] Found lead submitted by ${user.email}: ${leadDoc.id}, status: ${currentStatus}`
                 );
 
                 // Track status progression
-                switch (lead.status) {
+                switch (currentStatus) {
                   case "CONTACTED":
                     metrics.contacted++;
                     break;

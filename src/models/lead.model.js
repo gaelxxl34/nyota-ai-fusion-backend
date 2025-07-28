@@ -21,42 +21,54 @@ const DEPRECATED_QUALIFICATION_RULES = {
 };
 
 // Status transition rules - simple array of allowed next statuses
+// Allow more flexible transitions while maintaining logical flow
 const STATUS_TRANSITIONS = {
   [LEAD_STATUSES.INQUIRY]: [
     LEAD_STATUSES.CONTACTED,
     LEAD_STATUSES.PRE_QUALIFIED,
     LEAD_STATUSES.APPLIED,
     LEAD_STATUSES.NURTURE,
+    LEAD_STATUSES.REJECTED,
+    LEAD_STATUSES.ADMITTED, // Allow direct admission for special cases
   ],
   [LEAD_STATUSES.CONTACTED]: [
     LEAD_STATUSES.PRE_QUALIFIED,
     LEAD_STATUSES.APPLIED,
+    LEAD_STATUSES.QUALIFIED,
     LEAD_STATUSES.NURTURE,
+    LEAD_STATUSES.REJECTED,
+    LEAD_STATUSES.ADMITTED, // Allow direct admission for special cases
   ],
-  [LEAD_STATUSES.NURTURE]: [LEAD_STATUSES.PRE_QUALIFIED, LEAD_STATUSES.EXPIRED],
   [LEAD_STATUSES.PRE_QUALIFIED]: [
     LEAD_STATUSES.APPLIED,
-    LEAD_STATUSES.FOLLOW_UP,
+    LEAD_STATUSES.QUALIFIED,
+    LEAD_STATUSES.NURTURE,
+    LEAD_STATUSES.REJECTED,
+    LEAD_STATUSES.ADMITTED, // Allow direct admission
+    LEAD_STATUSES.ENROLLED, // Allow direct enrollment for special cases
   ],
-  [LEAD_STATUSES.FOLLOW_UP]: [LEAD_STATUSES.APPLIED, LEAD_STATUSES.NURTURE],
   [LEAD_STATUSES.APPLIED]: [
     LEAD_STATUSES.QUALIFIED,
-    LEAD_STATUSES.REVIEW,
-    LEAD_STATUSES.DISQUALIFIED,
+    LEAD_STATUSES.ADMITTED,
+    LEAD_STATUSES.REJECTED,
+    LEAD_STATUSES.ENROLLED, // Allow direct enrollment for special cases
   ],
-  [LEAD_STATUSES.REVIEW]: [LEAD_STATUSES.QUALIFIED, LEAD_STATUSES.DISQUALIFIED],
   [LEAD_STATUSES.QUALIFIED]: [
     LEAD_STATUSES.ADMITTED,
-    LEAD_STATUSES.PENDING_DOCS,
+    LEAD_STATUSES.ENROLLED,
     LEAD_STATUSES.REJECTED,
   ],
-  [LEAD_STATUSES.PENDING_DOCS]: [LEAD_STATUSES.ADMITTED, LEAD_STATUSES.EXPIRED],
-  [LEAD_STATUSES.ADMITTED]: [LEAD_STATUSES.ENROLLED, LEAD_STATUSES.DECLINED],
-  [LEAD_STATUSES.ENROLLED]: [LEAD_STATUSES.ARCHIVED],
-  [LEAD_STATUSES.DECLINED]: [LEAD_STATUSES.ARCHIVED],
-  [LEAD_STATUSES.DISQUALIFIED]: [LEAD_STATUSES.ARCHIVED],
-  [LEAD_STATUSES.REJECTED]: [LEAD_STATUSES.ARCHIVED],
-  [LEAD_STATUSES.EXPIRED]: [LEAD_STATUSES.ARCHIVED],
+  [LEAD_STATUSES.ADMITTED]: [LEAD_STATUSES.ENROLLED, LEAD_STATUSES.REJECTED],
+  // Terminal statuses
+  [LEAD_STATUSES.ENROLLED]: [], // Final success state
+  [LEAD_STATUSES.REJECTED]: [], // Final rejection state
+  [LEAD_STATUSES.NURTURE]: [
+    LEAD_STATUSES.PRE_QUALIFIED,
+    LEAD_STATUSES.APPLIED,
+    LEAD_STATUSES.QUALIFIED,
+    LEAD_STATUSES.REJECTED,
+    LEAD_STATUSES.ADMITTED, // Allow direct admission from nurture
+  ], // Can re-engage
 };
 
 /**
@@ -324,9 +336,12 @@ class LeadModel {
    * Update lead status
    */
   static updateStatus(leadData, newStatus, notes = "", updatedBy = null) {
-    if (!this.canTransitionTo(leadData.status, newStatus)) {
+    // Get current status from timeline instead of stored status field
+    const currentStatus = this.getCurrentStatus(leadData);
+
+    if (!this.canTransitionTo(currentStatus, newStatus)) {
       throw new Error(
-        `Cannot transition from ${leadData.status} to ${newStatus}`
+        `Cannot transition from ${currentStatus} to ${newStatus}`
       );
     }
 
@@ -335,7 +350,7 @@ class LeadModel {
       "STATUS_CHANGE",
       newStatus,
       notes,
-      { previousStatus: leadData.status, updatedBy }
+      { previousStatus: currentStatus, updatedBy }
     );
 
     return {

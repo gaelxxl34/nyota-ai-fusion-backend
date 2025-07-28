@@ -29,10 +29,9 @@ class LeadService {
         .where("status", "==", status)
         .get();
 
-      return snapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...this._convertTimestamps(doc.data()),
-      }));
+      return snapshot.docs.map((doc) =>
+        this._normalizeLead(doc.id, doc.data())
+      );
     } catch (error) {
       console.error(`Error finding leads with status ${status}:`, error);
       throw error;
@@ -40,7 +39,7 @@ class LeadService {
   }
 
   /**
-   * Convert Firestore timestamps to JavaScript Date objects
+   * Convert timestamps in lead data
    */
   _convertTimestamps(data) {
     const converted = { ...data };
@@ -66,6 +65,20 @@ class LeadService {
     }
 
     return converted;
+  }
+
+  /**
+   * Normalize lead data to ensure consistent status from timeline
+   */
+  _normalizeLead(docId, data) {
+    const convertedData = this._convertTimestamps(data);
+    const currentStatus = LeadModel.getCurrentStatus(convertedData);
+
+    return {
+      id: docId,
+      ...convertedData,
+      status: currentStatus, // Always use timeline-based status
+    };
   }
 
   /**
@@ -177,12 +190,7 @@ class LeadService {
         return null;
       }
 
-      const data = this._convertTimestamps(doc.data());
-
-      return {
-        id: doc.id,
-        ...data,
-      };
+      return this._normalizeLead(doc.id, doc.data());
     } catch (error) {
       console.error("❌ Error getting lead:", error);
       throw error;
@@ -245,24 +253,17 @@ class LeadService {
 
           if (!snapshot.empty) {
             const doc = snapshot.docs[0];
-            const data = this._convertTimestamps(doc.data());
-
-            // Get current status from timeline
-            const currentStatus = LeadModel.getCurrentStatus(data);
+            const lead = this._normalizeLead(doc.id, doc.data());
 
             console.log(
               `✅ Found lead with primary phone ${
                 doc.data().phone
-              }, timeline status: ${currentStatus}, stored status: ${
-                data.status
+              }, timeline status: ${lead.status}, stored status: ${
+                doc.data().status
               }`
             );
 
-            return {
-              id: doc.id,
-              ...data,
-              status: currentStatus, // Use timeline-based status
-            };
+            return lead;
           }
         }
 
@@ -279,20 +280,15 @@ class LeadService {
 
             if (!snapshot.empty) {
               const doc = snapshot.docs[0];
-              const data = this._convertTimestamps(doc.data());
-
-              // Get current status from timeline
-              const currentStatus = LeadModel.getCurrentStatus(data);
+              const lead = this._normalizeLead(doc.id, doc.data());
 
               console.log(
-                `✅ Found lead with additional phone ${format}, timeline status: ${currentStatus}, stored status: ${data.status}`
+                `✅ Found lead with additional phone ${format}, timeline status: ${
+                  lead.status
+                }, stored status: ${doc.data().status}`
               );
 
-              return {
-                id: doc.id,
-                ...data,
-                status: currentStatus, // Use timeline-based status
-              };
+              return lead;
             }
           }
         } catch (err) {
@@ -332,18 +328,11 @@ class LeadService {
 
       if (!snapshot.empty) {
         const doc = snapshot.docs[0];
-        const data = this._convertTimestamps(doc.data());
-
-        // Get current status from timeline
-        const currentStatus = LeadModel.getCurrentStatus(data);
+        const lead = this._normalizeLead(doc.id, doc.data());
 
         console.log(`✅ Found lead with primary email ${email}`);
 
-        return {
-          id: doc.id,
-          ...data,
-          status: currentStatus, // Use timeline-based status
-        };
+        return lead;
       }
 
       // If no match in primary email, check additionalEmails array
@@ -356,18 +345,11 @@ class LeadService {
 
         if (!snapshot.empty) {
           const doc = snapshot.docs[0];
-          const data = this._convertTimestamps(doc.data());
-
-          // Get current status from timeline
-          const currentStatus = LeadModel.getCurrentStatus(data);
+          const lead = this._normalizeLead(doc.id, doc.data());
 
           console.log(`✅ Found lead with additional email ${email}`);
 
-          return {
-            id: doc.id,
-            ...data,
-            status: currentStatus, // Use timeline-based status
-          };
+          return lead;
         }
       } catch (err) {
         // Ignore error - additionalEmails field might not exist or not be an array
@@ -435,6 +417,14 @@ class LeadService {
         updatedLead = await this.getLeadById(leadId);
       } else {
         // Normal update with transition validation
+        console.log(
+          `📊 Updating lead ${leadId} status: stored status=${
+            lead.status
+          }, timeline status=${LeadModel.getCurrentStatus(
+            lead
+          )}, new status=${newStatus}`
+        );
+
         updatedLead = LeadModel.updateStatus(lead, newStatus, notes, updatedBy);
 
         await this.db
@@ -600,14 +590,9 @@ class LeadService {
         .limit(limit)
         .get();
 
-      const leads = [];
-      snapshot.forEach((doc) => {
-        const data = this._convertTimestamps(doc.data());
-        leads.push({
-          id: doc.id,
-          ...data,
-        });
-      });
+      const leads = snapshot.docs.map((doc) =>
+        this._normalizeLead(doc.id, doc.data())
+      );
 
       return leads;
     } catch (error) {
@@ -688,13 +673,9 @@ class LeadService {
       console.log(`📊 Raw leads fetched: ${snapshot.docs.length}`);
 
       // Convert to objects with timestamp conversion
-      let leads = snapshot.docs.map((doc) => {
-        const data = this._convertTimestamps(doc.data());
-        return {
-          id: doc.id,
-          ...data,
-        };
-      });
+      let leads = snapshot.docs.map((doc) =>
+        this._normalizeLead(doc.id, doc.data())
+      );
 
       // Apply text search filter if provided (since Firestore doesn't support text search)
       if (search && search.trim()) {
@@ -829,21 +810,15 @@ class LeadService {
 
       const leads = [];
       snapshot.forEach((doc) => {
-        const rawData = doc.data();
-        const data = this._convertTimestamps(rawData);
+        const lead = this._normalizeLead(doc.id, doc.data());
 
         // Filter in memory to avoid complex indexing
         if (
-          [
-            LEAD_STATUSES.FOLLOW_UP,
-            LEAD_STATUSES.PRE_QUALIFIED,
-            LEAD_STATUSES.NURTURE,
-          ].includes(data.status)
+          [LEAD_STATUSES.PRE_QUALIFIED, LEAD_STATUSES.NURTURE].includes(
+            lead.status
+          )
         ) {
-          leads.push({
-            id: doc.id,
-            ...data,
-          });
+          leads.push(lead);
         }
       });
 

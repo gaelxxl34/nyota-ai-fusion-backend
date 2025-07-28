@@ -125,7 +125,6 @@ const canViewLeadStage = (role, stage) => {
     ENROLLED: LEAD_STAGES.ENROLLED,
     REJECTED: LEAD_STAGES.NEW_CONTACT,
     NURTURE: LEAD_STAGES.CONTACTED,
-    FOLLOW_UP: LEAD_STAGES.CONTACTED,
   };
 
   // Convert the stage if it's a database status value
