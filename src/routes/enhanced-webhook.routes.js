@@ -129,27 +129,30 @@ const validateWhatsAppNumber = async (
     `Testing WhatsApp number: ${normalizedPhone} (source: ${source})`
   );
 
-  // Create a simple test message based on source
-const testMessage = `Hello ${name}, thank you for your interest in IUEA! We’ve received your inquiry and are here to support you. How can we assist you in joining the IUEA family?`;
+  // Use WhatsApp template message for validation (hello_world)
+  const templatePayload = {
+    messaging_product: "whatsapp",
+    to: normalizedPhone,
+    type: "template",
+    template: {
+      name: "hello_world",
+      language: { code: "en_US" },
+    },
+  };
 
   try {
-    // Send the validation message without creating conversation
-    const validationResult = await whatsappMessageService.sendValidationMessage(
+    // Send the hello_world template using your WhatsApp message service
+    const validationResult = await whatsappMessageService.sendTemplateMessage(
       normalizedPhone,
-      testMessage,
-      {
-        source: `${source}_validation_test`,
-        messageType: "validation",
-      }
+      templatePayload
     );
 
     logger.debug(
-      `WhatsApp validation message sent for ${normalizedPhone}:`,
+      `WhatsApp hello_world template sent for ${normalizedPhone}:`,
       validationResult
     );
 
     if (!validationResult.success) {
-      // If sending failed immediately, it's definitely invalid
       const errorMessage =
         "Please provide a valid WhatsApp number. The number you entered is not registered on WhatsApp.";
 
@@ -195,12 +198,11 @@ const testMessage = `Hello ${name}, thank you for your interest in IUEA! We’ve
       `Waiting for webhook response for message ${messageId} to ${normalizedPhone}`
     );
 
-    // Create a promise that will resolve when the webhook responds
     const validationPromise = new Promise((resolve, reject) => {
       const timeoutId = setTimeout(() => {
         pendingValidations.delete(messageId);
         reject(new Error("Validation timeout - webhook response not received"));
-      }, 15000); // 15 second timeout
+      }, 15000);
 
       pendingValidations.set(messageId, {
         resolve,
@@ -210,47 +212,22 @@ const testMessage = `Hello ${name}, thank you for your interest in IUEA! We’ve
       });
     });
 
-    // Wait for the webhook to respond
     const webhookResult = await validationPromise;
 
     if (webhookResult.success) {
-      // Message was delivered successfully - now create the conversation
       logger.debug(`WhatsApp validation successful for ${normalizedPhone}`);
-
-      // Create conversation after successful validation
-      const conversationResult =
-        await whatsappMessageService.createConversationAfterValidation(
-          normalizedPhone,
-          testMessage,
-          validationResult.messageId,
-          {
-            contactName: name,
-            source: source,
-          }
-        );
-
-      if (conversationResult.success) {
-        logger.debug(
-          `Conversation created for validated number ${normalizedPhone}: ${conversationResult.conversationId}`
-        );
-      } else {
-        logger.warn(
-          `Failed to create conversation for validated number ${normalizedPhone}: ${conversationResult.error}`
-        );
-      }
-
       return {
         isValid: true,
         normalizedPhone,
         validationResult: webhookResult,
-        conversationId: conversationResult.conversationId,
+        conversationId: null,
       };
     } else {
       // Check the error type from webhook
       const isInvalidNumber =
         webhookResult.error &&
-        (webhookResult.error.includes("131026") || // Message undeliverable
-          webhookResult.error.includes("131051") || // Invalid/Unsupported recipient
+        (webhookResult.error.includes("131026") ||
+          webhookResult.error.includes("131051") ||
           webhookResult.error.includes("not registered on WhatsApp") ||
           webhookResult.error.includes("Message undeliverable") ||
           webhookResult.error.includes("invalid number"));
@@ -263,7 +240,6 @@ const testMessage = `Hello ${name}, thank you for your interest in IUEA! We’ve
           webhookResult.error.includes("131047"));
 
       if (isInvalidNumber) {
-        // This is an invalid WhatsApp number - don't create lead
         const errorMessage =
           "Please provide a valid WhatsApp number. The number you entered is not registered on WhatsApp.";
 
@@ -275,7 +251,7 @@ const testMessage = `Hello ${name}, thank you for your interest in IUEA! We’ve
           return {
             isValid: false,
             errorResponse: {
-              status: 400, // Changed to 400 to trigger Elementor error handling
+              status: 400,
               body: {
                 success: false,
                 message: errorMessage,
@@ -283,15 +259,13 @@ const testMessage = `Hello ${name}, thank you for your interest in IUEA! We’ve
                   message: errorMessage,
                   errors: {
                     phone: errorMessage,
-                    "Phone Number": errorMessage, // Include exact field name from form
+                    "Phone Number": errorMessage,
                   },
-                  // Add additional formats that Elementor might expect
                   invalid_fields: {
                     phone: errorMessage,
                     "Phone Number": errorMessage,
                   },
                 },
-                // Alternative format for Elementor compatibility
                 error: true,
                 error_message: errorMessage,
               },
@@ -310,8 +284,6 @@ const testMessage = `Hello ${name}, thank you for your interest in IUEA! We’ve
           },
         };
       } else if (is24HourError) {
-        // 24-hour policy error means we can't send messages to this number
-        // Treat this as invalid for validation purposes since we can't actually contact them
         const errorMessage =
           "Phone number validation failed. This WhatsApp number cannot receive messages due to 24-hour policy restrictions.";
 
@@ -349,7 +321,6 @@ const testMessage = `Hello ${name}, thank you for your interest in IUEA! We’ve
           },
         };
       } else {
-        // Some other error - treat as invalid to be safe
         const errorMessage =
           "Unable to verify WhatsApp number. Please ensure the number is correct and registered on WhatsApp.";
 
