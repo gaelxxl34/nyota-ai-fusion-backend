@@ -129,26 +129,14 @@ const validateWhatsAppNumber = async (
     `Testing WhatsApp number: ${normalizedPhone} (source: ${source})`
   );
 
-  // Use WhatsApp template message for validation (whatsapp_validation)
-  // Add required body/parameters for order_id
+  // Use WhatsApp hello_world template for validation
   const templatePayload = {
     messaging_product: "whatsapp",
     to: normalizedPhone,
     type: "template",
     template: {
-      name: "whatsapp_validation",
-      language: { code: "en" },
-      components: [
-        {
-          type: "body",
-          parameters: [
-            {
-              type: "text",
-              text: name || "Unknown",
-            },
-          ],
-        },
-      ],
+      name: "hello_world",
+      language: { code: "en_US" },
     },
   };
 
