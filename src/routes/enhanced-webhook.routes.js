@@ -129,14 +129,26 @@ const validateWhatsAppNumber = async (
     `Testing WhatsApp number: ${normalizedPhone} (source: ${source})`
   );
 
-  // Use WhatsApp hello_world template for validation
+  // Use WhatsApp iuea_validate template for validation (expects order_id parameter)
+  // For demonstration, we'll use a static order id. Replace with dynamic value as needed.
   const templatePayload = {
     messaging_product: "whatsapp",
     to: normalizedPhone,
     type: "template",
     template: {
-      name: "hello_world",
+      name: "iuea_validate",
       language: { code: "en_US" },
+      components: [
+        {
+          type: "body",
+          parameters: [
+            {
+              type: "text",
+              text: "ORDER123456", // Replace with actual order id if available
+            },
+          ],
+        },
+      ],
     },
   };
 
