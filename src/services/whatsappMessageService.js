@@ -9,6 +9,40 @@ const ConversationService = require("./conversationService");
 const { broadcastMessage } = require("./broadcastService");
 
 class WhatsAppMessageService {
+  /**
+   * Send a WhatsApp template message using the Cloud API
+   * @param {string} phoneNumber - Recipient phone number (international format, no +)
+   * @param {object} templatePayload - The template message payload (see WhatsApp Cloud API docs)
+   * @returns {Promise<object>} - { success, messageId, error }
+   */
+  async sendTemplateMessage(phoneNumber, templatePayload) {
+    const axios = require("axios");
+    // WhatsApp Cloud API credentials from environment variables
+    const accessToken = process.env.WHATSAPP_ACCESS_TOKEN;
+    const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
+    if (!accessToken || !phoneNumberId) {
+      return {
+        success: false,
+        error: "WhatsApp API credentials not set in environment variables.",
+      };
+    }
+    const url = `https://graph.facebook.com/v17.0/${phoneNumberId}/messages`;
+    try {
+      const response = await axios.post(url, templatePayload, {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        timeout: 10000,
+      });
+      // WhatsApp API returns messageId in response.data.messages[0].id
+      const messageId = response.data?.messages?.[0]?.id;
+      return { success: true, messageId };
+    } catch (error) {
+      let errMsg = error.response?.data?.error?.message || error.message;
+      return { success: false, error: errMsg };
+    }
+  }
   constructor() {
     this.conversationService = new ConversationService();
     this.db = admin.firestore();
