@@ -8,6 +8,10 @@ const whatsappMessageService = require("../services/whatsappMessageService");
 const ApplicationService = require("../services/applicationService");
 const logger = require("../utils/logger");
 
+// Configuration options
+const WHATSAPP_VALIDATION_ENABLED =
+  process.env.WHATSAPP_VALIDATION_ENABLED !== "false";
+
 // Protection middleware
 const validateWebhookSource = (req, res, next) => {
   // If webhook protection is disabled, skip validation
@@ -129,8 +133,7 @@ const validateWhatsAppNumber = async (
     `Testing WhatsApp number: ${normalizedPhone} (source: ${source})`
   );
 
-  // Use WhatsApp iuea_validate template for validation (expects order_id parameter)
-  // For demonstration, we'll use a static order id. Replace with dynamic value as needed.
+  // Use the whatsapp_validation template for validation (requires name parameter)
   const templatePayload = {
     messaging_product: "whatsapp",
     to: normalizedPhone,
@@ -144,7 +147,7 @@ const validateWhatsAppNumber = async (
           parameters: [
             {
               type: "text",
-              text: "ORDER123456", // Replace with actual order id if available
+              text: name || "there",
             },
           ],
         },
@@ -153,54 +156,105 @@ const validateWhatsAppNumber = async (
   };
 
   try {
-    // Send the hello_world template using your WhatsApp message service
+    // First, try sending the whatsapp_validation template for validation
     const validationResult = await whatsappMessageService.sendTemplateMessage(
       normalizedPhone,
       templatePayload
     );
 
     logger.debug(
-      `WhatsApp hello_world template sent for ${normalizedPhone}:`,
+      `WhatsApp whatsapp_validation template sent for ${normalizedPhone}:`,
       validationResult
     );
 
     if (!validationResult.success) {
-      const errorMessage =
-        "Please provide a valid WhatsApp number. The number you entered is not registered on WhatsApp.";
-
+      // If template fails, log the specific error and try a different approach
       logger.error(
-        `WhatsApp validation failed immediately for ${normalizedPhone}: ${validationResult.error}`
+        `WhatsApp template validation failed for ${normalizedPhone}: ${validationResult.error}`
       );
 
-      if (isElementorForm) {
+      // Check if it's a template-specific error or permissions issue
+      if (
+        validationResult.error.includes("does not exist") ||
+        validationResult.error.includes("missing permissions") ||
+        validationResult.error.includes("template")
+      ) {
+        // Template or permissions issue - fail the validation
+        const errorMessage =
+          "WhatsApp Business API configuration issue. Please contact support.";
+
+        logger.error(
+          `WhatsApp API configuration error for ${normalizedPhone}: ${validationResult.error}`
+        );
+
+        if (isElementorForm) {
+          return {
+            isValid: false,
+            errorResponse: {
+              status: 200,
+              body: {
+                success: false,
+                message: errorMessage,
+                data: {
+                  message: errorMessage,
+                  errors: {
+                    phone: errorMessage,
+                  },
+                },
+              },
+            },
+          };
+        }
+
         return {
           isValid: false,
           errorResponse: {
-            status: 200,
+            status: 500,
             body: {
               success: false,
-              message: errorMessage,
-              data: {
+              error: errorMessage,
+            },
+          },
+        };
+      } else {
+        // Likely an invalid number error
+        const errorMessage =
+          "Please provide a valid WhatsApp number. The number you entered is not registered on WhatsApp.";
+
+        logger.error(
+          `WhatsApp validation failed immediately for ${normalizedPhone}: ${validationResult.error}`
+        );
+
+        if (isElementorForm) {
+          return {
+            isValid: false,
+            errorResponse: {
+              status: 200,
+              body: {
+                success: false,
                 message: errorMessage,
-                errors: {
-                  phone: errorMessage,
+                data: {
+                  message: errorMessage,
+                  errors: {
+                    phone: errorMessage,
+                  },
                 },
               },
+            },
+          };
+        }
+
+        return {
+          isValid: false,
+          errorResponse: {
+            status: 400,
+            body: {
+              success: false,
+              error: errorMessage,
             },
           },
         };
       }
-
-      return {
-        isValid: false,
-        errorResponse: {
-          status: 400,
-          body: {
-            success: false,
-            error: errorMessage,
-          },
-        },
-      };
     }
 
     // Message was queued successfully, now wait for webhook response
