@@ -523,7 +523,7 @@ class LeadService {
   }
 
   /**
-   * Delete a lead
+   * Delete a lead and all associated data
    */
   async deleteLead(leadId) {
     try {
@@ -533,46 +533,261 @@ class LeadService {
         throw new Error("Lead not found");
       }
 
-      // Delete any related conversations
+      console.log(
+        `🗑️ Starting comprehensive deletion of lead ${leadId} (${
+          lead.name || "Unknown"
+        })`
+      );
+
+      let cleanupResults = {
+        conversations: 0,
+        messages: 0,
+        applications: 0,
+        errors: [],
+      };
+
+      // 1. Delete related conversations and messages
       if (lead.phoneNumber || lead.phone) {
         try {
           const ConversationService = require("./conversationService");
           const conversationService = new ConversationService();
-          // Find and delete conversations associated with this lead
-          const conversations =
-            await conversationService.findConversationsByPhone(
-              lead.phoneNumber || lead.phone
+
+          const phoneToSearch = lead.phoneNumber || lead.phone;
+          console.log(
+            `📞 Looking for conversations with phone: ${phoneToSearch}`
+          );
+
+          // Find conversation by phone number
+          const conversationId =
+            await conversationService.findConversationByPhone(phoneToSearch);
+
+          if (conversationId) {
+            console.log(
+              `💬 Found conversation ${conversationId} for lead ${leadId}`
             );
-          for (const conversation of conversations) {
-            if (conversation.leadId === leadId) {
-              await conversationService.deleteConversation(conversation.id);
+
+            // Get conversation details to check if it belongs to this lead
+            const conversationDoc = await this.db
+              .collection("conversations")
+              .doc(conversationId)
+              .get();
+
+            if (conversationDoc.exists) {
+              const conversationData = conversationDoc.data();
+
+              // Delete conversation if it belongs to this lead OR if leadId matches OR if phone matches
+              // (conversations might not have leadId set but still belong to this lead)
+              const shouldDelete =
+                !conversationData.leadId ||
+                conversationData.leadId === leadId ||
+                conversationData.phoneNumber === phoneToSearch;
+
+              if (shouldDelete) {
+                const deleteResult =
+                  await conversationService.deleteConversation(conversationId);
+                cleanupResults.conversations += 1;
+                cleanupResults.messages += deleteResult.deletedMessages || 0;
+                console.log(
+                  `✅ Deleted conversation ${conversationId} with ${
+                    deleteResult.deletedMessages || 0
+                  } messages`
+                );
+              } else {
+                console.log(
+                  `⚠️ Conversation ${conversationId} belongs to different lead (${conversationData.leadId}), skipping`
+                );
+              }
             }
+          } else {
+            console.log(`ℹ️ No conversation found for phone ${phoneToSearch}`);
           }
-        } catch (cleanupError) {
+
+          // Also search for conversations by leadId directly
+          try {
+            const conversationsByLeadQuery = await this.db
+              .collection("conversations")
+              .where("leadId", "==", leadId)
+              .get();
+
+            for (const conversationDoc of conversationsByLeadQuery.docs) {
+              const conversationId = conversationDoc.id;
+              console.log(
+                `💬 Found additional conversation ${conversationId} with leadId ${leadId}`
+              );
+
+              const deleteResult = await conversationService.deleteConversation(
+                conversationId
+              );
+              cleanupResults.conversations += 1;
+              cleanupResults.messages += deleteResult.deletedMessages || 0;
+              console.log(
+                `✅ Deleted conversation ${conversationId} with ${
+                  deleteResult.deletedMessages || 0
+                } messages`
+              );
+            }
+          } catch (leadIdSearchError) {
+            console.warn(
+              `⚠️ Could not search conversations by leadId: ${leadIdSearchError.message}`
+            );
+            cleanupResults.errors.push(
+              `Conversation search by leadId failed: ${leadIdSearchError.message}`
+            );
+          }
+        } catch (conversationCleanupError) {
           console.warn(
             "⚠️ Failed to clean up lead conversations:",
-            cleanupError.message
+            conversationCleanupError.message
+          );
+          cleanupResults.errors.push(
+            `Conversation cleanup failed: ${conversationCleanupError.message}`
           );
         }
       }
 
-      // Delete the lead document
+      // 2. Delete related applications
+      if (lead.email) {
+        try {
+          console.log(`📋 Looking for applications with email: ${lead.email}`);
+
+          // Find applications by email
+          const applicationsQuery = await this.db
+            .collection("applications")
+            .where("email", "==", lead.email.toLowerCase())
+            .get();
+
+          for (const applicationDoc of applicationsQuery.docs) {
+            const applicationData = applicationDoc.data();
+
+            // Delete application if it belongs to this lead or if leadId matches
+            const shouldDelete =
+              !applicationData.leadId || applicationData.leadId === leadId;
+
+            if (shouldDelete) {
+              await this.db
+                .collection("applications")
+                .doc(applicationDoc.id)
+                .delete();
+              cleanupResults.applications += 1;
+              console.log(`✅ Deleted application ${applicationDoc.id}`);
+            } else {
+              console.log(
+                `⚠️ Application ${applicationDoc.id} belongs to different lead (${applicationData.leadId}), skipping`
+              );
+            }
+          }
+
+          // Also search for applications by leadId directly
+          try {
+            const applicationsByLeadQuery = await this.db
+              .collection("applications")
+              .where("leadId", "==", leadId)
+              .get();
+
+            for (const applicationDoc of applicationsByLeadQuery.docs) {
+              await this.db
+                .collection("applications")
+                .doc(applicationDoc.id)
+                .delete();
+              cleanupResults.applications += 1;
+              console.log(
+                `✅ Deleted application ${applicationDoc.id} with leadId ${leadId}`
+              );
+            }
+          } catch (leadIdSearchError) {
+            console.warn(
+              `⚠️ Could not search applications by leadId: ${leadIdSearchError.message}`
+            );
+            cleanupResults.errors.push(
+              `Application search by leadId failed: ${leadIdSearchError.message}`
+            );
+          }
+        } catch (applicationCleanupError) {
+          console.warn(
+            "⚠️ Failed to clean up lead applications:",
+            applicationCleanupError.message
+          );
+          cleanupResults.errors.push(
+            `Application cleanup failed: ${applicationCleanupError.message}`
+          );
+        }
+      }
+
+      // 3. Delete any orphaned messages that might reference this lead
+      try {
+        console.log(
+          `🔍 Looking for orphaned messages referencing lead ${leadId}`
+        );
+
+        const orphanedMessagesQuery = await this.db
+          .collection("messages")
+          .where("leadId", "==", leadId)
+          .get();
+
+        if (!orphanedMessagesQuery.empty) {
+          const batch = this.db.batch();
+          orphanedMessagesQuery.docs.forEach((doc) => {
+            batch.delete(doc.ref);
+          });
+          await batch.commit();
+
+          console.log(
+            `✅ Cleaned up ${orphanedMessagesQuery.size} orphaned messages`
+          );
+          cleanupResults.messages += orphanedMessagesQuery.size;
+        }
+      } catch (messageCleanupError) {
+        console.warn(
+          "⚠️ Failed to clean up orphaned messages:",
+          messageCleanupError.message
+        );
+        cleanupResults.errors.push(
+          `Orphaned message cleanup failed: ${messageCleanupError.message}`
+        );
+      }
+
+      // 4. Delete the lead document itself
       await this.db.collection(this.collection).doc(leadId).delete();
 
-      console.log(`✅ Lead ${leadId} deleted successfully`);
+      // 5. Log comprehensive cleanup results
+      console.log(
+        `✅ Lead ${leadId} deleted successfully with cleanup results:`
+      );
+      console.log(
+        `   📞 Conversations deleted: ${cleanupResults.conversations}`
+      );
+      console.log(`   💬 Messages deleted: ${cleanupResults.messages}`);
+      console.log(`   📋 Applications deleted: ${cleanupResults.applications}`);
 
-      // Broadcast lead deletion to all connected clients
+      if (cleanupResults.errors.length > 0) {
+        console.log(`   ⚠️ Cleanup errors: ${cleanupResults.errors.length}`);
+        cleanupResults.errors.forEach((error) =>
+          console.log(`     - ${error}`)
+        );
+      }
+
+      // 6. Broadcast lead deletion to all connected clients
       broadcastMessage(
         {
           leadId: leadId,
           phone: lead.phone,
           email: lead.email,
           deletedAt: new Date(),
+          cleanupResults: {
+            conversations: cleanupResults.conversations,
+            messages: cleanupResults.messages,
+            applications: cleanupResults.applications,
+            errors: cleanupResults.errors.length,
+          },
         },
         "lead_deleted"
       );
 
-      return true;
+      return {
+        success: true,
+        leadId: leadId,
+        cleanupResults: cleanupResults,
+      };
     } catch (error) {
       console.error("❌ Error deleting lead:", error);
       throw error;

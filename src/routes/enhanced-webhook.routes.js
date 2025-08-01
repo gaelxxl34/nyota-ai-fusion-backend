@@ -654,8 +654,8 @@ router.post("/wordpress", validateWebhookSource, async (req, res) => {
         existingLead.email || existingLead.phone
       }) with WordPress inquiry`;
     } else {
-      // Determine initial status based on phone availability
-      let initialStatus = "INQUIRY";
+      // Set initial status to CONTACTED since user initiated contact via form
+      const initialStatus = "CONTACTED";
 
       // Create lead record
       const leadData = {
@@ -671,7 +671,8 @@ router.post("/wordpress", validateWebhookSource, async (req, res) => {
 
       leadId = await leadService.createLead(leadData, LEAD_SOURCES.WEBSITE);
       actionTaken = "created_new_lead";
-      statusNote = "New lead created from WordPress inquiry";
+      statusNote =
+        "New lead created from WordPress contact form (user initiated contact)";
     }
 
     // Update lead with WhatsApp validation results
@@ -883,13 +884,14 @@ router.post("/google-ads", validateWebhookSource, async (req, res) => {
           clickId: formData.gclid || null,
           rawPayload: formData,
         },
-        status: "INQUIRY",
+        status: "CONTACTED", // User initiated contact via Google Ads form
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
       };
 
       leadId = await leadService.createLead(leadData, LEAD_SOURCES.GOOGLE_ADS);
       actionTaken = "created_new_lead";
-      statusNote = "New lead created from Google Ads inquiry";
+      statusNote =
+        "New lead created from Google Ads contact form (user initiated contact)";
     }
 
     // Update lead with WhatsApp validation results
@@ -1329,7 +1331,7 @@ router.post("/receive", async (req, res) => {
       phone: validatedPhone || phone,
       program,
       rawData: formData, // Store full payload for debugging
-      status: "INQUIRY",
+      status: "CONTACTED", // User initiated contact via form submission
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
     };
 
@@ -1583,7 +1585,7 @@ router.post("/meta-ads", validateWebhookSource, async (req, res) => {
         phone: validatedPhone || phone,
         program,
         country,
-        status: "INQUIRY",
+        status: "CONTACTED", // User initiated contact via Meta Ads form
         source: LEAD_SOURCES.META_ADS,
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
         // Store original Meta Ads data for reference
@@ -1592,7 +1594,8 @@ router.post("/meta-ads", validateWebhookSource, async (req, res) => {
 
       leadId = await leadService.createLead(leadData, LEAD_SOURCES.META_ADS);
       actionTaken = "created_new_lead";
-      statusNote = "New lead created from Meta Ads inquiry";
+      statusNote =
+        "New lead created from Meta Ads contact form (user initiated contact)";
     }
 
     // Update lead with WhatsApp validation results

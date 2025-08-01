@@ -181,6 +181,38 @@ class ConversationService {
   }
 
   /**
+   * Find all conversations by lead ID
+   */
+  async findConversationsByLeadId(leadId) {
+    try {
+      console.log(`🔍 Searching for conversations with leadId: ${leadId}`);
+
+      const conversationsQuery = await this.db
+        .collection("conversations")
+        .where("leadId", "==", leadId)
+        .get();
+
+      if (conversationsQuery.empty) {
+        console.log(`❌ No conversations found for leadId: ${leadId}`);
+        return [];
+      }
+
+      const conversations = conversationsQuery.docs.map((doc) => ({
+        id: doc.id,
+        ...doc.data(),
+      }));
+
+      console.log(
+        `✅ Found ${conversations.length} conversations for leadId: ${leadId}`
+      );
+      return conversations;
+    } catch (error) {
+      console.error("❌ Error finding conversations by leadId:", error);
+      return [];
+    }
+  }
+
+  /**
    * Create or get existing conversation
    */
   async createOrGetConversation(
