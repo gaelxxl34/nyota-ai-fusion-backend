@@ -136,7 +136,7 @@ const validateWhatsAppNumber = async (
     to: normalizedPhone,
     type: "template",
     template: {
-      name: "iuea_validate",
+      name: "whatsapp_validation",
       language: { code: "en_US" },
       components: [
         {

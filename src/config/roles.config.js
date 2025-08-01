@@ -20,6 +20,7 @@ const PERMISSIONS = {
   ANALYTICS: "analytics",
   TEAM: "team",
   SETTINGS: "settings",
+  KNOWLEDGE_BASE: "knowledge_base",
 
   // Data visibility permissions
   VIEW_ALL_LEADS: "view_all_leads",

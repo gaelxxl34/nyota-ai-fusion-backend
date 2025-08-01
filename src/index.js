@@ -150,6 +150,15 @@ function startServer() {
     console.warn("❌ Analytics routes not loaded:", error.message);
   }
 
+  // Knowledge Base routes
+  try {
+    const knowledgeBaseRoutes = require("./routes/knowledge-base.routes");
+    app.use("/api/knowledge-base", knowledgeBaseRoutes);
+    console.log("✅ Knowledge Base routes loaded");
+  } catch (error) {
+    console.warn("❌ Knowledge Base routes not loaded:", error.message);
+  }
+
   // Team routes have been moved to admin routes
   // Organization-specific routes have been removed since IUEA is single-org
 
