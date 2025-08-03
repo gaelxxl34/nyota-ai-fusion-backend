@@ -310,7 +310,7 @@ class ConversationService {
             status: "CONTACTED",
             source: "WHATSAPP",
             isTemporary: true, // Mark as temporary lead
-            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            createdAt: new Date(), // Use standard JavaScript Date instead of Firestore timestamp
             notes: "Automatically created from direct WhatsApp message",
           };
 

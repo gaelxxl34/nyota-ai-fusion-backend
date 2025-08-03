@@ -141,13 +141,13 @@ class ApplicationService {
 
         console.log(`📱 Preparing to send confirmation for lead: ${lead.id}`);
 
-        // Use the received_application template instead of custom message
+        // Use the application_received template for application confirmation
         const templatePayload = {
           messaging_product: "whatsapp",
           to: applicationData.phoneNumber,
           type: "template",
           template: {
-            name: "received_application",
+            name: "application_received", // Specific template for application confirmations
             language: { code: "en_US" },
           },
         };
@@ -181,8 +181,48 @@ class ApplicationService {
           });
         }
       } catch (whatsappError) {
-        console.error("❌ Failed to send WhatsApp message:", whatsappError);
-        // Don't fail the entire application process if WhatsApp fails
+        console.error(
+          "❌ Failed to send WhatsApp template message:",
+          whatsappError
+        );
+
+        // Fallback to sending a regular text message if template fails
+        try {
+          console.log(
+            `📱 Attempting to send fallback text message to ${applicationData.phoneNumber}`
+          );
+          const fallbackMessage = `Thank you for your application to ${this._getProgramName(
+            applicationData.preferredProgram
+          )}. Your application has been received and is being processed. We will contact you with further information.`;
+
+          whatsappResult = await this.whatsappService.sendMessage(
+            applicationData.phoneNumber,
+            fallbackMessage,
+            "text",
+            {
+              leadId: lead.id,
+              applicationId: docRef.id,
+              contactName: applicationData.name,
+            }
+          );
+
+          if (whatsappResult.success) {
+            console.log(
+              `📱 Fallback WhatsApp message sent successfully to ${applicationData.phoneNumber}`
+            );
+            // Update application to mark WhatsApp message as sent
+            await this.db.collection(this.collection).doc(docRef.id).update({
+              whatsappMessageSent: true,
+              updatedAt: new Date(),
+            });
+          }
+        } catch (fallbackError) {
+          console.error(
+            "❌ Fallback WhatsApp message also failed:",
+            fallbackError
+          );
+          // Don't fail the entire application process if WhatsApp fails
+        }
       }
 
       return {
@@ -199,7 +239,7 @@ class ApplicationService {
 
   /**
    * Generate thank you message for WhatsApp
-   * @deprecated No longer in use - replaced by received_application template
+   * @deprecated No longer in use - replaced by application_received template
    */
   generateThankYouMessage(applicationData) {
     const programName = ApplicationModel.getProgramName(
@@ -442,6 +482,25 @@ IUEA Admissions Team`;
       console.error("❌ Error getting application stats:", error);
       throw error;
     }
+  }
+
+  /**
+   * Get a user-friendly program name from program code
+   */
+  _getProgramName(programCode) {
+    if (!programCode) return "our university programs";
+
+    const programNames = {
+      bachelor_information_technology: "Bachelor of Information Technology",
+      bachelor_business_administration: "Bachelor of Business Administration",
+      bachelor_commerce: "Bachelor of Commerce",
+      master_information_technology: "Master of Information Technology",
+      master_business_administration: "Master of Business Administration",
+      diploma_information_technology: "Diploma in Information Technology",
+      diploma_business_administration: "Diploma in Business Administration",
+    };
+
+    return programNames[programCode] || "our university programs";
   }
 }
 
