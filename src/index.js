@@ -103,14 +103,11 @@ function startServer() {
   // Lead management routes
   try {
     const { getFirestore } = require("firebase-admin/firestore");
-    const {
-      router: leadRoutes,
-      initializeLeadService,
-    } = require("./routes/leads.routes");
+    const leadRoutes = require("./routes/leads.routes");
 
     // Initialize lead service with Firestore
     const db = getFirestore();
-    initializeLeadService(db);
+    leadRoutes.initLeadService(db);
 
     app.use("/api/leads", leadRoutes);
     console.log("✅ Lead management routes loaded");

@@ -497,7 +497,5 @@ router.delete("/:id", ensureLeadService, async (req, res) => {
   }
 });
 
-module.exports = {
-  router,
-  initializeLeadService,
-};
+module.exports = router;
+module.exports.initLeadService = initLeadService;
