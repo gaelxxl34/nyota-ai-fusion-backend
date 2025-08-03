@@ -294,8 +294,9 @@ class WhatsAppMessageService {
       const messageDbId = await this.storeIncomingMessage(messageData);
       console.log(`💾 Stored incoming message with ID: ${messageDbId}`);
 
-      // Process lead integration (find or create lead, link to conversation)
-      await this.leadIntegration.processIncomingMessage({
+      // Process lead integration (find existing lead but don't create new ones)
+      // This will only update the lead if one already exists
+      const existingLead = await this.leadIntegration.processIncomingMessage({
         messageId,
         phoneNumber,
         messageContent,
@@ -304,6 +305,14 @@ class WhatsAppMessageService {
         messageType,
         timestamp: new Date().toISOString(),
       });
+
+      if (existingLead) {
+        console.log(
+          `✅ Message associated with existing lead: ${existingLead.id}`
+        );
+      } else {
+        console.log(`ℹ️ Message stored in conversation only (no lead created)`);
+      }
 
       // Broadcast to real-time clients
       this.broadcastIncomingMessage(messageData);

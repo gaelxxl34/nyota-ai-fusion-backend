@@ -311,6 +311,13 @@ const validateWhatsAppNumber = async (
           webhookResult.error.includes("Message undeliverable") ||
           webhookResult.error.includes("invalid number"));
 
+      // Special case for "healthy ecosystem engagement" error (131049)
+      // This is a Meta/WhatsApp restriction, not necessarily an invalid number
+      const isEcosystemEngagementError =
+        webhookResult.error &&
+        (webhookResult.error.includes("131049") ||
+          webhookResult.error.includes("healthy ecosystem engagement"));
+
       const is24HourError =
         webhookResult.error &&
         (webhookResult.error.includes("24 hour") ||
@@ -361,6 +368,30 @@ const validateWhatsAppNumber = async (
               error: errorMessage,
             },
           },
+        };
+      } else if (isEcosystemEngagementError) {
+        // Special handling for ecosystem engagement error (code 131049)
+        // This is a WhatsApp/Meta restriction, not necessarily an invalid number
+        // We'll treat the validation as valid but flag the lead for alternative contact methods
+        const errorMessage =
+          "Your number appears valid but WhatsApp message could not be delivered. We'll contact you through other means.";
+
+        logger.warn(
+          `WhatsApp ecosystem engagement restriction for ${normalizedPhone}: ${webhookResult.error}`
+        );
+
+        // We'll mark this as valid but add a flag to indicate special handling needed
+        return {
+          isValid: true, // Mark as valid so lead creation proceeds
+          normalizedPhone,
+          validationResult: {
+            success: false, // WhatsApp message failed
+            error: webhookResult.error,
+            errorCode: 131049,
+          },
+          validationMessageId: webhookResult.messageId,
+          whatsappRestricted: true, // Flag to indicate WhatsApp messaging restricted
+          restrictionReason: "ecosystem_engagement",
         };
       } else if (is24HourError) {
         const errorMessage =
@@ -604,10 +635,22 @@ router.post("/wordpress", validateWebhookSource, async (req, res) => {
       }
 
       // If we get here, the WhatsApp number is valid
+      // (or has ecosystem engagement restriction but we'll still create the lead)
       validatedPhone = validation.normalizedPhone;
       whatsappValidationResult = validation.validationResult;
+      const whatsappRestricted = validation.whatsappRestricted || false;
+      const restrictionReason = validation.restrictionReason || null;
 
-      logger.info(`WhatsApp validation successful for ${validatedPhone}`);
+      if (whatsappRestricted) {
+        logger.warn(
+          `WhatsApp restricted for ${validatedPhone}: ${restrictionReason}`
+        );
+        logger.info(
+          `Proceeding with lead creation despite WhatsApp restriction`
+        );
+      } else {
+        logger.info(`WhatsApp validation successful for ${validatedPhone}`);
+      }
     } else {
       // If no phone number provided, we can still create the lead (email-only lead)
       logger.debug("No phone number provided - creating email-only lead");
@@ -703,16 +746,37 @@ router.post("/wordpress", validateWebhookSource, async (req, res) => {
 
     // Update lead with WhatsApp validation results
     if (phone && phone.trim() && validatedPhone) {
-      // Update lead with WhatsApp validation status
-      const whatsappStatus = "VALIDATED";
+      let whatsappStatus = "VALIDATED";
+      let whatsappValid = true;
 
-      await leadService.updateLead(leadId.id || leadId, {
-        lastWhatsAppContact: admin.firestore.FieldValue.serverTimestamp(),
-        lastWhatsAppStatus: whatsappStatus,
-        whatsappValid: true, // Number is confirmed valid
-      });
+      // Check if this number has WhatsApp ecosystem restrictions
+      if (whatsappRestricted) {
+        whatsappStatus = "CONTACT_RESTRICTED";
+        whatsappValid = false;
 
-      statusNote += " (WhatsApp number verified and validation message sent)";
+        await leadService.updateLead(leadId.id || leadId, {
+          lastWhatsAppContact: admin.firestore.FieldValue.serverTimestamp(),
+          lastWhatsAppStatus: whatsappStatus,
+          whatsappValid: false,
+          whatsappRestricted: true,
+          whatsappRestrictionReason:
+            restrictionReason || "ecosystem_engagement",
+          preferredContactMethod: "EMAIL", // Mark for email contact instead
+          needsAlternateContact: true,
+        });
+
+        statusNote +=
+          " (WhatsApp messaging restricted due to ecosystem policy - lead marked for alternate contact)";
+      } else {
+        // Normal successful validation
+        await leadService.updateLead(leadId.id || leadId, {
+          lastWhatsAppContact: admin.firestore.FieldValue.serverTimestamp(),
+          lastWhatsAppStatus: whatsappStatus,
+          whatsappValid: true, // Number is confirmed valid
+        });
+
+        statusNote += " (WhatsApp number verified and validation message sent)";
+      }
       // Note: No additional welcome message needed - validation message serves as initial contact
     } else if (!phone) {
       statusNote += " (No phone number provided - email-only lead)";

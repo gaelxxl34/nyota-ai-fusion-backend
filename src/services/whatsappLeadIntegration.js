@@ -12,7 +12,8 @@ class WhatsAppLeadIntegration {
   }
 
   /**
-   * Process incoming WhatsApp message and create/update lead
+   * Process incoming WhatsApp message and update existing leads if found,
+   * but DO NOT create new leads automatically for direct WhatsApp messages
    */
   async processIncomingMessage(messageData) {
     try {
@@ -54,46 +55,40 @@ class WhatsAppLeadIntegration {
       }
 
       if (!lead) {
-        // No existing lead found, create new lead from WhatsApp contact
-        console.log(`📝 Creating new lead from WhatsApp: ${phoneNumber}`);
-
-        const leadData = {
-          name: profileName || "WhatsApp User",
-          phone: phoneNumber,
-          whatsappNumber: phoneNumber,
-        };
-
-        // If we have an email, add it to the lead
-        if (email) {
-          leadData.email = email;
-        }
-
-        lead = await this.leadService.createLead(
-          leadData,
-          LEAD_SOURCES.WHATSAPP
+        // No lead creation for direct WhatsApp messages
+        console.log(
+          `📝 Received WhatsApp message from unknown contact: ${phoneNumber}`
         );
-        leadWasCreated = true;
+        console.log(
+          `⚠️ No lead record exists for this number - creating conversation only`
+        );
+
+        // Return null to indicate no lead was found or created
+        return null;
       }
 
-      // Add interaction to timeline
-      await this.leadService.addInteraction(lead.id, {
-        type: "WHATSAPP",
-        content: messageContent,
-        channel: "WHATSAPP",
-        automated: false,
-        direction: "incoming",
-        messageId: messageData.messageId,
-        timestamp: messageData.timestamp,
-        metadata: {
-          profileName: profileName,
-          messageType: messageData.type || "text",
-          isBusinessMessage: messageData.isBusinessMessage || false,
-          whatsappMessageId: messageData.messageId,
-        },
-      });
+      // Only add interaction if we have a valid lead
+      if (lead && lead.id) {
+        // Add interaction to timeline
+        await this.leadService.addInteraction(lead.id, {
+          type: "WHATSAPP",
+          content: messageContent,
+          channel: "WHATSAPP",
+          automated: false,
+          direction: "incoming",
+          messageId: messageData.messageId,
+          timestamp: messageData.timestamp,
+          metadata: {
+            profileName: profileName,
+            messageType: messageData.type || "text",
+            isBusinessMessage: messageData.isBusinessMessage || false,
+            whatsappMessageId: messageData.messageId,
+          },
+        });
+      }
 
-      // If we just created a lead or added a phone number, make sure it's linked to the conversation
-      if (leadWasCreated || phoneNumberAdded) {
+      // If we added a phone number, make sure the lead is linked to the conversation
+      if (phoneNumberAdded && lead) {
         try {
           const ConversationService = require("./conversationService");
           const conversationService = new ConversationService();
@@ -105,13 +100,7 @@ class WhatsAppLeadIntegration {
           if (conversationId) {
             // Update conversation with lead ID
             console.log(
-              `🔄 Updating conversation ${conversationId} with lead ${lead.id}${
-                phoneNumberAdded
-                  ? " (phone number added)"
-                  : leadWasCreated
-                  ? " (newly created)"
-                  : ""
-              }`
+              `🔄 Updating conversation ${conversationId} with lead ${lead.id} (phone number added)`
             );
             await this.db
               .collection("conversations")
@@ -129,11 +118,18 @@ class WhatsAppLeadIntegration {
         }
       }
 
-      // Update engagement based on message
-      await this.updateEngagementBasedOnMessage(lead.id, messageContent);
+      // Update engagement based on message only if we have a lead
+      if (lead && lead.id) {
+        await this.updateEngagementBasedOnMessage(lead.id, messageContent);
+      }
 
-      console.log(`📱 WhatsApp message processed for lead: ${lead.id}`);
-      return lead;
+      if (lead && lead.id) {
+        console.log(`📱 WhatsApp message processed for lead: ${lead.id}`);
+        return lead;
+      } else {
+        console.log(`📱 WhatsApp message processed (no associated lead)`);
+        return null;
+      }
     } catch (error) {
       console.error("❌ Error processing WhatsApp message for lead:", error);
       throw error;
