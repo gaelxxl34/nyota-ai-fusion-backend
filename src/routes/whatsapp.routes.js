@@ -81,33 +81,61 @@ async function processIncomingMessage(message, metadata) {
 
     // Extract message content based on type
     let messageContent = "";
+    let email = null;
+
     switch (message.type) {
       case "text":
         messageContent = message.text.body;
+
+        // Try to extract email from text message if present
+        const emailRegex =
+          /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/;
+        const emailMatch = messageContent.match(emailRegex);
+        if (emailMatch) {
+          email = emailMatch[0];
+          console.log(`📧 Extracted email from message: ${email}`);
+        }
         break;
+
       case "image":
         messageContent = `[Image] ${message.image.caption || "No caption"}`;
         break;
+
       case "document":
         messageContent = `[Document] ${
           message.document.filename || "Unknown file"
         }`;
         break;
+
       case "audio":
         messageContent = "[Audio message]";
         break;
+
       case "video":
         messageContent = "[Video message]";
         break;
+
       case "voice":
         messageContent = "[Voice message]";
         break;
+
       case "location":
         messageContent = "[Location shared]";
         break;
+
       case "contacts":
         messageContent = "[Contact shared]";
+
+        // Try to extract email from shared contact if available
+        if (message.contacts && message.contacts.length > 0) {
+          const contact = message.contacts[0];
+          if (contact.emails && contact.emails.length > 0) {
+            email = contact.emails[0].email;
+            console.log(`📧 Extracted email from shared contact: ${email}`);
+          }
+        }
         break;
+
       default:
         messageContent = `[${message.type} message]`;
     }
@@ -123,6 +151,7 @@ async function processIncomingMessage(message, metadata) {
       messageType: message.type,
       messageContent: messageContent,
       profileName: profileName,
+      email: email, // Include email if extracted
     };
 
     // Process message using the refactored service

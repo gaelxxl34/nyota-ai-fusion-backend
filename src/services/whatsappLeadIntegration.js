@@ -16,23 +16,63 @@ class WhatsAppLeadIntegration {
    */
   async processIncomingMessage(messageData) {
     try {
-      const { phoneNumber, messageContent, profileName } = messageData;
+      const { phoneNumber, messageContent, profileName, email } = messageData;
 
-      // Try to find existing lead
+      // First, try to find existing lead by phone number
       let lead = await this.leadService.findLeadByPhone(phoneNumber);
+      let leadWasCreated = false;
+      let phoneNumberAdded = false;
+
+      // If no lead was found by phone and we have an email, try finding by email
+      if (!lead && email) {
+        console.log(
+          `🔍 No lead found by phone ${phoneNumber}, searching by email ${email}`
+        );
+        const leadByEmail = await this.leadService.findLeadByEmail(email);
+
+        if (leadByEmail) {
+          // Found a lead by email, now add the new phone number as an additional contact
+          lead = leadByEmail;
+          console.log(
+            `� Found lead ${lead.id} by email, adding new phone number ${phoneNumber}`
+          );
+
+          // Check if lead already has additionalPhones array
+          const additionalPhones = lead.additionalPhones || [];
+          const allPhoneNumbers = [lead.phone, ...additionalPhones];
+
+          // Only add phone number if it's not already in the lead's phone numbers
+          if (!allPhoneNumbers.includes(phoneNumber)) {
+            await this.leadService.updateLead(lead.id, {
+              additionalPhones: [...additionalPhones, phoneNumber],
+              whatsappNumber: phoneNumber, // Also update the primary whatsapp number
+            });
+            phoneNumberAdded = true;
+            console.log(`✅ Added phone ${phoneNumber} to lead ${lead.id}`);
+          }
+        }
+      }
 
       if (!lead) {
-        // Create new lead from WhatsApp contact
+        // No existing lead found, create new lead from WhatsApp contact
         console.log(`📝 Creating new lead from WhatsApp: ${phoneNumber}`);
 
+        const leadData = {
+          name: profileName || "WhatsApp User",
+          phone: phoneNumber,
+          whatsappNumber: phoneNumber,
+        };
+
+        // If we have an email, add it to the lead
+        if (email) {
+          leadData.email = email;
+        }
+
         lead = await this.leadService.createLead(
-          {
-            name: profileName || "WhatsApp User",
-            phone: phoneNumber,
-            whatsappNumber: phoneNumber,
-          },
+          leadData,
           LEAD_SOURCES.WHATSAPP
         );
+        leadWasCreated = true;
       }
 
       // Add interaction to timeline
@@ -51,6 +91,43 @@ class WhatsAppLeadIntegration {
           whatsappMessageId: messageData.messageId,
         },
       });
+
+      // If we just created a lead or added a phone number, make sure it's linked to the conversation
+      if (leadWasCreated || phoneNumberAdded) {
+        try {
+          const ConversationService = require("./conversationService");
+          const conversationService = new ConversationService();
+
+          // Find the conversation by phone number
+          const conversationId =
+            await conversationService.findConversationByPhone(phoneNumber);
+
+          if (conversationId) {
+            // Update conversation with lead ID
+            console.log(
+              `🔄 Updating conversation ${conversationId} with lead ${lead.id}${
+                phoneNumberAdded
+                  ? " (phone number added)"
+                  : leadWasCreated
+                  ? " (newly created)"
+                  : ""
+              }`
+            );
+            await this.db
+              .collection("conversations")
+              .doc(conversationId)
+              .update({
+                leadId: lead.id,
+                leadStatus: lead.status,
+                updatedAt: new Date(),
+              });
+          }
+        } catch (convError) {
+          console.error(
+            `❌ Error linking lead to conversation: ${convError.message}`
+          );
+        }
+      }
 
       // Update engagement based on message
       await this.updateEngagementBasedOnMessage(lead.id, messageContent);

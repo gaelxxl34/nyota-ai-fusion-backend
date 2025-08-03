@@ -7,6 +7,8 @@ const admin = require("firebase-admin");
 const aiService = require("./ai.service");
 const ConversationService = require("./conversationService");
 const { broadcastMessage } = require("./broadcastService");
+const WhatsAppLeadIntegration = require("./whatsappLeadIntegration");
+const LeadService = require("./leadService");
 
 class WhatsAppMessageService {
   /**
@@ -46,6 +48,11 @@ class WhatsAppMessageService {
   constructor() {
     this.conversationService = new ConversationService();
     this.db = admin.firestore();
+    this.leadService = new LeadService();
+    this.leadIntegration = new WhatsAppLeadIntegration(
+      this.leadService,
+      this.db
+    );
   }
 
   /**
@@ -59,11 +66,23 @@ class WhatsAppMessageService {
         messageContent,
         messageType,
         profileName,
+        email, // Email might be included if extracted from conversation
       } = messageData;
 
       // Store message in database
       const messageDbId = await this.storeIncomingMessage(messageData);
       console.log(`💾 Stored incoming message with ID: ${messageDbId}`);
+
+      // Process lead integration (find or create lead, link to conversation)
+      await this.leadIntegration.processIncomingMessage({
+        messageId,
+        phoneNumber,
+        messageContent,
+        profileName,
+        email, // Pass email if available
+        messageType,
+        timestamp: new Date().toISOString(),
+      });
 
       // Broadcast to real-time clients
       this.broadcastIncomingMessage(messageData);

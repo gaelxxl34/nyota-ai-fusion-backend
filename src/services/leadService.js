@@ -987,6 +987,38 @@ class LeadService {
         }
       }
 
+      // If this is a human interaction from certain channels and lead is in INQUIRY status,
+      // update the status to CONTACTED so it appears in the Contacted tab
+      const isContactChannel = [
+        "WHATSAPP",
+        "EMAIL",
+        "PHONE",
+        "MEETING",
+      ].includes(interaction.channel);
+      const isIncomingHumanInteraction =
+        interaction.direction === "incoming" && !interaction.automated;
+
+      if (
+        isContactChannel &&
+        isIncomingHumanInteraction &&
+        lead.status === LEAD_STATUSES.INQUIRY
+      ) {
+        // Update status to CONTACTED
+        const updatedLead = LeadModel.updateStatus(
+          lead,
+          LEAD_STATUSES.CONTACTED,
+          `Auto-updated to Contacted based on ${interaction.channel} interaction`,
+          "SYSTEM"
+        );
+
+        // Use the updated lead data for the database update
+        updateData.status = LEAD_STATUSES.CONTACTED;
+        updateData.timeline = updatedLead.timeline;
+        console.log(
+          `📞 Lead ${leadId} status updated to CONTACTED based on ${interaction.channel} interaction`
+        );
+      }
+
       await this.db.collection(this.collection).doc(leadId).update(updateData);
 
       console.log(`✅ Interaction added to lead ${leadId}`);

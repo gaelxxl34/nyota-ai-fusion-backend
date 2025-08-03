@@ -69,10 +69,37 @@ class ConversationService {
       // Extract contact name from profile
       const contactName = profile?.name || null;
 
-      // Find or create conversation with contact name
+      // First check if we have a lead associated with this phone number
+      let leadId = null;
+      try {
+        // Avoid circular dependency by using direct Firestore query
+        const normalizedPhone = from.replace(/[^\d+]/g, ""); // Keep + and digits
+        const phoneWithoutPlus = from.replace(/[^\d]/g, ""); // Only digits
+
+        // Query for both formats of the phone number
+        const leadsQuery = await this.db
+          .collection("leads")
+          .where("phone", "in", [normalizedPhone, phoneWithoutPlus, from])
+          .limit(1)
+          .get();
+
+        if (!leadsQuery.empty) {
+          const leadDoc = leadsQuery.docs[0];
+          leadId = leadDoc.id;
+          console.log(
+            `📱 Found existing lead ${leadId} for phone ${from}, linking to conversation`
+          );
+        }
+      } catch (leadError) {
+        console.warn(
+          `⚠️ Error looking up lead for ${from}: ${leadError.message}`
+        );
+      }
+
+      // Find or create conversation with contact name and lead ID
       const conversationId = await this.createOrGetConversation(
         from,
-        null,
+        leadId, // Pass the leadId if we found one
         contactName
       );
 
@@ -301,10 +328,28 @@ class ConversationService {
         }
       }
 
+      // If we have a leadId, get the lead status
+      let leadStatus = null;
+      if (leadId) {
+        try {
+          // Get lead status from the lead document
+          const leadDoc = await this.db.collection("leads").doc(leadId).get();
+          if (leadDoc.exists) {
+            leadStatus = leadDoc.data().status || null;
+            console.log(`📊 Got lead status ${leadStatus} for lead ${leadId}`);
+          }
+        } catch (leadStatusError) {
+          console.warn(
+            `⚠️ Could not get lead status for ${leadId}: ${leadStatusError.message}`
+          );
+        }
+      }
+
       // Create new conversation with lead information if available
       const conversationData = {
         phoneNumber: phoneNumber,
         leadId: leadId, // Use leadId (might be null in error cases)
+        leadStatus: leadStatus, // Include lead status if available
         contactName: contactName || `Contact ${phoneNumber.slice(-4)}`,
         status: "active",
         createdAt: new Date(),
