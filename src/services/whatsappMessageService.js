@@ -31,6 +31,11 @@ class WhatsAppMessageService {
     }
     const url = `https://graph.facebook.com/v17.0/${phoneNumberId}/messages`;
 
+    // Check if this is a validation message
+    const isValidationMessage =
+      metadata?.validationType === "initial_validation" ||
+      templatePayload.template?.name === "whatsapp_validation";
+
     try {
       // Extract template information for logging
       const templateName = templatePayload.template?.name || "unknown_template";
@@ -50,27 +55,71 @@ class WhatsAppMessageService {
       // WhatsApp API returns messageId in response.data.messages[0].id
       const messageId = response.data?.messages?.[0]?.id;
 
-      // If we have a message ID, store the template message in our database
+      // If we have a message ID, handle the message
       if (messageId) {
+        // For validation messages, we'll handle them differently
+        if (isValidationMessage) {
+          // Store validation message info without creating a conversation or database entry
+          console.log(
+            `📱 Tracking validation message ${messageId} for phone ${phoneNumber} (no conversation created)`
+          );
+
+          this.validationMessages.set(messageId, {
+            phoneNumber: phoneNumber,
+            timestamp: new Date(),
+            metadata: metadata || {},
+            templateName: templateName,
+            templateLanguage: templateLanguage,
+            status: "sent",
+          });
+
+          // Return success with messageId only - no conversation or database entry yet
+          return {
+            success: true,
+            messageId,
+            isValidation: true,
+          };
+        }
+
         try {
+          // For non-validation messages, process normally
           // Extract leadId from metadata or look it up if needed
           let leadId = metadata?.leadId;
 
           // If no leadId provided but we have a phone number, try to find the lead
           if (!leadId && phoneNumber) {
             try {
+              // Validate that required services are available
+              if (
+                !this.leadService ||
+                typeof this.leadService.findLeadByPhone !== "function"
+              ) {
+                throw new Error("Lead service not properly initialized");
+              }
+
               const normalizedPhone = phoneNumber.replace(/[^\d+]/g, "");
               const phoneWithoutPlus = phoneNumber.replace(/[^\d]/g, "");
+
+              console.log(
+                `🔍 Searching for lead with phone formats: ${normalizedPhone}, ${phoneWithoutPlus}, +${phoneWithoutPlus}, ${phoneNumber}`
+              );
 
               // Try to find lead by phone number
               const existingLead =
                 (await this.leadService.findLeadByPhone(normalizedPhone)) ||
-                (await this.leadService.findLeadByPhone(phoneWithoutPlus));
+                (await this.leadService.findLeadByPhone(phoneWithoutPlus)) ||
+                (await this.leadService.findLeadByPhone(
+                  `+${phoneWithoutPlus}`
+                ));
 
               if (existingLead) {
                 leadId = existingLead.id;
                 console.log(
                   `📱 Found lead ${leadId} for template message to ${phoneNumber}`
+                );
+              } else {
+                console.log(
+                  `⚠️ No existing lead found for phone ${phoneNumber}`
                 );
               }
             } catch (leadLookupError) {
@@ -90,6 +139,7 @@ class WhatsAppMessageService {
 
           // Prepare a readable version of the template for storing
           const templateContent = `Template: ${templateName} (${templateLanguage})`;
+          const components = templatePayload.template?.components || [];
 
           // Store the message in our database
           const messageDoc = {
@@ -132,15 +182,13 @@ class WhatsAppMessageService {
             conversationId,
             savedMessageId: messageRef.id,
           };
-        } catch (saveError) {
-          console.error(
-            `❌ Error saving template message to database: ${saveError.message}`
-          );
+        } catch (error) {
+          console.error(`❌ Error storing template message: ${error.message}`);
           // We still return success since the WhatsApp API call worked
           return {
             success: true,
             messageId,
-            error: `Message sent but not saved: ${saveError.message}`,
+            error: `Message sent but not saved: ${error.message}`,
           };
         }
       }
@@ -152,14 +200,80 @@ class WhatsAppMessageService {
       return { success: false, error: errMsg };
     }
   }
-  constructor() {
-    this.conversationService = new ConversationService();
-    this.db = admin.firestore();
-    this.leadService = new LeadService();
+  constructor(firestore, leadService, conversationService) {
+    // Accept dependencies via constructor to avoid circular dependencies
+    this.db = firestore || admin.firestore();
+    this.leadService = leadService || new LeadService(this.db);
+    this.conversationService =
+      conversationService || new ConversationService(this.db);
     this.leadIntegration = new WhatsAppLeadIntegration(
       this.leadService,
       this.db
     );
+
+    // Store validation message IDs for tracking without creating conversations
+    this.validationMessages = new Map(); // messageId -> {phone, timestamp, metadata}
+  }
+
+  /**
+   * Link a previously created conversation (during validation) to a newly created lead
+   * @param {string} phoneNumber - The phone number used for validation
+   * @param {string} leadId - The newly created lead ID to link to the conversation
+   * @returns {Promise<boolean>} - Success status
+   */
+  async updateConversationWithLead(phoneNumber, leadId) {
+    try {
+      if (!phoneNumber || !leadId) {
+        console.warn(`⚠️ Cannot update conversation: missing phone or leadId`);
+        return false;
+      }
+
+      // Normalize the phone number
+      const normalizedPhone = phoneNumber.replace(/[^\d+]/g, "");
+
+      // First check if we have a stored validation conversation
+      let conversationId =
+        this.validationMessages.get(normalizedPhone)?.messageId;
+
+      // If not found in the map, try to find it in the database
+      if (!conversationId) {
+        console.log(
+          `🔍 Looking up conversation for ${normalizedPhone} in database`
+        );
+        conversationId = await this.conversationService.findConversationByPhone(
+          normalizedPhone
+        );
+      }
+
+      if (!conversationId) {
+        console.warn(`⚠️ No conversation found for ${normalizedPhone}`);
+        return false;
+      }
+
+      console.log(
+        `🔄 Updating conversation ${conversationId} with lead ID ${leadId}`
+      );
+
+      // Update the conversation with the lead ID
+      await this.db.collection("conversations").doc(conversationId).update({
+        leadId: leadId,
+        updatedAt: new Date(),
+      });
+
+      console.log(
+        `✅ Successfully linked conversation ${conversationId} to lead ${leadId}`
+      );
+
+      // Remove from the map after successful update
+      this.validationMessages.delete(normalizedPhone);
+
+      return true;
+    } catch (error) {
+      console.error(
+        `❌ Error updating conversation with lead: ${error.message}`
+      );
+      return false;
+    }
   }
 
   /**
@@ -443,45 +557,91 @@ class WhatsAppMessageService {
 
       console.log(`📊 Message ${messageId} status updated to ${statusType}`);
 
-      // Check if this is a validation message that failed
-      if (statusType === "failed" && recipientId && errors.length > 0) {
-        const errorCode = errors[0]?.code;
-        const errorTitle = errors[0]?.title || "Unknown error";
-        const errorDetails = errors[0]?.error_data?.details || "";
+      // Check if this is a validation message that we're tracking
+      const isValidationMessage = this.validationMessages.has(messageId);
 
+      if (isValidationMessage) {
         console.log(
-          `❌ WhatsApp message failed for ${recipientId} - Error ${errorCode}: ${errorTitle} (${errorDetails})`
+          `📱 Status update for validation message ${messageId}: ${statusType}`
         );
 
-        // Always update validation status for failed messages
-        await this.updateLeadValidationStatus(
-          recipientId,
+        // Update status in our tracking map
+        const validationData = this.validationMessages.get(messageId);
+        validationData.status = statusType;
+        validationData.statusTimestamp = timestamp;
+
+        if (errors.length > 0) {
+          validationData.error = {
+            code: errors[0]?.code,
+            title: errors[0]?.title || "Unknown error",
+            details: errors[0]?.error_data?.details || "",
+          };
+        }
+
+        this.validationMessages.set(messageId, validationData);
+
+        // Handle validation failure
+        if (statusType === "failed" && recipientId && errors.length > 0) {
+          const errorCode = errors[0]?.code;
+          const errorTitle = errors[0]?.title || "Unknown error";
+          const errorDetails = errors[0]?.error_data?.details || "";
+
+          console.log(
+            `❌ WhatsApp validation failed for ${recipientId} - Error ${errorCode}: ${errorTitle} (${errorDetails})`
+          );
+
+          // Broadcast validation failure
+          broadcastMessage(
+            {
+              messageId: messageId,
+              phoneNumber: validationData.phoneNumber,
+              status: "validation_failed",
+              error: {
+                code: errorCode,
+                title: errorTitle,
+                details: errorDetails,
+              },
+              timestamp: timestamp,
+            },
+            "validation_status"
+          );
+        } else if (statusType === "delivered" && recipientId) {
+          console.log(
+            `✅ WhatsApp validation successful for ${recipientId} - Message delivered`
+          );
+
+          // Broadcast validation success
+          broadcastMessage(
+            {
+              messageId: messageId,
+              phoneNumber: validationData.phoneNumber,
+              status: "validation_success",
+              timestamp: timestamp,
+            },
+            "validation_status"
+          );
+
+          // Note: We don't create conversation here automatically
+          // The client should call createConversationForValidatedNumber when ready to create lead
+        }
+
+        // For validation messages, we don't update status in database since there's no entry
+      } else {
+        // Regular (non-validation) message - update status in database
+        await this.conversationService.updateMessageStatus(
           messageId,
-          false,
-          errorCode
+          statusType,
+          timestamp
         );
-      } else if (statusType === "delivered" && recipientId) {
-        console.log(
-          `✅ WhatsApp validation successful for ${recipientId} - Message delivered`
-        );
-
-        // Update lead validation status to confirmed
-        await this.updateLeadValidationStatus(recipientId, messageId, true);
       }
 
-      // Update message status in database with current timestamp
-      await this.conversationService.updateMessageStatus(
-        messageId,
-        statusType,
-        new Date()
-      );
-
-      // Broadcast status update to clients
+      // Always broadcast status update to clients
       broadcastMessage(
         {
           messageId: messageId,
           status: statusType,
           timestamp: timestamp,
+          isValidation: isValidationMessage,
         },
         "message_status_update"
       );
@@ -555,10 +715,23 @@ class WhatsAppMessageService {
    */
   async sendValidationMessage(phoneNumber, message, metadata = {}) {
     try {
-      return await this.conversationService.sendValidationMessage(
-        phoneNumber,
-        message
-      );
+      // Use template message but with validation flag to avoid database entry
+      const templatePayload = {
+        messaging_product: "whatsapp",
+        to: phoneNumber,
+        type: "template",
+        template: {
+          name: "whatsapp_validation",
+          language: { code: "en_US" },
+          components: [],
+        },
+      };
+
+      // Send as validation message (won't create conversation)
+      return await this.sendTemplateMessage(phoneNumber, templatePayload, {
+        ...metadata,
+        validationType: "initial_validation",
+      });
     } catch (error) {
       console.error("❌ Error sending validation message:", error);
       return { success: false, error: error.message };
@@ -566,28 +739,93 @@ class WhatsAppMessageService {
   }
 
   /**
-   * Create conversation after successful validation
+   * Create conversation for a validated phone number
    * Should be called only after validation message has been confirmed as delivered
+   * @param {string} messageId - The ID of the validation message that was delivered
+   * @param {object} metadata - Additional data like leadId, contactName
+   * @returns {Promise<object>} - { success, conversationId, error }
    */
-  async createConversationAfterValidation(
-    phoneNumber,
-    validationMessage,
-    messageId,
-    metadata = {}
-  ) {
+  async createConversationForValidatedNumber(messageId, metadata = {}) {
     try {
-      return await this.conversationService.createConversationWithValidationMessage(
-        phoneNumber,
-        validationMessage,
-        metadata.leadId,
-        metadata.contactName,
-        messageId
+      // Find the validation message in our map
+      const validationData = this.validationMessages.get(messageId);
+
+      if (!validationData) {
+        console.warn(`⚠️ No validation data found for messageId ${messageId}`);
+        return { success: false, error: "Validation message not found" };
+      }
+
+      const { phoneNumber, templateName, templateLanguage } = validationData;
+      const leadId = metadata.leadId || validationData.metadata?.leadId;
+      const contactName =
+        metadata.contactName || validationData.metadata?.contactName;
+
+      console.log(
+        `✅ Creating conversation for validated number ${phoneNumber} with lead ${leadId}`
       );
+
+      // Create the conversation
+      const conversationId =
+        await this.conversationService.createOrGetConversation(
+          phoneNumber,
+          leadId,
+          contactName
+        );
+
+      // Store the validation message in the conversation
+      const templateContent = `Template: ${templateName} (${templateLanguage})`;
+
+      // Store the message in our database
+      const messageDoc = {
+        messageId: messageId,
+        conversationId: conversationId,
+        from: process.env.WHATSAPP_PHONE_NUMBER_ID,
+        to: phoneNumber,
+        content: templateContent,
+        messageType: "template",
+        templateName: templateName,
+        templateLanguage: templateLanguage,
+        senderType: "outgoing",
+        direction: "outgoing",
+        timestamp: validationData.timestamp,
+        status: validationData.status,
+        metadata: validationData.metadata || {},
+        createdAt: new Date(),
+      };
+
+      // Add to messages collection
+      const messageRef = await this.db.collection("messages").add(messageDoc);
+
+      // Update conversation with latest message
+      await this.db.collection("conversations").doc(conversationId).update({
+        lastMessage: templateContent,
+        lastMessageTime: validationData.timestamp,
+        lastMessageFrom: "business",
+        updatedAt: new Date(),
+      });
+
+      console.log(
+        `💾 Validation message ${messageId} saved to new conversation ${conversationId}`
+      );
+
+      // Remove from validation messages map
+      this.validationMessages.delete(messageId);
+
+      return {
+        success: true,
+        conversationId,
+        messageId,
+        savedMessageId: messageRef.id,
+        leadId,
+      };
     } catch (error) {
-      console.error("❌ Error creating conversation after validation:", error);
+      console.error(
+        "❌ Error creating conversation for validated number:",
+        error
+      );
       return { success: false, error: error.message };
     }
   }
 }
 
-module.exports = new WhatsAppMessageService();
+module.exports = WhatsAppMessageService;

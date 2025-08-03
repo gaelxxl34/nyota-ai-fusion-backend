@@ -133,6 +133,14 @@ class ApplicationService {
       // 6. Send WhatsApp thank you message
       let whatsappResult = null;
       try {
+        // IMPORTANT: Make sure we have a valid lead object before sending the message
+        if (!lead || !lead.id) {
+          console.error("❌ Cannot send WhatsApp message - missing lead ID");
+          throw new Error("Missing lead ID for WhatsApp message");
+        }
+
+        console.log(`📱 Preparing to send confirmation for lead: ${lead.id}`);
+
         // Use the received_application template instead of custom message
         const templatePayload = {
           messaging_product: "whatsapp",
@@ -146,7 +154,7 @@ class ApplicationService {
 
         // Enhanced metadata for better conversation tracking
         const messageMetadata = {
-          leadId: lead.id,
+          leadId: lead.id, // Make sure lead ID is properly passed
           applicationId: docRef.id,
           messageType: "application_confirmation",
           contactName: applicationData.name,

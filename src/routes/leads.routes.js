@@ -5,9 +5,21 @@
 
 const express = require("express");
 const LeadService = require("../services/leadService");
+const WhatsAppMessageService = require("../services/whatsappMessageService");
+const ConversationService = require("../services/conversationService");
+const { getFirestore } = require("firebase-admin/firestore");
 const { LEAD_STATUSES, LEAD_SOURCES } = require("../config/lead.constants");
 
 const router = express.Router();
+
+// Initialize services for conversation creation
+const db = getFirestore();
+const conversationService = new ConversationService(db);
+const whatsappMessageService = new WhatsAppMessageService(
+  db,
+  null,
+  conversationService
+);
 
 // Initialize lead service (will be injected with Firestore instance)
 let leadService = null;
@@ -21,9 +33,11 @@ const ensureLeadService = (req, res, next) => {
 };
 
 // Initialize lead service with Firestore
-const initializeLeadService = (firestore) => {
+// Function to initialize the lead service with Firestore instance
+const initLeadService = (firestore) => {
   leadService = new LeadService(firestore);
-  console.log("✅ Lead service initialized");
+  // Update the WhatsAppMessageService with the initialized leadService
+  whatsappMessageService.leadService = leadService;
 };
 
 /**
@@ -56,7 +70,45 @@ router.post("/", ensureLeadService, async (req, res) => {
       submittedBy: submitterInfo,
     };
 
+    // Create the lead
     const lead = await leadService.createLead(contactInfo, source, leadData);
+
+    // If this lead has a phone number and was created from a WhatsApp validation,
+    // create a conversation and link it to the lead
+    if (lead && contactInfo.phone && req.body.whatsappValidationMessageId) {
+      try {
+        console.log(
+          `Creating conversation for validated lead ${lead.id} with message ID ${req.body.whatsappValidationMessageId}`
+        );
+
+        // Create the conversation from the validation message
+        const conversationResult =
+          await whatsappMessageService.createConversationForValidatedNumber(
+            req.body.whatsappValidationMessageId,
+            {
+              leadId: lead.id,
+              contactName: contactInfo.name || contactInfo.firstName || null,
+            }
+          );
+
+        if (conversationResult.success) {
+          console.log(
+            `✅ Created conversation ${conversationResult.conversationId} for lead ${lead.id}`
+          );
+          // Add conversation ID to the lead response
+          lead.conversationId = conversationResult.conversationId;
+        } else {
+          console.error(
+            `❌ Failed to create conversation for lead ${lead.id}: ${conversationResult.error}`
+          );
+        }
+      } catch (convError) {
+        console.error(
+          `❌ Error creating conversation for lead ${lead.id}: ${convError.message}`
+        );
+        // Continue with lead creation even if conversation linking fails
+      }
+    }
 
     res.status(201).json({
       success: true,

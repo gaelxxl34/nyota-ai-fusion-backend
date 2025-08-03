@@ -2,7 +2,11 @@ const express = require("express");
 const router = express.Router();
 const { authenticateUser } = require("../middleware/auth.middleware");
 const axios = require("axios");
-const whatsappMessageService = require("../services/whatsappMessageService");
+// Import the WhatsAppMessageService class
+const WhatsAppMessageService = require("../services/whatsappMessageService");
+const { getFirestore } = require("firebase-admin/firestore");
+const LeadService = require("../services/leadService");
+// Initialize services properly to avoid circular dependencies
 const ConversationService = require("../services/conversationService");
 const aiService = require("../services/ai.service");
 const {
@@ -10,6 +14,16 @@ const {
   removeConnection,
   broadcastMessage,
 } = require("../services/broadcastService");
+
+// Initialize services
+const db = getFirestore();
+const leadService = new LeadService(db);
+const conversationService = new ConversationService(db);
+const whatsappMessageService = new WhatsAppMessageService(
+  db,
+  leadService,
+  conversationService
+);
 // WhatsApp Cloud API Configuration
 const WHATSAPP_ACCESS_TOKEN =
   process.env.WHATSAPP_ACCESS_TOKEN ||
@@ -210,6 +224,8 @@ async function processMessageStatus(status) {
           validation.resolve({
             success: true,
             status: messageStatus,
+            messageId: messageId, // Pass the message ID back to create conversation on lead creation
+            phone: validation.phone,
           });
         }
         // For other statuses (read, etc.), we don't need to do anything

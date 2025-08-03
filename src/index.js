@@ -127,11 +127,18 @@ function startServer() {
     } = require("./routes/applications.routes");
 
     const LeadService = require("./services/leadService");
-    const whatsappMessageService = require("./services/whatsappMessageService"); // Already instantiated
+    const WhatsAppMessageService = require("./services/whatsappMessageService"); // Now returns the class, not an instance
+    const ConversationService = require("./services/conversationService");
 
     // Initialize services
     const db = getFirestore();
     const leadService = new LeadService(db);
+    const conversationService = new ConversationService(db);
+    const whatsappMessageService = new WhatsAppMessageService(
+      db,
+      leadService,
+      conversationService
+    );
 
     initializeApplicationService(db, leadService, whatsappMessageService);
 

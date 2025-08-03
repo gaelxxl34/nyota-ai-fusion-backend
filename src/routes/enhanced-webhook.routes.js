@@ -4,7 +4,19 @@ const { admin } = require("../config/firebase.config");
 const { LEAD_SOURCES } = require("../config/lead.constants");
 const WebhookForwarder = require("../services/webhookForwarder");
 const LeadService = require("../services/leadService");
-const whatsappMessageService = require("../services/whatsappMessageService");
+// Import the WhatsAppMessageService class
+const WhatsAppMessageService = require("../services/whatsappMessageService");
+const { getFirestore } = require("firebase-admin/firestore");
+const ConversationService = require("../services/conversationService");
+// Initialize services properly to avoid circular dependencies
+const db = getFirestore();
+const leadService = new LeadService(db);
+const conversationService = new ConversationService(db);
+const whatsappMessageService = new WhatsAppMessageService(
+  db,
+  leadService,
+  conversationService
+);
 const ApplicationService = require("../services/applicationService");
 const logger = require("../utils/logger");
 
@@ -146,7 +158,7 @@ const validateWhatsAppNumber = async (
 
   try {
     // First, try sending the whatsapp_validation template for validation
-    // Include metadata to ensure the message is saved to the conversation
+    // Include metadata for validation but avoid creating conversation immediately
     const messageMetadata = {
       contactName: name,
       source: source,
@@ -154,10 +166,10 @@ const validateWhatsAppNumber = async (
       validationType: "initial_validation",
     };
 
-    // Send validation message with metadata
-    const validationResult = await whatsappMessageService.sendTemplateMessage(
+    // Send validation message using the new specialized method
+    const validationResult = await whatsappMessageService.sendValidationMessage(
       normalizedPhone,
-      templatePayload,
+      "Validation message",
       messageMetadata
     );
 
@@ -285,7 +297,9 @@ const validateWhatsAppNumber = async (
         isValid: true,
         normalizedPhone,
         validationResult: webhookResult,
-        conversationId: null,
+        validationMessageId:
+          webhookResult.messageId || validationResult.messageId,
+        // No longer providing conversationId since we don't create it immediately
       };
     } else {
       // Check the error type from webhook
@@ -668,8 +682,21 @@ router.post("/wordpress", validateWebhookSource, async (req, res) => {
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
       };
 
+      // Add validation message ID if available
+      if (
+        validatedPhone &&
+        validationResults &&
+        validationResults.validationMessageId
+      ) {
+        leadData.whatsappValidationMessageId =
+          validationResults.validationMessageId;
+      }
+
+      // Create the lead
       leadId = await leadService.createLead(leadData, LEAD_SOURCES.WEBSITE);
       actionTaken = "created_new_lead";
+
+      // The lead creation endpoint will now handle creating the conversation
       statusNote =
         "New lead created from WordPress contact form (user initiated contact)";
     }
@@ -887,8 +914,20 @@ router.post("/google-ads", validateWebhookSource, async (req, res) => {
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
       };
 
+      // Add validation message ID if available
+      if (
+        validatedPhone &&
+        validationResults &&
+        validationResults.validationMessageId
+      ) {
+        leadData.whatsappValidationMessageId =
+          validationResults.validationMessageId;
+      }
+
       leadId = await leadService.createLead(leadData, LEAD_SOURCES.GOOGLE_ADS);
       actionTaken = "created_new_lead";
+
+      // The lead creation endpoint will now handle creating the conversation
       statusNote =
         "New lead created from Google Ads contact form (user initiated contact)";
     }
@@ -1626,8 +1665,20 @@ router.post("/meta-ads", validateWebhookSource, async (req, res) => {
         metaAdsData: formData,
       };
 
+      // Add validation message ID if available
+      if (
+        validatedPhone &&
+        validationResults &&
+        validationResults.validationMessageId
+      ) {
+        leadData.whatsappValidationMessageId =
+          validationResults.validationMessageId;
+      }
+
       leadId = await leadService.createLead(leadData, LEAD_SOURCES.META_ADS);
       actionTaken = "created_new_lead";
+
+      // The lead creation endpoint will now handle creating the conversation
       statusNote =
         "New lead created from Meta Ads contact form (user initiated contact)";
     }
