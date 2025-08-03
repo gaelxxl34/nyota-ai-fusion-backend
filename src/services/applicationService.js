@@ -144,14 +144,21 @@ class ApplicationService {
           },
         };
 
+        // Enhanced metadata for better conversation tracking
+        const messageMetadata = {
+          leadId: lead.id,
+          applicationId: docRef.id,
+          messageType: "application_confirmation",
+          contactName: applicationData.name,
+          program: applicationData.preferredProgram,
+          source: "APPLICATION_FORM",
+        };
+
+        // Send template message and save it to conversation history
         whatsappResult = await this.whatsappService.sendTemplateMessage(
           applicationData.phoneNumber,
           templatePayload,
-          {
-            leadId: lead.id,
-            applicationId: docRef.id,
-            messageType: "application_confirmation",
-          }
+          messageMetadata
         );
 
         if (whatsappResult.success) {

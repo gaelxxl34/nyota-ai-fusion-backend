@@ -67,14 +67,36 @@ class LeadService {
    * Normalize lead data to ensure consistent status from timeline
    */
   _normalizeLead(docId, data) {
-    const convertedData = this._convertTimestamps(data);
-    const currentStatus = LeadModel.getCurrentStatus(convertedData);
+    try {
+      const convertedData = this._convertTimestamps(data);
 
-    return {
-      id: docId,
-      ...convertedData,
-      status: currentStatus, // Always use timeline-based status
-    };
+      // Ensure timeline is an array or null/undefined
+      if (convertedData.timeline && !Array.isArray(convertedData.timeline)) {
+        console.error(
+          `❌ Lead ${docId} has invalid timeline format. Converting to array.`
+        );
+        // If timeline exists but isn't an array, convert it or set to empty array
+        convertedData.timeline = Array.isArray(convertedData.timeline)
+          ? convertedData.timeline
+          : [];
+      }
+
+      const currentStatus = LeadModel.getCurrentStatus(convertedData);
+
+      return {
+        id: docId,
+        ...convertedData,
+        status: currentStatus, // Always use timeline-based status
+      };
+    } catch (error) {
+      console.error(`❌ Error normalizing lead ${docId}:`, error);
+      // Return a safe fallback version
+      return {
+        id: docId,
+        ...data,
+        status: data.status || "CONTACTED",
+      };
+    }
   }
 
   /**

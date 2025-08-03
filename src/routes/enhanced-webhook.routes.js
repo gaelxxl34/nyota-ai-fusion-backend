@@ -146,9 +146,19 @@ const validateWhatsAppNumber = async (
 
   try {
     // First, try sending the whatsapp_validation template for validation
+    // Include metadata to ensure the message is saved to the conversation
+    const messageMetadata = {
+      contactName: name,
+      source: source,
+      messageType: "whatsapp_validation",
+      validationType: "initial_validation",
+    };
+
+    // Send validation message with metadata
     const validationResult = await whatsappMessageService.sendTemplateMessage(
       normalizedPhone,
-      templatePayload
+      templatePayload,
+      messageMetadata
     );
 
     logger.debug(
@@ -948,6 +958,12 @@ router.post("/google-ads", validateWebhookSource, async (req, res) => {
  */
 router.post("/application-form", validateWebhookSource, async (req, res) => {
   try {
+    // Initialize response variables
+    let actionTaken = "";
+    let leadId = null;
+    let applicationId = null;
+    let statusNote = "";
+
     const formData = req.body;
     logger.webhook("Application Form", formData);
 
@@ -1147,10 +1163,14 @@ router.post("/application-form", validateWebhookSource, async (req, res) => {
       applicationId = result.application;
       leadId = result.lead?.id;
 
-      if (
+      // Check if timeline exists and is an array before trying to find in it
+      const hasAppliedStatus =
         result.lead &&
-        !result.lead.timeline?.find((t) => t.status === "APPLIED")
-      ) {
+        result.lead.timeline &&
+        Array.isArray(result.lead.timeline) &&
+        result.lead.timeline.find((t) => t.status === "APPLIED");
+
+      if (result.lead && !hasAppliedStatus) {
         actionTaken = "created_new_lead_and_application";
         statusNote = "New lead and application created successfully";
       } else {
@@ -1340,15 +1360,29 @@ router.post("/receive", async (req, res) => {
           },
         };
 
+        // Include metadata to properly track the message in our system
+        const messageMetadata = {
+          leadId: leadId, // Link to the lead that was just created
+          contactName: name,
+          source: "GENERIC_WEBHOOK",
+          messageType: "whatsapp_validation",
+          programInterest: program,
+        };
+
+        // Send and save the template message
         await whatsappMessageService.sendTemplateMessage(
           validatedPhone || phone,
-          templatePayload
+          templatePayload,
+          messageMetadata
+        );
+
+        logger.info(
+          `WhatsApp validation message sent and saved for lead ${leadId}`
         );
       } catch (whatsappError) {
         logger.error("Failed to send WhatsApp message:", whatsappError);
       }
     }
-
     res.status(200).json({
       success: true,
       message: "Generic webhook processed successfully",

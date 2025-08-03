@@ -174,7 +174,13 @@ class LeadModel {
    */
   static getCurrentStatus(leadData) {
     try {
-      if (!leadData || !leadData.timeline || leadData.timeline.length === 0) {
+      // More robust check to handle non-array timelines
+      if (
+        !leadData ||
+        !leadData.timeline ||
+        !Array.isArray(leadData.timeline) ||
+        leadData.timeline.length === 0
+      ) {
         return leadData?.status || LEAD_STATUSES.CONTACTED;
       }
 

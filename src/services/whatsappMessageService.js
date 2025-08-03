@@ -15,9 +15,10 @@ class WhatsAppMessageService {
    * Send a WhatsApp template message using the Cloud API
    * @param {string} phoneNumber - Recipient phone number (international format, no +)
    * @param {object} templatePayload - The template message payload (see WhatsApp Cloud API docs)
-   * @returns {Promise<object>} - { success, messageId, error }
+   * @param {object} metadata - Additional metadata (leadId, applicationId, etc.)
+   * @returns {Promise<object>} - { success, messageId, error, conversationId }
    */
-  async sendTemplateMessage(phoneNumber, templatePayload) {
+  async sendTemplateMessage(phoneNumber, templatePayload, metadata = {}) {
     const axios = require("axios");
     // WhatsApp Cloud API credentials from environment variables
     const accessToken = process.env.WHATSAPP_ACCESS_TOKEN;
@@ -29,7 +30,15 @@ class WhatsAppMessageService {
       };
     }
     const url = `https://graph.facebook.com/v17.0/${phoneNumberId}/messages`;
+
     try {
+      // Extract template information for logging
+      const templateName = templatePayload.template?.name || "unknown_template";
+      const templateLanguage =
+        templatePayload.template?.language?.code || "en_US";
+      console.log(`📱 Sending template "${templateName}" to ${phoneNumber}`);
+
+      // Send message to WhatsApp API
       const response = await axios.post(url, templatePayload, {
         headers: {
           Authorization: `Bearer ${accessToken}`,
@@ -37,11 +46,109 @@ class WhatsAppMessageService {
         },
         timeout: 10000,
       });
+
       // WhatsApp API returns messageId in response.data.messages[0].id
       const messageId = response.data?.messages?.[0]?.id;
+
+      // If we have a message ID, store the template message in our database
+      if (messageId) {
+        try {
+          // Extract leadId from metadata or look it up if needed
+          let leadId = metadata?.leadId;
+
+          // If no leadId provided but we have a phone number, try to find the lead
+          if (!leadId && phoneNumber) {
+            try {
+              const normalizedPhone = phoneNumber.replace(/[^\d+]/g, "");
+              const phoneWithoutPlus = phoneNumber.replace(/[^\d]/g, "");
+
+              // Try to find lead by phone number
+              const existingLead =
+                (await this.leadService.findLeadByPhone(normalizedPhone)) ||
+                (await this.leadService.findLeadByPhone(phoneWithoutPlus));
+
+              if (existingLead) {
+                leadId = existingLead.id;
+                console.log(
+                  `📱 Found lead ${leadId} for template message to ${phoneNumber}`
+                );
+              }
+            } catch (leadLookupError) {
+              console.warn(
+                `⚠️ Error finding lead for template message: ${leadLookupError.message}`
+              );
+            }
+          }
+
+          // Create or get conversation, linking it to the lead if possible
+          const conversationId =
+            await this.conversationService.createOrGetConversation(
+              phoneNumber,
+              leadId,
+              metadata?.contactName || null
+            );
+
+          // Prepare a readable version of the template for storing
+          const templateContent = `Template: ${templateName} (${templateLanguage})`;
+
+          // Store the message in our database
+          const messageDoc = {
+            messageId: messageId,
+            conversationId: conversationId,
+            from: process.env.WHATSAPP_PHONE_NUMBER_ID,
+            to: phoneNumber,
+            content: templateContent,
+            messageType: "template",
+            templateName: templateName,
+            templateLanguage: templateLanguage,
+            senderType: "outgoing",
+            direction: "outgoing",
+            timestamp: new Date(),
+            status: "sent",
+            metadata: metadata || {},
+            createdAt: new Date(),
+          };
+
+          // Add to messages collection
+          const messageRef = await this.db
+            .collection("messages")
+            .add(messageDoc);
+
+          // Update conversation with latest message
+          await this.db.collection("conversations").doc(conversationId).update({
+            lastMessage: templateContent,
+            lastMessageTime: new Date(),
+            lastMessageFrom: "business",
+            updatedAt: new Date(),
+          });
+
+          console.log(
+            `💾 Template message ${messageId} saved to conversation ${conversationId}`
+          );
+
+          return {
+            success: true,
+            messageId,
+            conversationId,
+            savedMessageId: messageRef.id,
+          };
+        } catch (saveError) {
+          console.error(
+            `❌ Error saving template message to database: ${saveError.message}`
+          );
+          // We still return success since the WhatsApp API call worked
+          return {
+            success: true,
+            messageId,
+            error: `Message sent but not saved: ${saveError.message}`,
+          };
+        }
+      }
+
       return { success: true, messageId };
     } catch (error) {
       let errMsg = error.response?.data?.error?.message || error.message;
+      console.error(`❌ Error sending template message: ${errMsg}`);
       return { success: false, error: errMsg };
     }
   }
