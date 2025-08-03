@@ -140,12 +140,20 @@ class ApplicationService {
       // 6. Send WhatsApp thank you message
       let whatsappResult = null;
       try {
-        const thankYouMessage = this.generateThankYouMessage(applicationData);
+        // Use the received_application template instead of custom message
+        const templatePayload = {
+          messaging_product: "whatsapp",
+          to: applicationData.phoneNumber,
+          type: "template",
+          template: {
+            name: "received_application",
+            language: { code: "en_US" },
+          },
+        };
 
-        whatsappResult = await this.whatsappService.sendMessage(
+        whatsappResult = await this.whatsappService.sendTemplateMessage(
           applicationData.phoneNumber,
-          thankYouMessage,
-          "text",
+          templatePayload,
           {
             leadId: lead.id,
             applicationId: docRef.id,
@@ -183,6 +191,7 @@ class ApplicationService {
 
   /**
    * Generate thank you message for WhatsApp
+   * @deprecated No longer in use - replaced by received_application template
    */
   generateThankYouMessage(applicationData) {
     const programName = ApplicationModel.getProgramName(

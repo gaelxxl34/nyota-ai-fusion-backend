@@ -1326,12 +1326,23 @@ router.post("/receive", async (req, res) => {
 
     const leadId = await leadService.createLead(leadData, LEAD_SOURCES.OTHER);
 
-    // Send WhatsApp welcome message if phone is provided
+    // Send WhatsApp validation template if phone is provided
     if (validatedPhone || phone) {
       try {
-        await whatsappMessageService.sendWelcomeMessage(
+        // Use the whatsapp_validation template
+        const templatePayload = {
+          messaging_product: "whatsapp",
+          to: validatedPhone || phone,
+          type: "template",
+          template: {
+            name: "whatsapp_validation",
+            language: { code: "en_US" },
+          },
+        };
+
+        await whatsappMessageService.sendTemplateMessage(
           validatedPhone || phone,
-          name
+          templatePayload
         );
       } catch (whatsappError) {
         logger.error("Failed to send WhatsApp message:", whatsappError);
