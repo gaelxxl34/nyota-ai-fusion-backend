@@ -226,6 +226,29 @@ class ConversationService {
         phoneNumber
       );
       if (existingConversationId) {
+        // If we have a conversation but no leadId is associated, update it with the leadId
+        if (leadId) {
+          const conversationDoc = await this.db
+            .collection("conversations")
+            .doc(existingConversationId)
+            .get();
+
+          const conversationData = conversationDoc.data();
+
+          if (!conversationData.leadId && leadId) {
+            console.log(
+              `📝 Updating conversation ${existingConversationId} with leadId ${leadId}`
+            );
+            await this.db
+              .collection("conversations")
+              .doc(existingConversationId)
+              .update({
+                leadId: leadId,
+                updatedAt: new Date(),
+              });
+          }
+        }
+
         // Update contact name if provided and conversation exists
         if (contactName) {
           try {
@@ -246,10 +269,42 @@ class ConversationService {
         return existingConversationId;
       }
 
-      // Create new conversation with lead information (not contact)
+      // If we don't have a leadId, we need to create a temporary lead
+      if (!leadId) {
+        console.log(
+          `⚠️ No lead ID for ${phoneNumber}, creating temporary lead for new conversation`
+        );
+
+        // Create a new lead for this unknown contact
+        try {
+          const leadData = {
+            name: contactName || `Unknown Contact ${phoneNumber.slice(-4)}`,
+            phone: phoneNumber,
+            status: "CONTACTED",
+            source: "WHATSAPP",
+            isTemporary: true, // Mark as temporary lead
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            notes: "Automatically created from direct WhatsApp message",
+          };
+
+          // Create the lead
+          const leadRef = await this.db.collection("leads").add(leadData);
+          leadId = leadRef.id;
+
+          console.log(`✅ Created temporary lead ${leadId} for ${phoneNumber}`);
+        } catch (leadError) {
+          console.error(
+            `❌ Failed to create temporary lead: ${leadError.message}`
+          );
+          // Even if lead creation fails, we'll create a conversation without a lead ID
+          // to ensure we don't lose the conversation
+        }
+      }
+
+      // Create new conversation with lead information if available
       const conversationData = {
         phoneNumber: phoneNumber,
-        leadId: leadId, // Use leadId instead of contactId
+        leadId: leadId, // Use leadId (might be null in error cases)
         contactName: contactName || `Contact ${phoneNumber.slice(-4)}`,
         status: "active",
         createdAt: new Date(),

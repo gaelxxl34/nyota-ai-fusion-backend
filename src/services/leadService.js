@@ -6,11 +6,7 @@
 const { LeadModel, QUALIFICATION_RULES } = require("../models/lead.model");
 const { LEAD_STATUSES, LEAD_SOURCES } = require("../config/lead.constants");
 
-// Import enhanced configuration
-const {
-  AUTO_QUALIFICATION_CONFIG,
-  QUALIFICATION_SERVICE_CONFIG,
-} = require("../config/autoQualification.config");
+// Auto-qualification config import removed as requested
 const { broadcastMessage } = require("./broadcastService");
 
 class LeadService {
@@ -987,10 +983,7 @@ class LeadService {
         if (interaction.direction === "incoming") {
           updateData.whatsappIncomingCount =
             (lead.whatsappIncomingCount || 0) + 1;
-          // Check for auto-qualification after incoming message
-          if (updateData.whatsappIncomingCount >= 3) {
-            await this.checkAutoQualification(leadId);
-          }
+          // Auto-qualification removed as requested
         }
       }
 
@@ -998,10 +991,8 @@ class LeadService {
 
       console.log(`✅ Interaction added to lead ${leadId}`);
 
-      // Get updated lead data and process auto-qualification
-      const finalLead = await this._processAutoQualificationAfterInteraction(
-        leadId
-      );
+      // Get updated lead data (auto-qualification removed as requested)
+      const finalLead = await this.getLeadById(leadId);
 
       return finalLead;
     } catch (error) {
@@ -1097,129 +1088,49 @@ class LeadService {
 
   /**
    * Process auto-qualification after interaction (private method)
-   * Follows single responsibility principle and improves testability
+   * Auto-qualification has been disabled as requested
    */
   async _processAutoQualificationAfterInteraction(leadId) {
-    try {
-      // Get updated lead data once
-      const updatedLead = await this.getLeadById(leadId);
-
-      // Check qualification eligibility
-      const qualificationResult = await this._checkAutoQualificationEligibility(
-        updatedLead
-      );
-
-      if (!qualificationResult.shouldQualify) {
-        console.log(
-          `📊 Lead ${leadId} qualification status: ${qualificationResult.reason}`
-        );
-        return updatedLead;
-      }
-
-      // Attempt auto-qualification
-      const qualifiedLead = await this._executeAutoQualification(
-        leadId,
-        qualificationResult
-      );
-
-      return qualifiedLead || updatedLead; // Fallback to original if qualification fails
-    } catch (error) {
-      console.error(
-        `❌ Error processing auto-qualification for lead ${leadId}:`,
-        error
-      );
-      // Return original lead data on error
-      return await this.getLeadById(leadId);
-    }
+    // Simply return the lead data as auto-qualification has been disabled
+    return await this.getLeadById(leadId);
   }
 
   /**
    * Check if lead is eligible for auto-qualification (private method)
-   * Separates business logic from execution logic
+   * Auto-qualification has been disabled as requested
    */
   async _checkAutoQualificationEligibility(leadData) {
-    return LeadModel.shouldAutoQualify(leadData);
+    return { shouldQualify: false, reason: "Auto-qualification is disabled" };
   }
 
   /**
    * Execute the auto-qualification process (private method)
-   * Handles the actual status update with proper error handling
+   * Auto-qualification has been disabled as requested
    */
   async _executeAutoQualification(leadId, qualificationResult) {
-    const { qualifyingInteractions, threshold } = qualificationResult;
-
-    console.log(
-      `🎯 Auto-qualifying lead ${leadId}: ${qualificationResult.reason}`
-    );
-
-    try {
-      // Use configurable values instead of hard-coded ones
-      const autoQualificationConfig = this._getAutoQualificationConfig();
-
-      await this.updateLeadStatus(
-        leadId,
-        autoQualificationConfig.targetStatus,
-        autoQualificationConfig.generateNotes(qualifyingInteractions),
-        autoQualificationConfig.systemUser
-      );
-
-      console.log(
-        `✅ Lead ${leadId} auto-qualified to ${autoQualificationConfig.targetStatus}`
-      );
-
-      // Broadcast auto-qualification event for analytics/notifications
-      await this._notifyAutoQualification(leadId, qualificationResult);
-
-      return await this.getLeadById(leadId);
-    } catch (error) {
-      console.error(
-        `❌ Error executing auto-qualification for lead ${leadId}:`,
-        error
-      );
-      throw error; // Re-throw to be handled by calling method
-    }
+    console.log(`Auto-qualification has been disabled for lead ${leadId}`);
+    return await this.getLeadById(leadId);
   }
 
   /**
    * Get auto-qualification configuration (private method)
-   * Now uses centralized configuration system
+   * Auto-qualification has been disabled as requested
    */
   _getAutoQualificationConfig() {
-    const config = AUTO_QUALIFICATION_CONFIG;
-
     return {
-      targetStatus: config.TARGET_STATUSES.BASIC_QUALIFICATION,
-      systemUser: config.SYSTEM_USERS.AUTO_QUALIFICATION,
-      generateNotes: (interactionCount) =>
-        config.NOTE_TEMPLATES.PRE_QUALIFIED(interactionCount),
-
-      // Additional configuration options
-      retryConfig: QUALIFICATION_SERVICE_CONFIG.RETRY,
-      notifications: QUALIFICATION_SERVICE_CONFIG.NOTIFICATIONS,
+      targetStatus: "CONTACTED", // Default status
+      systemUser: "SYSTEM",
+      generateNotes: () => "Auto-qualification is disabled",
     };
   }
 
   /**
    * Notify about auto-qualification event (private method)
-   * Separates notification logic for better maintainability
+   * Auto-qualification has been disabled as requested
    */
   async _notifyAutoQualification(leadId, qualificationResult) {
-    try {
-      // Broadcast real-time update
-      if (this.broadcastService) {
-        await this.broadcastService.broadcastToAll("lead_auto_qualified", {
-          leadId,
-          qualificationData: qualificationResult,
-          timestamp: new Date(),
-        });
-      }
-    } catch (error) {
-      console.warn(
-        `⚠️ Failed to notify auto-qualification for lead ${leadId}:`,
-        error
-      );
-      // Don't throw - notification failures shouldn't break the main flow
-    }
+    // Auto-qualification notification disabled
+    console.log("Auto-qualification notifications disabled");
   }
 }
 

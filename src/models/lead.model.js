@@ -23,6 +23,7 @@ const DEPRECATED_QUALIFICATION_RULES = {
 // Status transition rules - simple array of allowed next statuses
 // Allow more flexible transitions while maintaining logical flow
 const STATUS_TRANSITIONS = {
+  // Keep INQUIRY transitions for backwards compatibility
   [LEAD_STATUSES.INQUIRY]: [
     LEAD_STATUSES.CONTACTED,
     LEAD_STATUSES.PRE_QUALIFIED,
@@ -77,11 +78,23 @@ const STATUS_TRANSITIONS = {
 class LeadModel {
   /**
    * Create a default lead structure
+   * Ensures status field and timeline are synchronized
    */
   static createLead(contactInfo, source = null) {
+    // Determine the initial status (use provided status or default to CONTACTED)
+    const initialStatus = contactInfo.status || LEAD_STATUSES.CONTACTED;
+
+    // Create the initial timeline entry
+    const initialTimelineEntry = {
+      date: new Date(),
+      action: "CREATED",
+      status: initialStatus, // Same as the status field for consistency
+      notes: `Lead created from ${source || "unknown source"}`,
+    };
+
     return {
       // Basic Info
-      status: LEAD_STATUSES.INQUIRY,
+      status: initialStatus, // Status field is synchronized with timeline
       source: source,
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -106,15 +119,8 @@ class LeadModel {
       lastInteractionAt: null,
       nextFollowUpDate: null,
 
-      // Timeline - simple array
-      timeline: [
-        {
-          date: new Date(),
-          action: "CREATED",
-          status: LEAD_STATUSES.INQUIRY,
-          notes: `Lead created from ${source || "unknown source"}`,
-        },
-      ],
+      // Timeline - with synchronized initial status
+      timeline: [initialTimelineEntry],
 
       // Notes
       notes: "",
@@ -164,161 +170,110 @@ class LeadModel {
 
   /**
    * Get current status from timeline (most recent status)
+   * This is the source of truth for lead status in the system
    */
   static getCurrentStatus(leadData) {
     try {
       if (!leadData || !leadData.timeline || leadData.timeline.length === 0) {
-        return leadData?.status || LEAD_STATUSES.INQUIRY;
+        return leadData?.status || LEAD_STATUSES.CONTACTED;
       }
 
-      // Get the most recent timeline entry with a status
-      const timeline = leadData.timeline.sort((a, b) => {
-        const dateA = a.date instanceof Date ? a.date : new Date(a.date || 0);
-        const dateB = b.date instanceof Date ? b.date : new Date(b.date || 0);
-        return dateB.getTime() - dateA.getTime();
+      // Create a copy of the timeline to avoid mutating the original
+      // Sort by date in descending order (newest first)
+      const sortedTimeline = [...leadData.timeline].sort((a, b) => {
+        // Handle date conversion safely
+        try {
+          const dateA = a.date instanceof Date ? a.date : new Date(a.date || 0);
+          const dateB = b.date instanceof Date ? b.date : new Date(b.date || 0);
+          return dateB.getTime() - dateA.getTime();
+        } catch (err) {
+          console.error("❌ Error comparing dates in timeline:", err);
+          return 0; // Keep original order if dates can't be compared
+        }
       });
-      const latestStatusEntry = timeline.find((entry) => entry.status);
+
+      // Find the most recent entry with a status
+      const latestStatusEntry = sortedTimeline.find((entry) => entry.status);
+
+      // Check if status field is synchronized with timeline
+      const timelineStatus = latestStatusEntry?.status;
+      if (
+        timelineStatus &&
+        leadData.status &&
+        timelineStatus !== leadData.status
+      ) {
+        console.warn(
+          `⚠️ Status field (${leadData.status}) doesn't match timeline status (${timelineStatus})`
+        );
+      }
 
       return (
-        latestStatusEntry?.status || leadData.status || LEAD_STATUSES.INQUIRY
+        latestStatusEntry?.status || leadData.status || LEAD_STATUSES.CONTACTED
       );
     } catch (error) {
       console.error("❌ Error getting current status from timeline:", error);
-      return leadData?.status || LEAD_STATUSES.INQUIRY;
+      return leadData?.status || LEAD_STATUSES.CONTACTED;
     }
   }
 
   /**
    * Check if lead should be automatically qualified based on interactions
-   * Improved version following best practices
+   * Auto-qualification has been disabled as requested
    */
   static shouldAutoQualify(leadData, customRules = null) {
-    try {
-      // Use dependency injection for rules (testability)
-      const rules = customRules || QUALIFICATION_RULES;
-
-      const currentStatus = this.getCurrentStatus(leadData);
-
-      // Check status eligibility
-      const statusEligibility = this._checkStatusEligibility(
-        currentStatus,
-        rules
-      );
-      if (!statusEligibility.eligible) {
-        return statusEligibility.result;
-      }
-
-      // Count and validate interactions
-      const interactionAnalysis = this._analyzeQualifyingInteractions(
-        leadData,
-        rules
-      );
-
-      // Determine qualification result
-      return this._determineQualificationResult(interactionAnalysis, rules);
-    } catch (error) {
-      console.error("❌ Error checking auto-qualification:", error);
-      return {
-        shouldQualify: false,
-        reason: "Error during qualification check",
-        error: error.message,
-      };
-    }
+    // Auto-qualification is disabled
+    return {
+      shouldQualify: false,
+      reason: "Auto-qualification is disabled",
+      qualifyingInteractions: [],
+      threshold: 0,
+    };
   }
 
   /**
    * Check if current status is eligible for auto-qualification (private helper)
+   * Auto-qualification has been disabled as requested
    */
   static _checkStatusEligibility(currentStatus, rules) {
-    const isEligible =
-      rules.ELIGIBLE_STATUSES_FOR_AUTO_QUALIFICATION.includes(currentStatus);
-
     return {
-      eligible: isEligible,
-      result: isEligible
-        ? null
-        : {
-            shouldQualify: false,
-            reason: `Status '${currentStatus}' not eligible for auto-qualification`,
-            currentStatus,
-          },
+      eligible: false,
+      result: {
+        shouldQualify: false,
+        reason: "Auto-qualification is disabled",
+        currentStatus,
+      },
     };
   }
 
   /**
-   * Analyze qualifying interactions from timeline (private helper)
+   * Analyze interactions to find qualifying ones (private helper)
+   * Auto-qualification has been disabled as requested
    */
   static _analyzeQualifyingInteractions(leadData, rules) {
-    const allInteractions = (leadData.timeline || []).filter(
-      (entry) => entry.action === "INTERACTION"
-    );
-
-    // Count WhatsApp messages specifically
-    const whatsappMessages = allInteractions.filter(
-      (entry) =>
-        entry.metadata &&
-        entry.metadata.type === "WHATSAPP" &&
-        !entry.metadata.automated &&
-        entry.metadata.direction === "incoming"
-    );
-
-    // Count other qualifying interactions
-    const qualifyingInteractions = allInteractions.filter(
-      (entry) =>
-        entry.metadata &&
-        rules.QUALIFYING_INTERACTION_TYPES.includes(
-          entry.metadata.type || entry.metadata.channel
-        ) &&
-        entry.metadata.type !== "WHATSAPP" // Exclude WhatsApp as we count it separately
-    );
-
-    // Group by type for detailed analysis
-    const interactionsByType = {
-      WHATSAPP: whatsappMessages.length,
-      ...qualifyingInteractions.reduce((acc, interaction) => {
-        const type = interaction.metadata.type || interaction.metadata.channel;
-        acc[type] = (acc[type] || 0) + 1;
-        return acc;
-      }, {}),
-    };
-
     return {
-      total: qualifyingInteractions.length,
-      byType: interactionsByType,
-      qualifyingInteractions,
-      allInteractions,
+      count: 0,
+      items: [],
+      meetsThreshold: false,
+      threshold: 0,
     };
   }
 
   /**
-   * Determine final qualification result (private helper)
+   * Determine if lead should be qualified based on analysis (private helper)
+   * Auto-qualification has been disabled as requested
    */
   static _determineQualificationResult(interactionAnalysis, rules) {
-    const { total: qualifyingCount } = interactionAnalysis;
-    const threshold = rules.PRE_QUALIFIED_INTERACTION_THRESHOLD;
-
-    console.log(`📊 Lead qualification analysis:`, {
-      qualifyingCount,
-      threshold,
-      breakdown: interactionAnalysis.byType,
-    });
-
-    const shouldQualify = qualifyingCount >= threshold;
-
     return {
-      shouldQualify,
-      reason: shouldQualify
-        ? `Reached ${qualifyingCount} qualifying interactions (threshold: ${threshold})`
-        : `Only ${qualifyingCount} qualifying interactions (need ${threshold})`,
-      qualifyingInteractions: qualifyingCount,
-      threshold,
-      interactionBreakdown: interactionAnalysis.byType,
-      analysis: interactionAnalysis,
+      shouldQualify: false,
+      reason: "Auto-qualification is disabled",
+      qualifyingInteractions: [],
+      threshold: 0,
     };
   }
 
   /**
    * Add timeline entry
+   * @returns {Object} Object containing updated timeline and the current status
    */
   static addTimelineEntry(timeline, action, status, notes = "", metadata = {}) {
     const entry = {
@@ -329,23 +284,33 @@ class LeadModel {
       metadata,
     };
 
-    return [...timeline, entry];
+    const updatedTimeline = [...timeline, entry];
+
+    // Return both the updated timeline and the new current status
+    // This ensures status field and timeline status remain synchronized
+    return {
+      timeline: updatedTimeline,
+      currentStatus: status, // The new entry becomes the most recent status
+    };
   }
 
   /**
    * Update lead status
+   * Ensures the status field and timeline remain synchronized
    */
   static updateStatus(leadData, newStatus, notes = "", updatedBy = null) {
     // Get current status from timeline instead of stored status field
     const currentStatus = this.getCurrentStatus(leadData);
 
+    // Validate status transition
     if (!this.canTransitionTo(currentStatus, newStatus)) {
       throw new Error(
         `Cannot transition from ${currentStatus} to ${newStatus}`
       );
     }
 
-    const timeline = this.addTimelineEntry(
+    // Add timeline entry using the improved method that returns timeline and status
+    const { timeline } = this.addTimelineEntry(
       leadData.timeline || [],
       "STATUS_CHANGE",
       newStatus,
@@ -353,11 +318,39 @@ class LeadModel {
       { previousStatus: currentStatus, updatedBy }
     );
 
+    // Return updated lead data with synchronized status field and timeline
     return {
       ...leadData,
-      status: newStatus,
+      status: newStatus, // Status field explicitly set to match timeline
       updatedAt: new Date(),
       timeline,
+    };
+  }
+
+  /**
+   * Verify and fix status consistency between status field and timeline
+   * Use this method periodically to ensure data integrity
+   * @returns {Object} The lead data with corrected status if needed
+   */
+  static verifyStatusConsistency(leadData) {
+    if (!leadData) return leadData;
+
+    const timelineStatus = this.getCurrentStatus(leadData);
+
+    // If status field matches timeline status, no changes needed
+    if (leadData.status === timelineStatus) {
+      return leadData;
+    }
+
+    // Status field needs to be synchronized with timeline
+    console.warn(
+      `⚠️ Fixing inconsistent status: field=${leadData.status}, timeline=${timelineStatus}`
+    );
+
+    return {
+      ...leadData,
+      status: timelineStatus,
+      updatedAt: new Date(),
     };
   }
 }

@@ -104,21 +104,14 @@ class ApplicationService {
           gender: applicationData.gender,
         };
 
-        // Create lead with default INQUIRY status first
+        // Create lead directly with APPLIED status
+        // We'll modify the timeline during creation to ensure it starts with APPLIED directly
+        contactInfo.status = LEAD_STATUSES.APPLIED; // Set initial status to APPLIED
+
         lead = await this.leadService.createLead(
           contactInfo,
           "APPLICATION_FORM", // source
           additionalData
-        );
-
-        // Then update status to APPLIED using proper timeline system
-        lead = await this.leadService.updateLeadStatus(
-          lead.id,
-          LEAD_STATUSES.APPLIED,
-          `Application submitted for ${ApplicationModel.getProgramName(
-            applicationData.preferredProgram
-          )}`,
-          "SYSTEM"
         );
 
         // Update application with lead ID

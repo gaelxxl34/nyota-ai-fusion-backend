@@ -408,8 +408,39 @@ router.post("/send-message", authenticateUser, async (req, res) => {
     const normalizedPhone = to.startsWith("+") ? to : `+${to}`;
 
     // Extract lead information from leadData if provided
-    const leadId = leadData?.id || null;
+    const leadId = leadData?.id || leadData?.leadId || null;
     const contactName = leadData?.name || leadData?.contactName || null;
+
+    // Check for leadId - essential for conversation tracking
+    if (!leadId) {
+      console.warn(
+        `⚠️ No lead ID provided for message to ${normalizedPhone}. Will attempt to find or create a lead.`
+      );
+
+      // Try to find an existing lead by phone number
+      const leadService = new LeadService(admin.firestore());
+      let lead = await leadService.findLeadByPhone(normalizedPhone);
+
+      if (!lead || !lead.id) {
+        // Create a new lead if none exists
+        const newLeadData = {
+          phone: normalizedPhone,
+          name: contactName || `Contact ${normalizedPhone.slice(-4)}`,
+          status: "CONTACTED",
+          source: "WHATSAPP",
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        };
+
+        console.log(
+          `📝 Creating new lead for WhatsApp conversation: ${normalizedPhone}`
+        );
+        const newLead = await leadService.createLead(newLeadData, "WHATSAPP");
+        lead = newLead;
+      }
+
+      // Use the found or created lead ID
+      leadId = lead.id;
+    }
 
     // Use ConversationService to send message and create conversation/message records
     const conversationService = new ConversationService();
