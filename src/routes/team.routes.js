@@ -27,8 +27,7 @@ router.get(
             id: user.uid,
             email: user.email || "",
             name: user.displayName || userDoc.data()?.name || "Unnamed User",
-            role:
-              user.customClaims?.role || userDoc.data()?.role || "teamMember",
+            role: user.customClaims?.role || userDoc.data()?.role || "admin",
             jobRole: userDoc.data()?.jobRole,
             status: userDoc.data()?.status || "active",
             createdAt: user.metadata.creationTime,

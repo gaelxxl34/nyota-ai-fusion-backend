@@ -133,7 +133,7 @@ const validateWhatsAppNumber = async (
     `Testing WhatsApp number: ${normalizedPhone} (source: ${source})`
   );
 
-  // Use the whatsapp_validation template for validation (requires name parameter)
+  // Use the whatsapp_validation template for validation (no parameters needed - static template)
   const templatePayload = {
     messaging_product: "whatsapp",
     to: normalizedPhone,
@@ -141,17 +141,6 @@ const validateWhatsAppNumber = async (
     template: {
       name: "whatsapp_validation",
       language: { code: "en_US" },
-      components: [
-        {
-          type: "body",
-          parameters: [
-            {
-              type: "text",
-              text: name || "there",
-            },
-          ],
-        },
-      ],
     },
   };
 

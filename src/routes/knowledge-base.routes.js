@@ -10,13 +10,7 @@ router.use(authenticateUser);
 // Get all knowledge base items
 router.get(
   "/",
-  checkRole([
-    "superAdmin",
-    "admin",
-    "marketingManager",
-    "admissionsOfficer",
-    "teamMember",
-  ]),
+  checkRole(["superAdmin", "admin", "marketingAgent", "admissionAgent"]),
   async (req, res) => {
     try {
       const result = await knowledgeBaseService.getKnowledgeBase();
@@ -35,13 +29,7 @@ router.get(
 // Get knowledge base categories
 router.get(
   "/categories",
-  checkRole([
-    "superAdmin",
-    "admin",
-    "marketingManager",
-    "admissionsOfficer",
-    "teamMember",
-  ]),
+  checkRole(["superAdmin", "admin", "marketingAgent", "admissionAgent"]),
   async (req, res) => {
     try {
       const result = await knowledgeBaseService.getCategories();

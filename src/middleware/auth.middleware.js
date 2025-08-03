@@ -1,5 +1,6 @@
 const jwt = require("jsonwebtoken");
 const { getAuth } = require("firebase-admin/auth");
+const admin = require("firebase-admin");
 
 const authenticateUser = async (req, res, next) => {
   try {

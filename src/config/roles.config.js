@@ -54,13 +54,12 @@ const ROLES = {
     },
   },
 
-  marketingManager: {
-    name: "Marketing Manager",
+  marketingAgent: {
+    name: "Marketing Agent",
     description: "Access to marketing and lead generation features",
     permissions: [
       PERMISSIONS.CHAT_CONFIG,
       PERMISSIONS.DATA_CENTER,
-      PERMISSIONS.ANALYTICS,
       PERMISSIONS.SETTINGS,
       PERMISSIONS.VIEW_MARKETING_LEADS,
     ],
@@ -70,28 +69,17 @@ const ROLES = {
     },
   },
 
-  admissionsOfficer: {
-    name: "Admissions Officer",
+  admissionAgent: {
+    name: "Admission Agent",
     description: "Access to admissions and enrollment features",
     permissions: [
       PERMISSIONS.CHAT_CONFIG,
       PERMISSIONS.DATA_CENTER,
-      PERMISSIONS.ANALYTICS,
       PERMISSIONS.SETTINGS,
       PERMISSIONS.VIEW_ADMISSIONS_LEADS,
     ],
     leadStageAccess: {
       from: LEAD_STAGES.APPLIED,
-      to: LEAD_STAGES.ENROLLED,
-    },
-  },
-
-  teamMember: {
-    name: "Team Member",
-    description: "Basic access to assigned features",
-    permissions: [PERMISSIONS.DATA_CENTER, PERMISSIONS.SETTINGS],
-    leadStageAccess: {
-      from: LEAD_STAGES.NEW_CONTACT,
       to: LEAD_STAGES.ENROLLED,
     },
   },

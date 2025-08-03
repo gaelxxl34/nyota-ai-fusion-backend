@@ -1,5 +1,13 @@
 /**
- * Script to update user roles in the system
+ * Script to update useconst VALID_ROLES = [
+  "superAdmin", 
+  "admin",
+  "marketingAgent",
+  "admissionAgent",
+];
+
+// Default role for users without a valid role
+const DEFAULT_ROLE = "admin"; the system
  *
  * This script can be used to:
  * - Migrate from old role names to new role names
@@ -25,16 +33,10 @@ const db = admin.firestore();
 const auth = admin.auth();
 
 // Valid roles in the system
-const VALID_ROLES = [
-  "superAdmin",
-  "admin",
-  "marketingManager",
-  "admissionsOfficer",
-  "teamMember",
-];
+const VALID_ROLES = ["superAdmin", "admin", "marketingAgent", "admissionAgent"];
 
 // Default role for users without a role
-const DEFAULT_ROLE = "teamMember";
+const DEFAULT_ROLE = "admin";
 
 async function updateUserRoles() {
   console.log("🚀 Starting user role update process...\n");

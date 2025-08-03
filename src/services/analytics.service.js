@@ -271,22 +271,19 @@ class AnalyticsService {
 
         // Skip if user is not an agent or admin
         if (
-          ![
-            "marketingAgent",
-            "admissionsAgent",
-            "admin",
-            "superAdmin",
-          ].includes(user.role)
+          !["marketingAgent", "admissionAgent", "admin", "superAdmin"].includes(
+            user.role
+          )
         ) {
           continue;
         }
 
         // Filter based on requesting user's role
-        if (userRole === "marketingAgent" && user.role === "admissionsAgent") {
-          continue; // Marketing agents can't see admissions agents' data
+        if (userRole === "marketingAgent" && user.role === "admissionAgent") {
+          continue; // Marketing agents can't see admission agents' data
         }
-        if (userRole === "admissionsAgent" && user.role === "marketingAgent") {
-          continue; // Admissions agents can't see marketing agents' data
+        if (userRole === "admissionAgent" && user.role === "marketingAgent") {
+          continue; // Admission agents can't see marketing agents' data
         }
         // Admins and superAdmins can see all data
 
