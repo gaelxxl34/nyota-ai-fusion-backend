@@ -868,8 +868,21 @@ router.post("/google-ads", validateWebhookSource, async (req, res) => {
       formData.program_interested ||
       formData.program ||
       formData["Preferred Program"] || // Added this field name from the logs
+      formData["Program of Interest"] || // Additional field mapping
       formData.course_interested ||
+      formData["Course of Interest"] ||
       null; // Default to null instead of undefined
+
+    // Log the program extraction for debugging
+    logger.debug(`Google Ads program extraction:`, {
+      program_interested: formData.program_interested,
+      program: formData.program,
+      "Preferred Program": formData["Preferred Program"],
+      "Program of Interest": formData["Program of Interest"],
+      course_interested: formData.course_interested,
+      "Course of Interest": formData["Course of Interest"],
+      finalProgramInterested: programInterested,
+    });
 
     // Combine first and last name
     const name = `${firstName || ""} ${lastName || ""}`.trim() || "Unknown";
@@ -1003,7 +1016,7 @@ router.post("/google-ads", validateWebhookSource, async (req, res) => {
         name,
         email,
         phone: validatedPhone, // Always use validated phone since it's required
-        program: programInterested,
+        program: programInterested, // This should now properly map from "Preferred Program"
         googleAdsInfo: {
           campaignId:
             formData.google_campaign_id || formData.campaign_id || null,
@@ -1015,6 +1028,19 @@ router.post("/google-ads", validateWebhookSource, async (req, res) => {
         status: "CONTACTED", // User initiated contact via Google Ads form
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
       };
+
+      // Log the lead data being created for debugging
+      logger.debug(`Google Ads lead data being created:`, {
+        name,
+        email,
+        phone: validatedPhone,
+        program: programInterested,
+        originalFormData: {
+          "Preferred Program": formData["Preferred Program"],
+          program_interested: formData.program_interested,
+          program: formData.program,
+        },
+      });
 
       // Add validation message ID if available
       if (
