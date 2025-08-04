@@ -269,12 +269,8 @@ class AnalyticsService {
           `[Agent Performance] Processing user: ${user.email}, role: ${user.role}, userId: ${userId}`
         );
 
-        // Skip if user is not an agent or admin
-        if (
-          !["marketingAgent", "admissionAgent", "admin", "superAdmin"].includes(
-            user.role
-          )
-        ) {
+        // Skip if user is not an agent (exclude admin and superAdmin from agent performance)
+        if (!["marketingAgent", "admissionAgent"].includes(user.role)) {
           continue;
         }
 
@@ -285,7 +281,7 @@ class AnalyticsService {
         if (userRole === "admissionAgent" && user.role === "marketingAgent") {
           continue; // Admission agents can't see marketing agents' data
         }
-        // Admins and superAdmins can see all data
+        // Admins and superAdmins can see all agent data but are not included in the report
 
         const metrics = {
           id: userId,
@@ -533,6 +529,8 @@ class AnalyticsService {
             else if (agent.role === "admissionsAgent")
               roleDisplay = "Admissions Agent";
             else if (agent.role === "admin") roleDisplay = "Admin";
+            else if (agent.role === "admissionAdmin")
+              roleDisplay = "Admission Admin";
             else if (agent.role === "superAdmin") roleDisplay = "Super Admin";
 
             csv += `${agent.name},${agent.email},${roleDisplay},`;

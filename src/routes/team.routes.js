@@ -10,7 +10,7 @@ const { ROLES } = require("../config/roles.config");
 router.get(
   "/members",
   authenticateUser,
-  checkRole(["superAdmin", "admin"]),
+  checkRole(["superAdmin", "admin", "admissionAdmin"]),
   async (req, res) => {
     try {
       console.log("Fetching team members...");
@@ -60,7 +60,7 @@ router.get(
 router.post(
   "/members",
   authenticateUser,
-  checkRole(["superAdmin", "admin"]),
+  checkRole(["superAdmin", "admin", "admissionAdmin"]),
   async (req, res) => {
     try {
       const { email, name, role, jobRole } = req.body;

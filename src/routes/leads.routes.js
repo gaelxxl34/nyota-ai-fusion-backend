@@ -9,6 +9,7 @@ const WhatsAppMessageService = require("../services/whatsappMessageService");
 const ConversationService = require("../services/conversationService");
 const { getFirestore } = require("firebase-admin/firestore");
 const { LEAD_STATUSES, LEAD_SOURCES } = require("../config/lead.constants");
+const { authenticateUser } = require("../middleware/auth.middleware");
 
 const router = express.Router();
 
@@ -496,6 +497,51 @@ router.delete("/:id", ensureLeadService, async (req, res) => {
     });
   }
 });
+
+/**
+ * Get leads submitted by current user (for "For You" tab)
+ * GET /api/leads/my-submissions
+ */
+router.get(
+  "/my-submissions",
+  authenticateUser,
+  ensureLeadService,
+  async (req, res) => {
+    try {
+      const { page = 1, limit = 50, status } = req.query;
+      const offset = (page - 1) * limit;
+
+      // Get user info from request (set by auth middleware)
+      const userEmail = req.user?.email;
+      if (!userEmail) {
+        return res.status(401).json({
+          success: false,
+          error: "User authentication required",
+        });
+      }
+
+      console.log(`🔍 Getting leads submitted by ${userEmail}`);
+
+      // Get leads where submittedBy.email matches the current user's email
+      const leads = await leadService.getLeadsBySubmitter(userEmail, {
+        limit: parseInt(limit),
+        offset,
+        status,
+      });
+
+      res.json({
+        success: true,
+        data: leads,
+      });
+    } catch (error) {
+      console.error("❌ Error getting user's submitted leads:", error);
+      res.status(500).json({
+        success: false,
+        error: error.message,
+      });
+    }
+  }
+);
 
 module.exports = router;
 module.exports.initLeadService = initLeadService;

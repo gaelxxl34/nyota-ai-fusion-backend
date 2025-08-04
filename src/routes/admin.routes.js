@@ -9,7 +9,7 @@ const { checkRole } = require("../middleware/permissions.middleware");
 router.get(
   "/stats",
   authenticateUser,
-  checkRole(["superAdmin", "admin"]),
+  checkRole(["superAdmin", "admin", "admissionAdmin"]),
   async (req, res) => {
     try {
       // Get total leads count
@@ -62,7 +62,7 @@ router.get(
 router.get(
   "/activities",
   authenticateUser,
-  checkRole(["superAdmin", "admin"]),
+  checkRole(["superAdmin", "admin", "admissionAdmin"]),
   async (req, res) => {
     try {
       const limit = parseInt(req.query.limit) || 10;
@@ -108,7 +108,7 @@ router.get(
 router.get(
   "/performance",
   authenticateUser,
-  checkRole(["superAdmin", "admin"]),
+  checkRole(["superAdmin", "admin", "admissionAdmin"]),
   async (req, res) => {
     try {
       const { startDate, endDate } = req.query;

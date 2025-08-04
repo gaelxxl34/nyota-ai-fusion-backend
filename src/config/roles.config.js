@@ -54,6 +54,30 @@ const ROLES = {
     },
   },
 
+  admissionAdmin: {
+    name: "Admission Admin",
+    description:
+      "Administrative access to all features with focus on admissions",
+    permissions: [
+      PERMISSIONS.CHAT_CONFIG,
+      PERMISSIONS.DATA_CENTER,
+      PERMISSIONS.ANALYTICS,
+      PERMISSIONS.TEAM,
+      PERMISSIONS.SETTINGS,
+      PERMISSIONS.KNOWLEDGE_BASE,
+      PERMISSIONS.VIEW_ALL_LEADS,
+      PERMISSIONS.VIEW_MARKETING_LEADS,
+      PERMISSIONS.VIEW_ADMISSIONS_LEADS,
+      PERMISSIONS.MANAGE_TEAM,
+      PERMISSIONS.MANAGE_SETTINGS,
+      PERMISSIONS.EXPORT_DATA,
+    ],
+    leadStageAccess: {
+      from: LEAD_STAGES.NEW_CONTACT,
+      to: LEAD_STAGES.ENROLLED,
+    },
+  },
+
   marketingAgent: {
     name: "Marketing Agent",
     description: "Access to marketing and lead generation features",

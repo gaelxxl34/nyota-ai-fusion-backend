@@ -163,11 +163,14 @@ class LeadService {
       // Add any additional data
       const fullLeadData = { ...leadData, ...additionalData };
 
-      // If submittedBy info is provided, add it to the timeline
+      // If submittedBy info is provided, add it at top level only
       if (additionalData.submittedBy) {
+        // Add submittedBy at top level for analytics
+        fullLeadData.submittedBy = additionalData.submittedBy;
+
+        // Update timeline notes to reflect who created it, but don't store submittedBy in timeline
         fullLeadData.timeline[0] = {
           ...fullLeadData.timeline[0],
-          submittedBy: additionalData.submittedBy,
           notes: `Lead created from ${source || "unknown source"} by ${
             additionalData.submittedBy.name || additionalData.submittedBy.email
           } (${additionalData.submittedBy.role})`,
@@ -1185,6 +1188,59 @@ class LeadService {
   async _notifyAutoQualification(leadId, qualificationResult) {
     // Auto-qualification notification disabled
     console.log("Auto-qualification notifications disabled");
+  }
+
+  /**
+   * Get leads submitted by a specific user (for "For You" tab)
+   */
+  async getLeadsBySubmitter(userEmail, options = {}) {
+    try {
+      const { limit = 50, offset = 0, status } = options;
+
+      console.log(`🔍 Fetching leads submitted by: ${userEmail}`);
+
+      let query = this.db
+        .collection(this.collection)
+        .where("submittedBy.email", "==", userEmail);
+
+      // Add status filter if provided
+      if (status) {
+        query = query.where("status", "==", status);
+      }
+
+      // Order by creation date (newest first)
+      query = query.orderBy("createdAt", "desc");
+
+      // Apply pagination
+      if (offset > 0) {
+        const offsetSnapshot = await query.limit(offset).get();
+        if (!offsetSnapshot.empty) {
+          const lastDoc = offsetSnapshot.docs[offsetSnapshot.docs.length - 1];
+          query = query.startAfter(lastDoc);
+        }
+      }
+
+      // Apply limit
+      query = query.limit(limit);
+
+      const snapshot = await query.get();
+
+      const leads = [];
+      snapshot.forEach((doc) => {
+        const lead = this._normalizeLead(doc.id, doc.data());
+        leads.push(lead);
+      });
+
+      console.log(`✅ Found ${leads.length} leads submitted by ${userEmail}`);
+
+      return leads;
+    } catch (error) {
+      console.error(
+        `❌ Error fetching leads by submitter ${userEmail}:`,
+        error
+      );
+      throw error;
+    }
   }
 }
 
