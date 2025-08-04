@@ -831,36 +831,6 @@ router.post("/wordpress", validateWebhookSource, async (req, res) => {
 router.post("/google-ads", validateWebhookSource, async (req, res) => {
   try {
     const formData = req.body;
-
-    // Enhanced DEBUG logging - log complete form structure and data
-    logger.info("=== GOOGLE ADS WEBHOOK DEBUG ===");
-    logger.info("Method:", req.method);
-    logger.info("Headers:", JSON.stringify(req.headers, null, 2));
-    logger.info("Body type:", typeof req.body);
-    logger.info("Field count:", Object.keys(formData || {}).length);
-    logger.info("Available fields:", Object.keys(formData || {}));
-    logger.info("Full form data:", JSON.stringify(formData, null, 2));
-
-    // Log each field individually for clarity
-    logger.info("=== INDIVIDUAL FIELD BREAKDOWN ===");
-    if (formData) {
-      Object.keys(formData).forEach((key) => {
-        logger.info(
-          `Field "${key}": "${formData[key]}" (type: ${typeof formData[key]})`
-        );
-      });
-    }
-
-    // Production logging - log form structure without sensitive data
-    logger.info("Google Ads webhook received", {
-      method: req.method,
-      contentType: req.headers["content-type"],
-      bodyType: typeof req.body,
-      fieldCount: Object.keys(formData || {}).length,
-      fields: Object.keys(formData || {}),
-      userAgent: req.headers["user-agent"],
-    });
-
     logger.webhook("Google Ads", formData);
 
     // Check if body is empty
@@ -869,11 +839,6 @@ router.post("/google-ads", validateWebhookSource, async (req, res) => {
       return res.status(400).json({
         success: false,
         error: "No form data received",
-        debug: {
-          bodyType: typeof req.body,
-          bodyKeys: Object.keys(req.body || {}),
-          headers: req.headers,
-        },
       });
     }
 
@@ -909,21 +874,9 @@ router.post("/google-ads", validateWebhookSource, async (req, res) => {
     // Combine first and last name
     const name = `${firstName || ""} ${lastName || ""}`.trim() || "Unknown";
 
-    // Log field extraction results for production monitoring
-    logger.info("Google Ads webhook - field extraction:", {
-      extractedName: name,
-      hasEmail: !!email,
-      hasPhone: !!phone,
-      hasProgram: !!programInterested,
-      source: formData["First Name"] ? "elementor" : "standard",
-    });
-
     // Validate required fields
     if (!email) {
-      logger.error("Google Ads webhook: Missing required email field", {
-        availableFields: Object.keys(formData),
-        checkedFields: ["email", "Email", "Enter your email", "email"],
-      });
+      logger.error("Google Ads webhook: Missing required email field");
 
       return res.status(200).json({
         success: false,
@@ -931,72 +884,66 @@ router.post("/google-ads", validateWebhookSource, async (req, res) => {
         data: {
           message: "Email is required. Please provide a valid email address.",
         },
-        debug: {
-          availableFields: Object.keys(formData),
-          formData: formData,
+      });
+    }
+
+    // Validate required phone number - no email-only leads allowed
+    if (!phone || !phone.trim()) {
+      logger.error("Google Ads webhook: Missing required phone field");
+
+      return res.status(200).json({
+        success: false,
+        message:
+          "Phone number is required. Please provide a valid WhatsApp number.",
+        data: {
+          message:
+            "Phone number is required. Please provide a valid WhatsApp number.",
+          errors: {
+            phone:
+              "Phone number is required. Please provide a valid WhatsApp number.",
+            "Phone Number":
+              "Phone number is required. Please provide a valid WhatsApp number.",
+            "Phone Number / WhatsApp":
+              "Phone number is required. Please provide a valid WhatsApp number.",
+          },
         },
       });
     }
 
-    logger.info(
-      "Google Ads webhook: Processing lead with email:",
-      email.substring(0, 3) + "***"
-    );
-
-    // MANDATORY WhatsApp validation if phone is provided
+    // MANDATORY WhatsApp validation - phone is required
     let validatedPhone = null;
     let whatsappValidationResult = null;
+    let whatsappRestricted = false;
+    let restrictionReason = null;
 
-    if (phone && phone.trim()) {
-      logger.info("Google Ads webhook: Starting WhatsApp validation", {
-        phoneLength: phone.length,
-        phoneStart: phone.substring(0, 4) + "***",
-      });
+    // Use centralized validation function - this will test the actual WhatsApp number
+    const validation = await validateWhatsAppNumber(
+      phone,
+      name,
+      "google_ads",
+      true
+    );
 
-      // Use centralized validation function - this will test the actual WhatsApp number
-      const validation = await validateWhatsAppNumber(
-        phone,
-        name,
-        "google_ads",
-        true
+    // If validation failed, return the error response immediately - NO LEAD CREATION
+    if (!validation.isValid) {
+      logger.error(
+        "Google Ads webhook: WhatsApp validation failed - aborting lead creation"
       );
+      return res
+        .status(validation.errorResponse.status)
+        .json(validation.errorResponse.body);
+    }
 
-      // If validation failed, return the error response immediately - NO LEAD CREATION
-      if (!validation.isValid) {
-        logger.error(
-          "Google Ads webhook: WhatsApp validation failed - aborting lead creation",
-          {
-            phone: phone.substring(0, 4) + "***",
-            error:
-              validation.errorResponse?.body?.message ||
-              "Unknown validation error",
-          }
-        );
-        return res
-          .status(validation.errorResponse.status)
-          .json(validation.errorResponse.body);
-      }
+    // If we get here, the WhatsApp number is valid
+    validatedPhone = validation.normalizedPhone;
+    whatsappValidationResult = validation.validationResult;
+    whatsappRestricted = validation.whatsappRestricted || false;
+    restrictionReason = validation.restrictionReason || null;
 
-      // If we get here, the WhatsApp number is valid
-      validatedPhone = validation.normalizedPhone;
-      whatsappValidationResult = validation.validationResult;
-      const whatsappRestricted = validation.whatsappRestricted || false;
-      const restrictionReason = validation.restrictionReason || null;
-
-      if (whatsappRestricted) {
-        logger.warn("Google Ads webhook: WhatsApp restricted but proceeding", {
-          phone: validatedPhone.substring(0, 4) + "***",
-          reason: restrictionReason,
-        });
-      } else {
-        logger.info("Google Ads webhook: WhatsApp validation successful", {
-          phone: validatedPhone.substring(0, 4) + "***",
-        });
-      }
+    if (whatsappRestricted) {
+      logger.warn("Google Ads webhook: WhatsApp restricted but proceeding");
     } else {
-      logger.info(
-        "Google Ads webhook: No phone provided - creating email-only lead"
-      );
+      logger.info("Google Ads webhook: WhatsApp validation successful");
     }
 
     // Initialize services
@@ -1007,15 +954,11 @@ router.post("/google-ads", validateWebhookSource, async (req, res) => {
     let existingLead = null;
     let actionTaken = "";
 
-    // First check by phone number
-    if (phone && phone.trim()) {
-      logger.info("Google Ads webhook: Checking for existing lead by phone");
-      existingLead = await leadService.findLeadByPhone(phone);
-    }
+    // First check by phone number (required)
+    existingLead = await leadService.findLeadByPhone(phone);
 
     // If no lead found by phone, check by email
     if (!existingLead && email) {
-      logger.info("Google Ads webhook: Checking for existing lead by email");
       existingLead = await leadService.findLeadByEmail(email);
     }
 
@@ -1023,11 +966,6 @@ router.post("/google-ads", validateWebhookSource, async (req, res) => {
     let statusNote = "";
 
     if (existingLead) {
-      logger.info("Google Ads webhook: Updating existing lead", {
-        leadId: existingLead.id,
-        existingEmail: existingLead.email?.substring(0, 3) + "***",
-      });
-
       leadId = existingLead;
 
       // Add interaction entry for Google Ads source
@@ -1059,18 +997,12 @@ router.post("/google-ads", validateWebhookSource, async (req, res) => {
         existingLead.email || existingLead.phone
       }) with Google Ads inquiry`;
     } else {
-      logger.info("Google Ads webhook: Creating new lead", {
-        hasEmail: !!email,
-        hasPhone: !!validatedPhone,
-        hasProgram: !!programInterested,
-      });
-
       const leadData = {
         firstName,
         lastName,
         name,
         email,
-        phone: validatedPhone || phone || null,
+        phone: validatedPhone, // Always use validated phone since it's required
         program: programInterested,
         googleAdsInfo: {
           campaignId:
@@ -1086,7 +1018,6 @@ router.post("/google-ads", validateWebhookSource, async (req, res) => {
 
       // Add validation message ID if available
       if (
-        validatedPhone &&
         whatsappValidationResult &&
         whatsappValidationResult.validationMessageId
       ) {
@@ -1100,48 +1031,54 @@ router.post("/google-ads", validateWebhookSource, async (req, res) => {
       statusNote =
         "New lead created from Google Ads contact form (user initiated contact)";
 
-      logger.info("Google Ads webhook: New lead created successfully", {
-        leadId: leadId?.id || leadId,
-        email: email?.substring(0, 3) + "***",
-      });
+      // Create conversation if WhatsApp validation was successful
+      if (whatsappValidationResult && whatsappValidationResult.messageId) {
+        try {
+          await whatsappMessageService.createConversationForValidatedNumber(
+            whatsappValidationResult.messageId,
+            {
+              leadId: leadId.id || leadId,
+              contactName: name,
+              source: "Google Ads",
+            }
+          );
+          logger.info("Conversation created for validated WhatsApp number");
+        } catch (convError) {
+          logger.error("Failed to create conversation:", convError);
+        }
+      }
     }
 
-    // Update lead with WhatsApp validation results
-    if (phone && phone.trim() && validatedPhone) {
-      let whatsappStatus = "VALIDATED";
-      let whatsappValid = true;
+    // Update lead with WhatsApp validation results (phone is mandatory)
+    let whatsappStatus = "VALIDATED";
+    let whatsappValid = true;
 
-      // Check if this number has WhatsApp ecosystem restrictions
-      if (whatsappRestricted) {
-        whatsappStatus = "CONTACT_RESTRICTED";
-        whatsappValid = false;
+    // Check if this number has WhatsApp ecosystem restrictions
+    if (whatsappRestricted) {
+      whatsappStatus = "CONTACT_RESTRICTED";
+      whatsappValid = false;
 
-        await leadService.updateLead(leadId.id || leadId, {
-          lastWhatsAppContact: admin.firestore.FieldValue.serverTimestamp(),
-          lastWhatsAppStatus: whatsappStatus,
-          whatsappValid: false,
-          whatsappRestricted: true,
-          whatsappRestrictionReason:
-            restrictionReason || "ecosystem_engagement",
-          preferredContactMethod: "EMAIL", // Mark for email contact instead
-          needsAlternateContact: true,
-        });
+      await leadService.updateLead(leadId.id || leadId, {
+        lastWhatsAppContact: admin.firestore.FieldValue.serverTimestamp(),
+        lastWhatsAppStatus: whatsappStatus,
+        whatsappValid: false,
+        whatsappRestricted: true,
+        whatsappRestrictionReason: restrictionReason || "ecosystem_engagement",
+        preferredContactMethod: "EMAIL", // Mark for email contact instead
+        needsAlternateContact: true,
+      });
 
-        statusNote +=
-          " (WhatsApp messaging restricted due to ecosystem policy - lead marked for alternate contact)";
-      } else {
-        // Normal successful validation
-        await leadService.updateLead(leadId.id || leadId, {
-          lastWhatsAppContact: admin.firestore.FieldValue.serverTimestamp(),
-          lastWhatsAppStatus: whatsappStatus,
-          whatsappValid: true, // Number is confirmed valid
-        });
+      statusNote +=
+        " (WhatsApp messaging restricted due to ecosystem policy - lead marked for alternate contact)";
+    } else {
+      // Normal successful validation
+      await leadService.updateLead(leadId.id || leadId, {
+        lastWhatsAppContact: admin.firestore.FieldValue.serverTimestamp(),
+        lastWhatsAppStatus: whatsappStatus,
+        whatsappValid: true, // Number is confirmed valid
+      });
 
-        statusNote += " (WhatsApp number verified and validation message sent)";
-      }
-      // Note: No additional welcome message needed - validation message serves as initial contact
-    } else if (!phone) {
-      statusNote += " (No phone number provided - email-only lead)";
+      statusNote += " (WhatsApp number verified and validation message sent)";
     }
 
     res.status(200).json({
@@ -1158,20 +1095,8 @@ router.post("/google-ads", validateWebhookSource, async (req, res) => {
         isExisting: !!existingLead,
       },
     });
-
-    logger.info("Google Ads webhook: Response sent successfully", {
-      success: true,
-      actionTaken,
-      leadId: leadId?.id || leadId,
-    });
   } catch (error) {
-    logger.error("Google Ads webhook error:", {
-      error: error.message,
-      stack: error.stack,
-      requestBody: JSON.stringify(req.body),
-      headers: req.headers,
-      timestamp: new Date().toISOString(),
-    });
+    logger.error("Google Ads webhook error:", error);
 
     // Return user-friendly error message in Elementor format
     let userMessage =
