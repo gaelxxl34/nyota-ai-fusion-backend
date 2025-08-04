@@ -544,7 +544,6 @@ router.post("/wordpress-test", async (req, res) => {
     });
   }
 });
-
 /**
  * Process WordPress website inquiries
  * This handles form submissions from the WordPress website
@@ -833,6 +832,25 @@ router.post("/google-ads", validateWebhookSource, async (req, res) => {
   try {
     const formData = req.body;
 
+    // Enhanced DEBUG logging - log complete form structure and data
+    logger.info("=== GOOGLE ADS WEBHOOK DEBUG ===");
+    logger.info("Method:", req.method);
+    logger.info("Headers:", JSON.stringify(req.headers, null, 2));
+    logger.info("Body type:", typeof req.body);
+    logger.info("Field count:", Object.keys(formData || {}).length);
+    logger.info("Available fields:", Object.keys(formData || {}));
+    logger.info("Full form data:", JSON.stringify(formData, null, 2));
+
+    // Log each field individually for clarity
+    logger.info("=== INDIVIDUAL FIELD BREAKDOWN ===");
+    if (formData) {
+      Object.keys(formData).forEach((key) => {
+        logger.info(
+          `Field "${key}": "${formData[key]}" (type: ${typeof formData[key]})`
+        );
+      });
+    }
+
     // Production logging - log form structure without sensitive data
     logger.info("Google Ads webhook received", {
       method: req.method,
@@ -870,15 +888,21 @@ router.post("/google-ads", validateWebhookSource, async (req, res) => {
       formData.last_name ||
       formData["Last Name"] ||
       formData["last_name"];
-    const email = formData.email || formData["Email"] || formData["email"];
+    const email =
+      formData.email ||
+      formData["Email"] ||
+      formData["Enter your email"] || // Added this field name from the logs
+      formData["email"];
     const phone =
       formData.phone ||
       formData["Phone Number"] ||
+      formData["Phone Number / WhatsApp"] || // Added this field name from the logs
       formData["Phone"] ||
       formData["phone"];
     const programInterested =
       formData.program_interested ||
       formData.program ||
+      formData["Preferred Program"] || // Added this field name from the logs
       formData.course_interested ||
       null; // Default to null instead of undefined
 
@@ -898,7 +922,7 @@ router.post("/google-ads", validateWebhookSource, async (req, res) => {
     if (!email) {
       logger.error("Google Ads webhook: Missing required email field", {
         availableFields: Object.keys(formData),
-        checkedFields: ["email", "Email", "email"],
+        checkedFields: ["email", "Email", "Enter your email", "email"],
       });
 
       return res.status(200).json({
