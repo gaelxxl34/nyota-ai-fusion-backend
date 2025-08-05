@@ -290,8 +290,13 @@ CONTACT TYPE: This person is a qualified lead who showed interest. They're likel
         systemPrompt += relevantKnowledge;
       }
 
-      // 5. Append the full program list
+      // 5. Append tuition fee instructions and program list
       systemPrompt += `
+
+TUITION FEE INSTRUCTIONS:
+- ALWAYS quote exact tuition fees as they appear in the knowledge base (per semester, not annually)
+- When discussing tuition fees, clarify that fees are per semester and include functional fees (194 USD first semester, 155 USD second semester)
+- NEVER convert or calculate annual fees - only quote the exact semester fees from the knowledge base
 
 IMPORTANT - IUEA PROGRAMS OFFERED (COMPLETE LIST):
 
