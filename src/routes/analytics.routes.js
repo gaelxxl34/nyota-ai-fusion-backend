@@ -35,23 +35,28 @@ router.get(
       console.log("=== ANALYTICS OVERVIEW ENDPOINT HIT ===");
       const { timeRange = "daily" } = req.query;
 
-      // Extract organizationId from user object - it might be under different names
+      // Extract organizationId and role from user object
       const organizationId =
         req.user?.organizationId || req.user?.orgId || "iuea";
+      const userRole = req.user?.role || req.user?.jobRole;
 
       console.log("Request details:", {
         timeRange,
         organizationId,
+        userRole,
         user: req.user?.email,
         fullUser: req.user,
         headers: req.headers.authorization,
       });
 
       logger.info(
-        `Fetching analytics overview for org: ${organizationId}, timeRange: ${timeRange}`
+        `Fetching analytics overview for org: ${organizationId}, timeRange: ${timeRange}, role: ${userRole}`
       );
 
-      const overview = await analyticsService.getOverviewStats(timeRange);
+      const overview = await analyticsService.getOverviewStats(
+        timeRange,
+        userRole
+      );
 
       res.json({
         success: true,
@@ -83,17 +88,25 @@ router.get(
       console.log("=== ANALYTICS LEAD PROGRESSION ENDPOINT HIT ===");
       const { timeRange = "daily" } = req.query;
 
-      // Extract organizationId from user object
+      // Extract organizationId and role from user object
       const organizationId =
         req.user?.organizationId || req.user?.orgId || "iuea";
+      const userRole = req.user?.role || req.user?.jobRole;
 
-      console.log("Lead progression request:", { timeRange, organizationId });
+      console.log("Lead progression request:", {
+        timeRange,
+        organizationId,
+        userRole,
+      });
 
       logger.info(
-        `Fetching lead progression for org: ${organizationId}, timeRange: ${timeRange}`
+        `Fetching lead progression for org: ${organizationId}, timeRange: ${timeRange}, role: ${userRole}`
       );
 
-      const progression = await analyticsService.getLeadProgression(timeRange);
+      const progression = await analyticsService.getLeadProgression(
+        timeRange,
+        userRole
+      );
 
       res.json({
         success: true,
@@ -175,17 +188,25 @@ router.get(
       console.log("=== ANALYTICS CONVERSION RATES ENDPOINT HIT ===");
       const { timeRange = "daily" } = req.query;
 
-      // Extract organizationId from user object
+      // Extract organizationId and role from user object
       const organizationId =
         req.user?.organizationId || req.user?.orgId || "iuea";
+      const userRole = req.user?.role || req.user?.jobRole;
 
-      console.log("Conversion rates request:", { timeRange, organizationId });
+      console.log("Conversion rates request:", {
+        timeRange,
+        organizationId,
+        userRole,
+      });
 
       logger.info(
-        `Fetching conversion rates for org: ${organizationId}, timeRange: ${timeRange}`
+        `Fetching conversion rates for org: ${organizationId}, timeRange: ${timeRange}, role: ${userRole}`
       );
 
-      const rates = await analyticsService.getConversionRates(timeRange);
+      const rates = await analyticsService.getConversionRates(
+        timeRange,
+        userRole
+      );
 
       res.json({
         success: true,

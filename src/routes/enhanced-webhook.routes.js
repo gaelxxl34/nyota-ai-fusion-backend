@@ -871,6 +871,8 @@ router.post("/google-ads", validateWebhookSource, async (req, res) => {
       formData["Program of Interest"] || // Additional field mapping
       formData.course_interested ||
       formData["Course of Interest"] ||
+      formData.course_of_interest || // Added this field from Google Ads
+      formData["course_of_interest"] || // Added in both formats
       null; // Default to null instead of undefined
 
     // Log the program extraction for debugging
@@ -881,6 +883,8 @@ router.post("/google-ads", validateWebhookSource, async (req, res) => {
       "Program of Interest": formData["Program of Interest"],
       course_interested: formData.course_interested,
       "Course of Interest": formData["Course of Interest"],
+      course_of_interest: formData.course_of_interest, // Added this field log
+      course_of_interest: formData["course_of_interest"], // Added in both formats
       finalProgramInterested: programInterested,
     });
 

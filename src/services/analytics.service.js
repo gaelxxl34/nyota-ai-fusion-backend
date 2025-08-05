@@ -8,10 +8,10 @@ class AnalyticsService {
   /**
    * Get overview statistics for the dashboard
    */
-  async getOverviewStats(timeRange) {
+  async getOverviewStats(timeRange, userRole = null) {
     try {
       logger.info(
-        `AnalyticsService.getOverviewStats called with timeRange: ${timeRange}`
+        `AnalyticsService.getOverviewStats called with timeRange: ${timeRange}, userRole: ${userRole}`
       );
 
       const now = new Date();
@@ -24,6 +24,14 @@ class AnalyticsService {
       // Get all leads (single organization app)
       const leadsSnapshot = await db.collection("leads").get();
       logger.info(`Found ${leadsSnapshot.size} leads`);
+
+      // Define which statuses admission admin can see
+      const admissionAdminStatuses = [
+        "APPLIED",
+        "QUALIFIED",
+        "ADMITTED",
+        "ENROLLED",
+      ];
 
       // Count leads by status - separate counts for all time and time range
       const allTimeStatusCounts = {
@@ -60,6 +68,14 @@ class AnalyticsService {
         // Get current status from timeline
         const currentStatus = LeadModel.getCurrentStatus(lead);
 
+        // Filter for admission admin - only show specific statuses
+        if (
+          userRole === "admissionAdmin" &&
+          !admissionAdminStatuses.includes(currentStatus)
+        ) {
+          return; // Skip this lead for admission admin
+        }
+
         // Count all-time status
         if (
           currentStatus &&
@@ -94,6 +110,29 @@ class AnalyticsService {
         }
       });
 
+      // For admission admin, filter out non-relevant statuses from the response
+      if (userRole === "admissionAdmin") {
+        // For admission admin, completely rebuild status counts with only relevant statuses
+        const filteredStatusCounts = {};
+        const filteredAllTimeStatusCounts = {};
+
+        // Only include admission-relevant statuses
+        admissionAdminStatuses.forEach((status) => {
+          filteredStatusCounts[status] = statusCounts[status] || 0;
+          filteredAllTimeStatusCounts[status] =
+            allTimeStatusCounts[status] || 0;
+        });
+
+        // Replace the original counts with filtered versions
+        Object.keys(statusCounts).forEach((key) => delete statusCounts[key]);
+        Object.keys(allTimeStatusCounts).forEach(
+          (key) => delete allTimeStatusCounts[key]
+        );
+
+        Object.assign(statusCounts, filteredStatusCounts);
+        Object.assign(allTimeStatusCounts, filteredAllTimeStatusCounts);
+      }
+
       // Log debug info for daily view
       if (timeRange === "daily" && debugInfo.length > 0) {
         logger.info("Sample leads timeline dates:", debugInfo);
@@ -105,6 +144,16 @@ class AnalyticsService {
 
       leadsSnapshot.forEach((doc) => {
         const lead = doc.data();
+
+        // Apply same role filtering for previous period
+        const currentStatus = LeadModel.getCurrentStatus(lead);
+        if (
+          userRole === "admissionAdmin" &&
+          !admissionAdminStatuses.includes(currentStatus)
+        ) {
+          return;
+        }
+
         // Use the date from the first timeline entry (when lead was created)
         const timeline = lead.timeline || [];
         if (timeline.length > 0) {
@@ -142,13 +191,21 @@ class AnalyticsService {
   /**
    * Get lead progression data over time
    */
-  async getLeadProgression(timeRange) {
+  async getLeadProgression(timeRange, userRole = null) {
     try {
       const now = new Date();
       const startDate = this.getStartDate(now, timeRange);
 
       // Get all leads (single organization app)
       const leadsSnapshot = await db.collection("leads").get();
+
+      // Define which statuses admission admin can see
+      const admissionAdminStatuses = [
+        "APPLIED",
+        "QUALIFIED",
+        "ADMITTED",
+        "ENROLLED",
+      ];
 
       // Group data by time period
       const progressionData = [];
@@ -157,16 +214,39 @@ class AnalyticsService {
       for (const period of periods) {
         const periodData = {
           date: period.label,
-          contacted: 0,
-          preQualified: 0,
-          applied: 0,
-          qualified: 0,
-          enrolled: 0,
         };
+
+        // For admission admin, only include relevant fields
+        if (userRole === "admissionAdmin") {
+          periodData.applied = 0;
+          periodData.qualified = 0;
+          periodData.admitted = 0;
+          periodData.enrolled = 0;
+        } else {
+          // For other roles, include all fields
+          periodData.contacted = 0;
+          periodData.preQualified = 0;
+          periodData.applied = 0;
+          periodData.qualified = 0;
+          periodData.admitted = 0;
+          periodData.enrolled = 0;
+        }
 
         // Count leads by status for this period
         leadsSnapshot.forEach((doc) => {
           const lead = doc.data();
+
+          // Get current status from timeline
+          const currentStatus = LeadModel.getCurrentStatus(lead);
+
+          // Filter for admission admin - only show specific statuses
+          if (
+            userRole === "admissionAdmin" &&
+            !admissionAdminStatuses.includes(currentStatus)
+          ) {
+            return; // Skip this lead for admission admin
+          }
+
           const statusHistory = lead.statusHistory || [];
 
           // Check if lead reached each status during this period
@@ -174,22 +254,44 @@ class AnalyticsService {
             const changeDate =
               history.timestamp?.toDate() || new Date(history.timestamp);
             if (changeDate >= period.start && changeDate <= period.end) {
-              switch (history.status) {
-                case "CONTACTED":
-                  periodData.contacted++;
-                  break;
-                case "PRE_QUALIFIED":
-                  periodData.preQualified++;
-                  break;
-                case "APPLIED":
-                  periodData.applied++;
-                  break;
-                case "QUALIFIED":
-                  periodData.qualified++;
-                  break;
-                case "ENROLLED":
-                  periodData.enrolled++;
-                  break;
+              // For admission admin, only track admission-relevant statuses
+              if (userRole === "admissionAdmin") {
+                switch (history.status) {
+                  case "APPLIED":
+                    periodData.applied++;
+                    break;
+                  case "QUALIFIED":
+                    periodData.qualified++;
+                    break;
+                  case "ADMITTED":
+                    periodData.admitted++;
+                    break;
+                  case "ENROLLED":
+                    periodData.enrolled++;
+                    break;
+                }
+              } else {
+                // For other roles, track all statuses
+                switch (history.status) {
+                  case "CONTACTED":
+                    periodData.contacted++;
+                    break;
+                  case "PRE_QUALIFIED":
+                    periodData.preQualified++;
+                    break;
+                  case "APPLIED":
+                    periodData.applied++;
+                    break;
+                  case "QUALIFIED":
+                    periodData.qualified++;
+                    break;
+                  case "ADMITTED":
+                    periodData.admitted++;
+                    break;
+                  case "ENROLLED":
+                    periodData.enrolled++;
+                    break;
+                }
               }
             }
           });
@@ -281,6 +383,9 @@ class AnalyticsService {
         if (userRole === "admissionAgent" && user.role === "marketingAgent") {
           continue; // Admission agents can't see marketing agents' data
         }
+        if (userRole === "admissionAdmin" && user.role === "marketingAgent") {
+          continue; // Admission admins can't see marketing agents' data
+        }
         // Admins and superAdmins can see all agent data but are not included in the report
 
         const metrics = {
@@ -300,6 +405,24 @@ class AnalyticsService {
         // Count leads and their progression
         leadsSnapshot.forEach((leadDoc) => {
           const lead = leadDoc.data();
+
+          // Get current status and apply admission admin filtering
+          const currentStatus = LeadModel.getCurrentStatus(lead);
+          const admissionAdminStatuses = [
+            "APPLIED",
+            "QUALIFIED",
+            "ADMITTED",
+            "ENROLLED",
+          ];
+
+          // Filter for admission admin - only show specific statuses
+          if (
+            userRole === "admissionAdmin" &&
+            !admissionAdminStatuses.includes(currentStatus)
+          ) {
+            return; // Skip this lead for admission admin
+          }
+
           // Check if this lead was submitted by this user
           // submittedBy is stored at the top level of the lead
           // submittedBy contains email, not uid
@@ -314,7 +437,6 @@ class AnalyticsService {
                 timeline[0].date?.toDate() || new Date(timeline[0].date);
               if (createdDate >= startDate) {
                 metrics.leadsSubmitted++;
-                const currentStatus = LeadModel.getCurrentStatus(lead);
                 logger.info(
                   `[Agent Performance] Found lead submitted by ${user.email}: ${leadDoc.id}, status: ${currentStatus}`
                 );
@@ -376,55 +498,93 @@ class AnalyticsService {
   /**
    * Get conversion rates between stages
    */
-  async getConversionRates(timeRange) {
+  async getConversionRates(timeRange, userRole = null) {
     try {
-      const overview = await this.getOverviewStats(timeRange);
+      const overview = await this.getOverviewStats(timeRange, userRole);
       const counts = overview.statusCounts;
 
-      const rates = {
-        contactedToPreQualified: 0,
-        preQualifiedToApplied: 0,
-        appliedToQualified: 0,
-        qualifiedToEnrolled: 0,
-        overallConversion: 0,
-      };
+      const rates = {};
 
-      // Calculate stage-to-stage conversion rates
-      if (counts.CONTACTED > 0) {
-        rates.contactedToPreQualified = (
-          (counts.PRE_QUALIFIED / counts.CONTACTED) *
-          100
-        ).toFixed(1);
-      }
+      // For admission admin, only calculate admission-relevant conversion rates
+      if (userRole === "admissionAdmin") {
+        rates.appliedToQualified = 0;
+        rates.qualifiedToAdmitted = 0;
+        rates.admittedToEnrolled = 0;
+        rates.overallAdmissionConversion = 0;
 
-      if (counts.PRE_QUALIFIED > 0) {
-        rates.preQualifiedToApplied = (
-          (counts.APPLIED / counts.PRE_QUALIFIED) *
-          100
-        ).toFixed(1);
-      }
+        if (counts.APPLIED > 0) {
+          rates.appliedToQualified = (
+            (counts.QUALIFIED / counts.APPLIED) *
+            100
+          ).toFixed(1);
+        }
 
-      if (counts.APPLIED > 0) {
-        rates.appliedToQualified = (
-          (counts.QUALIFIED / counts.APPLIED) *
-          100
-        ).toFixed(1);
-      }
+        if (counts.QUALIFIED > 0) {
+          rates.qualifiedToAdmitted = (
+            (counts.ADMITTED / counts.QUALIFIED) *
+            100
+          ).toFixed(1);
+        }
 
-      if (counts.QUALIFIED > 0) {
-        rates.qualifiedToEnrolled = (
-          (counts.ENROLLED / counts.QUALIFIED) *
-          100
-        ).toFixed(1);
-      }
+        if (counts.ADMITTED > 0) {
+          rates.admittedToEnrolled = (
+            (counts.ENROLLED / counts.ADMITTED) *
+            100
+          ).toFixed(1);
+        }
 
-      // Overall conversion from first contact to enrollment
-      const totalInitial = counts.INQUIRY + counts.CONTACTED;
-      if (totalInitial > 0) {
-        rates.overallConversion = (
-          (counts.ENROLLED / totalInitial) *
-          100
-        ).toFixed(1);
+        // Overall admission conversion from applied to enrolled
+        if (counts.APPLIED > 0) {
+          rates.overallAdmissionConversion = (
+            (counts.ENROLLED / counts.APPLIED) *
+            100
+          ).toFixed(1);
+        }
+      } else {
+        // For other roles, calculate all conversion rates
+        rates.contactedToPreQualified = 0;
+        rates.preQualifiedToApplied = 0;
+        rates.appliedToQualified = 0;
+        rates.qualifiedToEnrolled = 0;
+        rates.overallConversion = 0;
+
+        // Calculate stage-to-stage conversion rates
+        if (counts.CONTACTED > 0) {
+          rates.contactedToPreQualified = (
+            (counts.PRE_QUALIFIED / counts.CONTACTED) *
+            100
+          ).toFixed(1);
+        }
+
+        if (counts.PRE_QUALIFIED > 0) {
+          rates.preQualifiedToApplied = (
+            (counts.APPLIED / counts.PRE_QUALIFIED) *
+            100
+          ).toFixed(1);
+        }
+
+        if (counts.APPLIED > 0) {
+          rates.appliedToQualified = (
+            (counts.QUALIFIED / counts.APPLIED) *
+            100
+          ).toFixed(1);
+        }
+
+        if (counts.QUALIFIED > 0) {
+          rates.qualifiedToEnrolled = (
+            (counts.ENROLLED / counts.QUALIFIED) *
+            100
+          ).toFixed(1);
+        }
+
+        // Overall conversion from first contact to enrollment
+        const totalInitial = counts.INQUIRY + counts.CONTACTED;
+        if (totalInitial > 0) {
+          rates.overallConversion = (
+            (counts.ENROLLED / totalInitial) *
+            100
+          ).toFixed(1);
+        }
       }
 
       return {
@@ -445,10 +605,10 @@ class AnalyticsService {
     try {
       // Gather all analytics data
       const [overview, progression, performance, rates] = await Promise.all([
-        this.getOverviewStats(timeRange),
-        this.getLeadProgression(timeRange),
+        this.getOverviewStats(timeRange, userRole),
+        this.getLeadProgression(timeRange, userRole),
         this.getAgentPerformance(timeRange, userRole),
-        this.getConversionRates(timeRange),
+        this.getConversionRates(timeRange, userRole),
       ]);
 
       if (format === "csv") {
@@ -497,21 +657,48 @@ class AnalyticsService {
         csv += "CONVERSION FUNNEL\n";
         csv += "-".repeat(30) + "\n";
         csv += "Stage Transition,Conversion Rate\n";
-        csv += `Contacted → Pre-Qualified,${rates.rates.contactedToPreQualified}%\n`;
-        csv += `Pre-Qualified → Applied,${rates.rates.preQualifiedToApplied}%\n`;
-        csv += `Applied → Qualified,${rates.rates.appliedToQualified}%\n`;
-        csv += `Qualified → Enrolled,${rates.rates.qualifiedToEnrolled}%\n`;
-        csv += `Overall (Inquiry → Enrolled),${rates.rates.overallConversion}%\n`;
+
+        if (userRole === "admissionAdmin") {
+          // Admission admin only sees admission-relevant conversions
+          csv += `Applied → Qualified,${rates.rates.appliedToQualified}%\n`;
+          csv += `Qualified → Admitted,${rates.rates.qualifiedToAdmitted}%\n`;
+          csv += `Admitted → Enrolled,${rates.rates.admittedToEnrolled}%\n`;
+          csv += `Overall Admission (Applied → Enrolled),${rates.rates.overallAdmissionConversion}%\n`;
+        } else {
+          // Other roles see full conversion funnel
+          csv += `Contacted → Pre-Qualified,${rates.rates.contactedToPreQualified}%\n`;
+          csv += `Pre-Qualified → Applied,${rates.rates.preQualifiedToApplied}%\n`;
+          csv += `Applied → Qualified,${rates.rates.appliedToQualified}%\n`;
+          csv += `Qualified → Enrolled,${rates.rates.qualifiedToEnrolled}%\n`;
+          csv += `Overall (Inquiry → Enrolled),${rates.rates.overallConversion}%\n`;
+        }
         csv += "\n";
 
         // Lead Progression Over Time
         if (progression.length > 0) {
           csv += "LEAD PROGRESSION OVER TIME\n";
           csv += "-".repeat(30) + "\n";
-          csv += "Period,Contacted,Pre-Qualified,Applied,Qualified,Enrolled\n";
-          progression.forEach((period) => {
-            csv += `${period.date},${period.contacted},${period.preQualified},${period.applied},${period.qualified},${period.enrolled}\n`;
-          });
+
+          if (userRole === "admissionAdmin") {
+            // Admission admin only sees admission-relevant columns
+            csv += "Period,Applied,Qualified,Admitted,Enrolled\n";
+            progression.forEach((period) => {
+              csv += `${period.date},${period.applied || 0},${
+                period.qualified || 0
+              },${period.admitted || 0},${period.enrolled || 0}\n`;
+            });
+          } else {
+            // Other roles see all columns
+            csv +=
+              "Period,Contacted,Pre-Qualified,Applied,Qualified,Admitted,Enrolled\n";
+            progression.forEach((period) => {
+              csv += `${period.date},${period.contacted || 0},${
+                period.preQualified || 0
+              },${period.applied || 0},${period.qualified || 0},${
+                period.admitted || 0
+              },${period.enrolled || 0}\n`;
+            });
+          }
           csv += "\n";
         }
 

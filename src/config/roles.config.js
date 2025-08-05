@@ -57,7 +57,7 @@ const ROLES = {
   admissionAdmin: {
     name: "Admission Admin",
     description:
-      "Administrative access to all features with focus on admissions",
+      "Administrative access to admission features (Applied to Enrolled stages)",
     permissions: [
       PERMISSIONS.CHAT_CONFIG,
       PERMISSIONS.DATA_CENTER,
@@ -65,15 +65,13 @@ const ROLES = {
       PERMISSIONS.TEAM,
       PERMISSIONS.SETTINGS,
       PERMISSIONS.KNOWLEDGE_BASE,
-      PERMISSIONS.VIEW_ALL_LEADS,
-      PERMISSIONS.VIEW_MARKETING_LEADS,
       PERMISSIONS.VIEW_ADMISSIONS_LEADS,
       PERMISSIONS.MANAGE_TEAM,
       PERMISSIONS.MANAGE_SETTINGS,
       PERMISSIONS.EXPORT_DATA,
     ],
     leadStageAccess: {
-      from: LEAD_STAGES.NEW_CONTACT,
+      from: LEAD_STAGES.APPLIED,
       to: LEAD_STAGES.ENROLLED,
     },
   },
