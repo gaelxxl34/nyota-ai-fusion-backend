@@ -1170,17 +1170,29 @@ router.post("/application-form", validateWebhookSource, async (req, res) => {
     const formData = req.body;
     logger.webhook("Application Form", formData);
 
-    // Extract only the 10 specific application fields we need
-    const firstName = formData["First Name"];
-    const lastName = formData["Last Name"];
-    const email = formData["Email Address"];
-    const phone = formData["Telephone/Mobile No"];
-    const countryOfBirth = formData["Country of Birth"];
-    const gender = formData["Gender"];
-    const modeOfStudy = formData["Mode of Study"];
-    const intake = formData["Preferred Intake"];
-    const courseOfInterest = formData["Preferred Program"];
-    const courseOfInterest2 = formData["Other Sources"]; // Using as secondary course option
+    // Extract all application fields including the additional requested fields
+    const firstName = formData["firstname"] || formData["First Name"];
+    const lastName = formData["lastname"] || formData["Last Name"];
+    const email = formData["email"] || formData["Email Address"];
+    const phone = formData["phone"] || formData["Telephone/Mobile No"];
+    const countryOfBirth =
+      formData["country_of_birth"] || formData["Country of Birth"];
+    const gender = formData["gender"] || formData["Gender"];
+    const modeOfStudy = formData["mode_of_study"] || formData["Mode of Study"];
+    const intake = formData["intake"] || formData["Preferred Intake"];
+    const courseOfInterest =
+      formData["course_of_interest"] || formData["Preferred Program"];
+    const courseOfInterest2 =
+      formData["course_of_interest2"] || formData["Other Sources"];
+
+    // Additional fields requested to be captured
+    const passportPhoto = formData["passport_photo"] || null;
+    const postalAddress = formData["postal_address"] || null;
+    const academicDocuments = formData["academic_documents"] || null;
+    const identificationDocument = formData["identification_document"] || null;
+    const sponsor = formData["sponsor"] || null;
+    const sponsorTelephone = formData["sponsor_telephone"] || null;
+    const sponsorEmail = formData["sponsor_email"] || null;
 
     // Combine first and last name
     const name = `${firstName || ""} ${lastName || ""}`.trim() || "Unknown";
@@ -1333,7 +1345,7 @@ router.post("/application-form", validateWebhookSource, async (req, res) => {
         return "bachelor_information_technology";
       };
 
-      // Create application data with the 10 specific fields mapped to expected format
+      // Create application data with all fields mapped to expected format
       const applicationData = {
         name,
         email,
@@ -1343,10 +1355,18 @@ router.post("/application-form", validateWebhookSource, async (req, res) => {
         modeOfStudy: normalizeModeOfStudy(modeOfStudy),
         preferredIntake: normalizeIntake(intake),
         preferredProgram: normalizeProgram(courseOfInterest),
+        // New fields added as requested
+        passportPhoto: passport_photo || null,
+        postalAddress: postal_address || null,
+        secondaryProgram: courseOfInterest2 || null,
+        academicDocuments: academic_documents || null,
+        identificationDocument: identification_document || null,
+        sponsor: sponsor || null,
+        sponsorTelephone: sponsor_telephone || null,
+        sponsorEmail: sponsor_email || null,
         additionalInfo: {
           firstName,
           lastName,
-          courseOfInterest2,
           originalValues: {
             gender: gender,
             modeOfStudy: modeOfStudy,

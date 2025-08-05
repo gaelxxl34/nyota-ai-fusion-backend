@@ -68,11 +68,21 @@ class ApplicationModel {
       gender: applicationData.gender,
       email: applicationData.email.toLowerCase(),
       phoneNumber: applicationData.phoneNumber,
+      passportPhoto: applicationData.passportPhoto || null,
+      postalAddress: applicationData.postalAddress || null,
 
       // Academic Information
       modeOfStudy: applicationData.modeOfStudy,
       preferredIntake: applicationData.preferredIntake,
       preferredProgram: applicationData.preferredProgram,
+      secondaryProgram: applicationData.secondaryProgram || null,
+      academicDocuments: applicationData.academicDocuments || [],
+      identificationDocument: applicationData.identificationDocument || null,
+
+      // Sponsorship Information
+      sponsor: applicationData.sponsor || null,
+      sponsorTelephone: applicationData.sponsorTelephone || null,
+      sponsorEmail: applicationData.sponsorEmail || null,
 
       // Application Meta
       status: APPLICATION_STATUSES.SUBMITTED,
@@ -148,11 +158,27 @@ class ApplicationModel {
       }
     }
 
+    // Sponsor email validation if provided
+    if (applicationData.sponsorEmail) {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(applicationData.sponsorEmail)) {
+        errors.push("Invalid sponsor email format");
+      }
+    }
+
     // Phone validation
     if (applicationData.phoneNumber) {
       const phoneRegex = /^\+?[\d\s\-\(\)]{10,}$/;
       if (!phoneRegex.test(applicationData.phoneNumber)) {
         errors.push("Invalid phone number format");
+      }
+    }
+
+    // Sponsor phone validation if provided
+    if (applicationData.sponsorTelephone) {
+      const phoneRegex = /^\+?[\d\s\-\(\)]{10,}$/;
+      if (!phoneRegex.test(applicationData.sponsorTelephone)) {
+        errors.push("Invalid sponsor phone number format");
       }
     }
 
@@ -164,12 +190,8 @@ class ApplicationModel {
       errors.push("Invalid gender value");
     }
 
-    if (
-      applicationData.modeOfStudy &&
-      !Object.values(STUDY_MODES).includes(applicationData.modeOfStudy)
-    ) {
-      errors.push("Invalid mode of study");
-    }
+    // Accept any mode of study
+    // Mode of study validation removed to allow any value from frontend
 
     if (
       applicationData.preferredIntake &&
@@ -178,12 +200,8 @@ class ApplicationModel {
       errors.push("Invalid intake period");
     }
 
-    if (
-      applicationData.preferredProgram &&
-      !Object.values(PROGRAMS).includes(applicationData.preferredProgram)
-    ) {
-      errors.push("Invalid program selection");
-    }
+    // Accept any program selection
+    // Program validation removed to allow any value from frontend
 
     return {
       isValid: errors.length === 0,

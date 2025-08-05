@@ -130,9 +130,16 @@ class ApplicationService {
         ...applicationDoc,
       };
 
-      // 6. Send WhatsApp thank you message
+      // 6. Send WhatsApp thank you message (if not skipped)
       let whatsappResult = null;
       try {
+        // Skip WhatsApp message if specified in application data
+        if (applicationData.skipWhatsappMessage) {
+          console.log("🔇 Skipping WhatsApp message as requested");
+          whatsappResult = { skipped: true };
+          return { application: savedApplication, lead, whatsappResult };
+        }
+
         // IMPORTANT: Make sure we have a valid lead object before sending the message
         if (!lead || !lead.id) {
           console.error("❌ Cannot send WhatsApp message - missing lead ID");
@@ -501,6 +508,181 @@ IUEA Admissions Team`;
     };
 
     return programNames[programCode] || "our university programs";
+  }
+
+  /**
+   * Submit a manual application from the internal form
+   * This is a separate flow for applications submitted via the manual form
+   * It creates a lead with APPLIED status without sending a WhatsApp message
+   */
+  async submitManualApplication(applicationData) {
+    try {
+      console.log(
+        `🖊️ Processing manual application for ${applicationData.name}...`
+      );
+
+      // 1. Validate application data (still needed to ensure data integrity)
+      const validation = ApplicationModel.validate(applicationData);
+      if (!validation.isValid) {
+        throw new Error(`Validation failed: ${validation.errors.join(", ")}`);
+      }
+
+      // 2. Create application document but mark it as manual
+      const applicationDoc =
+        ApplicationModel.createApplication(applicationData);
+      applicationDoc.source = "MANUAL_FORM";
+
+      // If submittedBy info is provided, add it to the timeline
+      if (applicationData.submittedBy) {
+        applicationDoc.timeline[0] = {
+          ...applicationDoc.timeline[0],
+          submittedBy: applicationData.submittedBy,
+          notes: `Application submitted through manual form by ${
+            applicationData.submittedBy.name ||
+            applicationData.submittedBy.email
+          } (${applicationData.submittedBy.role})`,
+        };
+      } else {
+        // Update notes to indicate it's a manual submission
+        applicationDoc.timeline[0].notes =
+          "Application submitted through manual form";
+      }
+
+      // 3. Check if lead exists (by phone or email)
+      let existingLead = null;
+
+      // First check by phone number
+      if (applicationData.phoneNumber) {
+        existingLead = await this.leadService.findLeadByPhone(
+          applicationData.phoneNumber
+        );
+      }
+
+      // If no lead found by phone, check by email
+      if (!existingLead && applicationData.email) {
+        existingLead = await this.leadService.findLeadByEmail(
+          applicationData.email
+        );
+      }
+
+      let lead = null;
+
+      if (existingLead) {
+        // 4a. Update existing lead status to APPLIED
+        console.log(
+          `📞 Updating existing lead ${existingLead.id} to APPLIED status from manual application...`
+        );
+
+        // Update additional fields first
+        await this.db
+          .collection("leads")
+          .doc(existingLead.id)
+          .update({
+            program: ApplicationModel.getProgramName(
+              applicationData.preferredProgram
+            ),
+            modeOfStudy: applicationData.modeOfStudy,
+            preferredIntake: applicationData.preferredIntake,
+            countryOfBirth: applicationData.countryOfBirth,
+            gender: applicationData.gender,
+            postalAddress:
+              applicationData.postalAddress || existingLead.postalAddress,
+            applicationSubmitted: true,
+            applicationDate: new Date(),
+            updatedAt: new Date(),
+
+            // Add sponsor info if available
+            ...(applicationData.sponsorEmail || applicationData.sponsorTelephone
+              ? {
+                  sponsorInfo: {
+                    sponsorEmail: applicationData.sponsorEmail || null,
+                    sponsorPhone: applicationData.sponsorTelephone || null,
+                  },
+                }
+              : {}),
+          });
+
+        // Update the status
+        lead = await this.leadService.updateLeadStatus(
+          existingLead.id,
+          LEAD_STATUSES.APPLIED,
+          `Application submitted manually for ${ApplicationModel.getProgramName(
+            applicationData.preferredProgram
+          )}`,
+          "MANUAL_FORM"
+        );
+
+        // Update application with lead ID
+        applicationDoc.leadId = existingLead.id;
+      } else {
+        // 4b. Create new lead with APPLIED status
+        console.log(
+          `🆕 Creating new lead with APPLIED status from manual application...`
+        );
+
+        const contactInfo = {
+          name: applicationData.name,
+          phone: applicationData.phoneNumber,
+          email: applicationData.email,
+          status: LEAD_STATUSES.APPLIED, // Explicitly set status to APPLIED
+        };
+
+        const additionalData = {
+          program: ApplicationModel.getProgramName(
+            applicationData.preferredProgram
+          ),
+          modeOfStudy: applicationData.modeOfStudy,
+          preferredIntake: applicationData.preferredIntake,
+          countryOfBirth: applicationData.countryOfBirth,
+          gender: applicationData.gender,
+          postalAddress: applicationData.postalAddress || null,
+          applicationSubmitted: true,
+          applicationDate: new Date(),
+          notes: "Application submitted through manual form",
+
+          // Add sponsor info if available
+          ...(applicationData.sponsorEmail || applicationData.sponsorTelephone
+            ? {
+                sponsorInfo: {
+                  sponsorEmail: applicationData.sponsorEmail || null,
+                  sponsorPhone: applicationData.sponsorTelephone || null,
+                },
+              }
+            : {}),
+        };
+
+        lead = await this.leadService.createLead(
+          contactInfo,
+          "MANUAL_FORM", // Clearly mark as manual form source
+          additionalData
+        );
+
+        // Update application with lead ID
+        applicationDoc.leadId = lead.id;
+      }
+
+      // 5. Save application to database
+      const docRef = await this.db
+        .collection(this.collection)
+        .add(applicationDoc);
+
+      console.log(`✅ Manual application created with ID: ${docRef.id}`);
+
+      const savedApplication = {
+        id: docRef.id,
+        ...applicationDoc,
+      };
+
+      // 6. No WhatsApp message for manual applications
+      return {
+        application: savedApplication,
+        lead,
+        whatsappResult: { skipped: true, reason: "Manual application" },
+      };
+    } catch (error) {
+      console.error("❌ Error submitting manual application:", error);
+      throw error;
+    }
   }
 }
 

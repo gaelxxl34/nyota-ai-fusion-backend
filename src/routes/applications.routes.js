@@ -91,6 +91,60 @@ router.post("/submit", ensureApplicationService, async (req, res) => {
 });
 
 /**
+ * Submit a manual application (internal form)
+ * POST /api/applications/submit-manual
+ */
+router.post("/submit-manual", ensureApplicationService, async (req, res) => {
+  try {
+    const { submittedBy, ...applicationData } = req.body;
+
+    if (!applicationData) {
+      return res.status(400).json({
+        success: false,
+        error: "Application data is required",
+      });
+    }
+
+    // If submittedBy is included in the request, use it
+    // Otherwise, try to use the authenticated user info from the middleware
+    const submitterInfo =
+      submittedBy ||
+      (req.user
+        ? {
+            uid: req.user.uid,
+            email: req.user.email,
+            role: req.user.role,
+            submittedAt: new Date().toISOString(),
+          }
+        : null);
+
+    // Add submittedBy to the application data
+    const dataWithSubmitter = {
+      ...applicationData,
+      submittedBy: submitterInfo,
+    };
+
+    // Use the dedicated manual application submission method
+    const result = await applicationService.submitManualApplication(
+      dataWithSubmitter
+    );
+
+    res.status(201).json({
+      success: true,
+      message: "Manual application submitted successfully",
+      application: result.application,
+      lead: result.lead,
+    });
+  } catch (error) {
+    console.error("❌ Error submitting manual application:", error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
+/**
  * Get available application statuses and options
  * GET /api/applications/config
  */
