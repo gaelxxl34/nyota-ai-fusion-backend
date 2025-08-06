@@ -246,8 +246,42 @@ class WhatsAppMessageService {
       }
 
       if (!conversationId) {
-        console.warn(`⚠️ No conversation found for ${normalizedPhone}`);
-        return false;
+        console.log(
+          `⚠️ No conversation found for ${normalizedPhone}, creating a new one`
+        );
+
+        // Create a new conversation since one doesn't exist
+        try {
+          // Try to get the lead info to use the contact name
+          let contactName = null;
+          try {
+            const leadDoc = await this.db.collection("leads").doc(leadId).get();
+            if (leadDoc.exists) {
+              const leadData = leadDoc.data();
+              contactName = leadData.name || leadData.firstName || null;
+            }
+          } catch (err) {
+            console.warn(`⚠️ Could not get lead name: ${err.message}`);
+          }
+
+          // Create conversation with the lead ID
+          conversationId =
+            await this.conversationService.createOrGetConversation(
+              normalizedPhone,
+              leadId,
+              contactName
+            );
+
+          console.log(
+            `✅ Created new conversation ${conversationId} for lead ${leadId}`
+          );
+          return true;
+        } catch (createError) {
+          console.error(
+            `❌ Error creating conversation: ${createError.message}`
+          );
+          return false;
+        }
       }
 
       console.log(
@@ -630,8 +664,36 @@ class WhatsAppMessageService {
             "validation_status"
           );
 
-          // Note: We don't create conversation here automatically
-          // The client should call createConversationForValidatedNumber when ready to create lead
+          // AUTOMATIC CONVERSATION CREATION:
+          // Create conversation automatically when validation message is delivered
+          // This ensures we always have a conversation for each validated number
+          try {
+            console.log(
+              `📞 Validation successful for ${recipientId}: ${statusType}`
+            );
+
+            // Create conversation for the validated number
+            const conversationResult =
+              await this.createConversationForValidatedNumber(messageId, {
+                contactName: validationData.metadata?.contactName || null,
+                source: validationData.metadata?.source || "whatsapp",
+                // leadId will be linked later when lead is created
+              });
+
+            if (conversationResult.success) {
+              console.log(
+                `✅ Automatically created conversation for validated number ${recipientId}`
+              );
+            } else {
+              console.warn(
+                `⚠️ Could not automatically create conversation: ${conversationResult.error}`
+              );
+            }
+          } catch (convError) {
+            console.error(
+              `❌ Error creating conversation for validated number: ${convError.message}`
+            );
+          }
         }
 
         // For validation messages, we don't update status in database since there's no entry

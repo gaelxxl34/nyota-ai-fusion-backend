@@ -860,7 +860,59 @@ router.post("/wordpress", validateWebhookSource, async (req, res) => {
       leadId = await leadService.createLead(leadData, LEAD_SOURCES.WEBSITE);
       actionTaken = "created_new_lead";
 
-      // The lead creation endpoint will now handle creating the conversation
+      // Link to existing conversation or create a new one
+      if (
+        validatedPhone &&
+        whatsappValidationResult &&
+        whatsappValidationResult.messageId
+      ) {
+        try {
+          const leadIdStr = leadId.id || leadId;
+
+          // Find existing conversation by phone number
+          let conversationId =
+            await whatsappMessageService.conversationService.findConversationByPhone(
+              validatedPhone
+            );
+
+          if (conversationId) {
+            // Update existing conversation with lead ID
+            await whatsappMessageService.updateConversationWithLead(
+              validatedPhone,
+              leadIdStr
+            );
+            logger.info(
+              `✅ Updated existing conversation for ${validatedPhone} with lead ID ${leadIdStr}`
+            );
+          } else {
+            // Create new conversation with template message included
+            const result =
+              await whatsappMessageService.createConversationForValidatedNumber(
+                whatsappValidationResult.messageId,
+                {
+                  leadId: leadIdStr,
+                  contactName: name,
+                  source: "wordpress",
+                }
+              );
+
+            if (result.success) {
+              logger.info(
+                `✅ Created new conversation ${result.conversationId} for lead ${leadIdStr}`
+              );
+            } else {
+              logger.error(
+                `❌ Failed to create conversation for lead: ${result.error}`
+              );
+            }
+          }
+        } catch (convError) {
+          logger.error(
+            `❌ Error linking conversation to lead: ${convError.message}`
+          );
+        }
+      }
+
       statusNote =
         "New lead created from WordPress contact form (user initiated contact)";
     }
