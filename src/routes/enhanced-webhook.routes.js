@@ -22,19 +22,75 @@ const logger = require("../utils/logger");
 
 // Configuration options
 const WHATSAPP_VALIDATION_ENABLED =
-  process.env.WHATSAPP_VALIDATION_ENABLED !== "false";
+  process.env.NODE_ENV === "production"
+    ? true
+    : process.env.WHATSAPP_VALIDATION_ENABLED !== "false";
 
 // Protection middleware
 const validateWebhookSource = (req, res, next) => {
   // If webhook protection is disabled, skip validation
   if (process.env.WEBHOOK_PROTECTION_ENABLED !== "true") {
-    return next();
+    if (process.env.NODE_ENV === "production") {
+      logger.warn(
+        "WARNING: Webhook protection disabled in production environment!"
+      );
+      logger.warn(
+        "This is a security risk. Enable WEBHOOK_PROTECTION_ENABLED in production."
+      );
+      // Allow webhooks to proceed anyway as per user's request
+      return next();
+    } else {
+      logger.debug("Webhook protection disabled for development");
+      return next();
+    }
   }
 
-  // Implement source validation logic here (API keys, secrets, etc.)
-  // For WordPress, you might verify a shared secret
-  // For Google Ads, you might verify Google's signature
-  // For Meta, you might verify their signature
+  // For testing: Add a special test flag if X-Test-Request header is present
+  if (req.headers["x-test-request"] === "true") {
+    if (process.env.NODE_ENV !== "production") {
+      req.isTestRequest = true;
+      logger.debug("Test request detected - validation will be relaxed");
+    } else {
+      // In production, don't allow test mode via header
+      logger.warn(`Attempted test mode in production - DENIED`);
+      // Remove any test headers in production to prevent security bypass
+      delete req.headers["x-test-request"];
+      delete req.headers["x-bypass-whatsapp-validation"];
+      delete req.headers["x-bypass-whatsapp-validation"];
+    }
+  }
+
+  // Implement source validation logic for production environments
+  if (process.env.NODE_ENV === "production") {
+    // WordPress webhook validation
+    if (req.path === "/wordpress" && process.env.WORDPRESS_WEBHOOK_SECRET) {
+      // Verify WordPress secret if provided
+      const wpSecret = process.env.WORDPRESS_WEBHOOK_SECRET;
+      const providedSecret = req.headers["x-wordpress-webhook-secret"];
+
+      if (wpSecret !== providedSecret) {
+        logger.warn(`WordPress webhook unauthorized access attempt`);
+        return res.status(401).json({
+          success: false,
+          message: "Unauthorized webhook access",
+        });
+      }
+    }
+
+    // Google Ads webhook validation
+    if (req.path === "/google-ads" && process.env.GOOGLE_ADS_WEBHOOK_SECRET) {
+      const gaSecret = process.env.GOOGLE_ADS_WEBHOOK_SECRET;
+      const providedSecret = req.headers["x-google-ads-webhook-secret"];
+
+      if (gaSecret !== providedSecret) {
+        logger.warn(`Google Ads webhook unauthorized access attempt`);
+        return res.status(401).json({
+          success: false,
+          message: "Unauthorized webhook access",
+        });
+      }
+    }
+  }
 
   next();
 };
@@ -54,8 +110,42 @@ const validateWhatsAppNumber = async (
   phone,
   name,
   source,
-  isElementorForm = false
+  isElementorForm = false,
+  bypassValidation = false
 ) => {
+  // For testing: bypass actual validation if requested
+  if (bypassValidation) {
+    // Only allow bypass in non-production environments
+    if (process.env.NODE_ENV !== "production") {
+      logger.debug(`Bypassing WhatsApp validation for testing: ${phone}`);
+
+      // Always normalize the phone number even in test mode
+      const normalizedPhone = phone
+        .toString()
+        .replace(/^\+/, "")
+        .replace(/\D/g, "");
+      logger.debug(
+        `Test mode: Treating ${normalizedPhone} as valid WhatsApp number`
+      );
+
+      // Force successful validation for test mode
+      return {
+        isValid: true,
+        normalizedPhone: normalizedPhone,
+        validationResult: {
+          success: true,
+          messageId: "test-message-id-" + Date.now(),
+        },
+      };
+    } else {
+      // In production, log attempt but don't allow bypass
+      logger.warn(
+        `Attempted to bypass WhatsApp validation in production for ${phone} - DENIED`
+      );
+      // Continue with normal validation in production
+    }
+  }
+
   // Normalize the phone number - remove + and non-digits
   const normalizedPhone = phone
     .toString()
@@ -587,15 +677,46 @@ router.post("/wordpress", validateWebhookSource, async (req, res) => {
     // No lead will be created unless the WhatsApp number is valid
     let validatedPhone = null;
     let whatsappValidationResult = null;
+    let whatsappRestricted = false;
+    let restrictionReason = null;
     if (phone && phone.trim()) {
       logger.debug(`Starting WhatsApp validation for ${phone}`);
+
+      // Check if we should bypass validation (for testing)
+      let bypassValidation = false;
+
+      if (process.env.NODE_ENV === "production") {
+        // In production, completely ignore bypass attempts
+        if (
+          req.headers["x-bypass-whatsapp-validation"] === "true" ||
+          req.headers["x-test-request"] === "true"
+        ) {
+          logger.warn(
+            `WhatsApp validation bypass attempt for WordPress in PRODUCTION - Denied`
+          );
+        }
+        bypassValidation = false;
+      } else {
+        // In development, allow bypass
+        bypassValidation =
+          req.headers["x-bypass-whatsapp-validation"] === "true" ||
+          req.headers["x-test-request"] === "true" ||
+          process.env.BYPASS_WHATSAPP_VALIDATION === "true";
+
+        if (bypassValidation) {
+          logger.debug(
+            `WhatsApp validation bypass for WordPress: ENABLED (non-production)`
+          );
+        }
+      }
 
       // Use centralized validation function - this will test the actual WhatsApp number
       const validation = await validateWhatsAppNumber(
         phone,
         name,
         "wordpress",
-        true
+        true,
+        bypassValidation
       );
 
       // If validation failed, return the error response immediately - NO LEAD CREATION
@@ -637,8 +758,9 @@ router.post("/wordpress", validateWebhookSource, async (req, res) => {
       // (or has ecosystem engagement restriction but we'll still create the lead)
       validatedPhone = validation.normalizedPhone;
       whatsappValidationResult = validation.validationResult;
-      const whatsappRestricted = validation.whatsappRestricted || false;
-      const restrictionReason = validation.restrictionReason || null;
+      // Update these variables with values from the validation result
+      whatsappRestricted = validation.whatsappRestricted || false;
+      restrictionReason = validation.restrictionReason || null;
 
       if (whatsappRestricted) {
         logger.warn(
@@ -727,11 +849,11 @@ router.post("/wordpress", validateWebhookSource, async (req, res) => {
       // Add validation message ID if available
       if (
         validatedPhone &&
-        validationResults &&
-        validationResults.validationMessageId
+        whatsappValidationResult &&
+        whatsappValidationResult.validationMessageId
       ) {
         leadData.whatsappValidationMessageId =
-          validationResults.validationMessageId;
+          whatsappValidationResult.validationMessageId;
       }
 
       // Create the lead
@@ -933,12 +1055,41 @@ router.post("/google-ads", validateWebhookSource, async (req, res) => {
     let whatsappRestricted = false;
     let restrictionReason = null;
 
+    // Check if we should bypass validation (for testing)
+    let bypassValidation = false;
+
+    if (process.env.NODE_ENV === "production") {
+      // In production, completely ignore bypass attempts
+      if (
+        req.headers["x-bypass-whatsapp-validation"] === "true" ||
+        req.headers["x-test-request"] === "true"
+      ) {
+        logger.warn(
+          `WhatsApp validation bypass attempt for Google Ads in PRODUCTION - Denied`
+        );
+      }
+      bypassValidation = false;
+    } else {
+      // In development, allow bypass
+      bypassValidation =
+        req.headers["x-bypass-whatsapp-validation"] === "true" ||
+        req.headers["x-test-request"] === "true" ||
+        process.env.BYPASS_WHATSAPP_VALIDATION === "true";
+
+      if (bypassValidation) {
+        logger.debug(
+          `WhatsApp validation bypass for Google Ads: ENABLED (non-production)`
+        );
+      }
+    }
+
     // Use centralized validation function - this will test the actual WhatsApp number
     const validation = await validateWhatsAppNumber(
       phone,
       name,
       "google_ads",
-      true
+      true,
+      bypassValidation
     );
 
     // If validation failed, return the error response immediately - NO LEAD CREATION
@@ -1212,12 +1363,41 @@ router.post("/application-form", validateWebhookSource, async (req, res) => {
     // WhatsApp validation if phone is provided (Application form doesn't strictly require WhatsApp validation)
     let validatedPhone = null;
     if (phone && phone.trim()) {
+      // Check if we should bypass validation (for testing)
+      let bypassValidation = false;
+
+      if (process.env.NODE_ENV === "production") {
+        // In production, completely ignore bypass attempts
+        if (
+          req.headers["x-bypass-whatsapp-validation"] === "true" ||
+          req.headers["x-test-request"] === "true"
+        ) {
+          logger.warn(
+            `WhatsApp validation bypass attempt for Application Form in PRODUCTION - Denied`
+          );
+        }
+        bypassValidation = false;
+      } else {
+        // In development, allow bypass
+        bypassValidation =
+          req.headers["x-bypass-whatsapp-validation"] === "true" ||
+          req.headers["x-test-request"] === "true" ||
+          process.env.BYPASS_WHATSAPP_VALIDATION === "true";
+
+        if (bypassValidation) {
+          logger.debug(
+            `WhatsApp validation bypass for Application Form: ENABLED (non-production)`
+          );
+        }
+      }
+
       // Use centralized validation function but only for formatting, not blocking
       const validation = await validateWhatsAppNumber(
         phone,
         name,
         "application",
-        true
+        true,
+        bypassValidation
       );
 
       // For application form, we don't block on WhatsApp validation
@@ -1356,14 +1536,14 @@ router.post("/application-form", validateWebhookSource, async (req, res) => {
         preferredIntake: normalizeIntake(intake),
         preferredProgram: normalizeProgram(courseOfInterest),
         // New fields added as requested
-        passportPhoto: passport_photo || null,
-        postalAddress: postal_address || null,
+        passportPhoto: passportPhoto || null,
+        postalAddress: postalAddress || null,
         secondaryProgram: courseOfInterest2 || null,
-        academicDocuments: academic_documents || null,
-        identificationDocument: identification_document || null,
+        academicDocuments: academicDocuments || null,
+        identificationDocument: identificationDocument || null,
         sponsor: sponsor || null,
-        sponsorTelephone: sponsor_telephone || null,
-        sponsorEmail: sponsor_email || null,
+        sponsorTelephone: sponsorTelephone || null,
+        sponsorEmail: sponsorEmail || null,
         additionalInfo: {
           firstName,
           lastName,
