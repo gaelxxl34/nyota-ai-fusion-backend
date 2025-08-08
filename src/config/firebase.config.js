@@ -18,14 +18,35 @@ const initializeFirebase = () => {
 
     if (fs.existsSync(serviceAccountPath)) {
       console.log("Loading Firebase credentials from serviceAccountKey.json");
-      const serviceAccount = JSON.parse(
-        fs.readFileSync(serviceAccountPath, "utf8")
-      );
+      try {
+        const serviceAccount = JSON.parse(
+          fs.readFileSync(serviceAccountPath, "utf8")
+        );
 
-      firebaseApp = admin.initializeApp({
-        credential: admin.credential.cert(serviceAccount),
-        projectId: serviceAccount.project_id,
-      });
+        // Validate the service account has required fields
+        if (
+          !serviceAccount.project_id ||
+          !serviceAccount.client_email ||
+          !serviceAccount.private_key
+        ) {
+          throw new Error(
+            "Service account file is missing required fields (project_id, client_email, or private_key)"
+          );
+        }
+
+        firebaseApp = admin.initializeApp({
+          credential: admin.credential.cert(serviceAccount),
+          projectId: serviceAccount.project_id,
+        });
+      } catch (parseError) {
+        console.error(
+          "Error parsing serviceAccountKey.json:",
+          parseError.message
+        );
+        throw new Error(
+          `Invalid serviceAccountKey.json file: ${parseError.message}`
+        );
+      }
     } else {
       // Fallback to environment variables
       console.log(
@@ -52,13 +73,22 @@ const initializeFirebase = () => {
       });
     }
 
-    // Verify Firebase connection
-    admin
-      .firestore()
-      .listCollections()
-      .then(() => {
-        console.log("✅ Firebase Firestore connection verified");
-      });
+    // Verify Firebase connection without writing to database
+    try {
+      admin
+        .firestore()
+        .listCollections()
+        .then(() => {
+          console.log("✅ Firebase Firestore connection verified");
+        })
+        .catch((err) => {
+          console.error("Firebase Firestore connection error:", err.message);
+          // We don't throw here to prevent crashing, just log the error
+        });
+    } catch (firestoreError) {
+      console.error("Error accessing Firestore:", firestoreError.message);
+      // We don't throw here to prevent crashing, just log the error
+    }
 
     return firebaseApp;
   } catch (error) {

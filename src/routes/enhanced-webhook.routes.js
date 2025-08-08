@@ -9,21 +9,37 @@ const WhatsAppMessageService = require("../services/whatsappMessageService");
 const { getFirestore } = require("firebase-admin/firestore");
 const ConversationService = require("../services/conversationService");
 // Initialize services properly to avoid circular dependencies
-const db = getFirestore();
-const leadService = new LeadService(db);
-const conversationService = new ConversationService(db);
-const whatsappMessageService = new WhatsAppMessageService(
-  db,
-  leadService,
-  conversationService
-);
+let db, leadService, conversationService, whatsappMessageService;
+
+try {
+  db = getFirestore();
+  leadService = new LeadService(db);
+  conversationService = new ConversationService(db);
+  whatsappMessageService = new WhatsAppMessageService(
+    db,
+    leadService,
+    conversationService
+  );
+
+  if (!whatsappMessageService) {
+    throw new Error("WhatsApp message service could not be initialized");
+  }
+
+  logger.info("WhatsApp message service initialized successfully");
+} catch (error) {
+  logger.error(
+    "Error initializing services in enhanced-webhook.routes.js:",
+    error
+  );
+  // We don't re-throw here to prevent the module from failing to load completely
+}
 const ApplicationService = require("../services/applicationService");
 const logger = require("../utils/logger");
 
 // Configuration options
 const WHATSAPP_VALIDATION_ENABLED =
   process.env.NODE_ENV === "production"
-    ? true
+    ? process.env.WORDPRESS_WHATSAPP_VALIDATION !== "false"
     : process.env.WHATSAPP_VALIDATION_ENABLED !== "false";
 
 // Protection middleware
@@ -673,105 +689,21 @@ router.post("/wordpress", validateWebhookSource, async (req, res) => {
       });
     }
 
-    // MANDATORY WhatsApp validation if phone is provided
-    // No lead will be created unless the WhatsApp number is valid
+    // WhatsApp validation for WordPress has been removed
+    // We'll process the phone number directly without validation
     let validatedPhone = null;
     let whatsappValidationResult = null;
     let whatsappRestricted = false;
     let restrictionReason = null;
     if (phone && phone.trim()) {
-      logger.debug(`Starting WhatsApp validation for ${phone}`);
+      // Simply normalize the phone number without validation
+      validatedPhone = phone.toString().replace(/^\+/, "").replace(/\D/g, "");
+      logger.debug(`Processing phone number directly: ${validatedPhone}`);
 
-      // Check if we should bypass validation (for testing)
-      let bypassValidation = false;
-
-      if (process.env.NODE_ENV === "production") {
-        // In production, completely ignore bypass attempts
-        if (
-          req.headers["x-bypass-whatsapp-validation"] === "true" ||
-          req.headers["x-test-request"] === "true"
-        ) {
-          logger.warn(
-            `WhatsApp validation bypass attempt for WordPress in PRODUCTION - Denied`
-          );
-        }
-        bypassValidation = false;
-      } else {
-        // In development, allow bypass
-        bypassValidation =
-          req.headers["x-bypass-whatsapp-validation"] === "true" ||
-          req.headers["x-test-request"] === "true" ||
-          process.env.BYPASS_WHATSAPP_VALIDATION === "true";
-
-        if (bypassValidation) {
-          logger.debug(
-            `WhatsApp validation bypass for WordPress: ENABLED (non-production)`
-          );
-        }
-      }
-
-      // Use centralized validation function - this will test the actual WhatsApp number
-      const validation = await validateWhatsAppNumber(
-        phone,
-        name,
-        "wordpress",
-        true,
-        bypassValidation
+      // No validation - directly proceed with lead processing
+      logger.info(
+        `Bypassing WhatsApp validation for WordPress webhook - per production requirement`
       );
-
-      // If validation failed, return the error response immediately - NO LEAD CREATION
-      if (!validation.isValid) {
-        logger.error(
-          `WhatsApp validation failed for ${phone} - ABORTING lead creation`,
-          validation.errorResponse.body
-        );
-        logger.info(
-          `WordPress webhook ERROR response for ${phone}:`,
-          validation.errorResponse.body
-        );
-
-        // Set explicit headers for Elementor
-        res.setHeader("Content-Type", "application/json");
-        res.setHeader("X-Validation-Failed", "true");
-
-        // Log the exact response being sent
-        logger.info(
-          `Sending validation error response with status ${validation.errorResponse.status}:`,
-          JSON.stringify(validation.errorResponse.body, null, 2)
-        );
-
-        // Add debugging to understand what Elementor receives
-        logger.debug(`Response headers:`, res.getHeaders());
-
-        // Send the response
-        const response = res
-          .status(validation.errorResponse.status)
-          .json(validation.errorResponse.body);
-
-        // Log that response was sent
-        logger.info(`Response sent to Elementor form for failed validation`);
-
-        return response;
-      }
-
-      // If we get here, the WhatsApp number is valid
-      // (or has ecosystem engagement restriction but we'll still create the lead)
-      validatedPhone = validation.normalizedPhone;
-      whatsappValidationResult = validation.validationResult;
-      // Update these variables with values from the validation result
-      whatsappRestricted = validation.whatsappRestricted || false;
-      restrictionReason = validation.restrictionReason || null;
-
-      if (whatsappRestricted) {
-        logger.warn(
-          `WhatsApp restricted for ${validatedPhone}: ${restrictionReason}`
-        );
-        logger.info(
-          `Proceeding with lead creation despite WhatsApp restriction`
-        );
-      } else {
-        logger.info(`WhatsApp validation successful for ${validatedPhone}`);
-      }
     } else {
       // If no phone number provided, we can still create the lead (email-only lead)
       logger.debug("No phone number provided - creating email-only lead");

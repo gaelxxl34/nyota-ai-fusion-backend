@@ -5,25 +5,22 @@ const cors = require("cors");
 // Initialize Firebase
 async function initializeFirebase() {
   try {
-    const { initializeApp, cert, getApps } = require("firebase-admin/app");
+    // Use the existing configuration from firebase.config.js
+    const {
+      initializeFirebase,
+      isInitialized,
+    } = require("./config/firebase.config");
     const { getFirestore } = require("firebase-admin/firestore");
 
-    // Check if Firebase is already initialized
-    if (getApps().length === 0) {
-      console.log("Loading Firebase credentials from serviceAccountKey.json");
-      const serviceAccount = require("../serviceAccountKey.json");
+    // Initialize Firebase if not already initialized
+    if (!isInitialized()) {
+      initializeFirebase();
 
-      initializeApp({
-        credential: cert(serviceAccount),
-      });
-
-      // Test Firestore connection
+      // Test Firestore connection without writing to database
       const db = getFirestore();
-      await db.collection("test").doc("connection").set({
-        timestamp: new Date(),
-        status: "connected",
+      await db.listCollections().then((collections) => {
+        console.log("✅ Firebase Firestore connection verified");
       });
-      console.log("✅ Firebase Firestore connection verified");
     }
   } catch (error) {
     console.error("❌ Firebase initialization failed:", error);
@@ -37,8 +34,28 @@ initializeFirebase()
     startServer();
   })
   .catch((error) => {
-    console.error("Failed to initialize Firebase, exiting...");
-    process.exit(1);
+    console.error("Failed to initialize Firebase, exiting...", error);
+
+    // Check if the error is related to the serviceAccountKey.json file
+    if (error.message && error.message.includes("serviceAccountKey.json")) {
+      console.error(
+        "ERROR: There appears to be an issue with your serviceAccountKey.json file."
+      );
+      console.error(
+        "Please verify that the file exists and contains valid credentials."
+      );
+    }
+    // Check for network-related errors
+    else if (error.code === "ENOTFOUND" || error.code === "ECONNREFUSED") {
+      console.error(
+        "ERROR: Network connectivity issue. Please check your internet connection."
+      );
+    }
+
+    // Wait a bit before exiting to ensure logs are written
+    setTimeout(() => {
+      process.exit(1);
+    }, 1000);
   });
 
 function startServer() {
@@ -101,13 +118,12 @@ function startServer() {
 
   // Enhanced webhook routes
   try {
-    const {
-      router: enhancedWebhookRoutes,
-    } = require("./routes/enhanced-webhook.routes");
-    app.use("/api/webhook", enhancedWebhookRoutes);
+    const enhancedWebhookRoutes = require("./routes/enhanced-webhook.routes");
+    app.use("/api/webhook", enhancedWebhookRoutes.router);
     console.log("✅ Enhanced webhook routes loaded");
   } catch (error) {
     console.warn("❌ Enhanced webhook routes not loaded:", error.message);
+    console.error(error); // Log the full error for debugging
   }
 
   // Lead management routes
