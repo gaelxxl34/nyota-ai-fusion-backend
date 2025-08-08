@@ -76,118 +76,23 @@ function startServer() {
       limits: { fileSize: 50 * 1024 * 1024 }, // 50MB limit
       useTempFiles: true,
       tempFileDir: "/tmp/",
-      debug: true,
+      debug: process.env.NODE_ENV === "development",
     })
   );
   // Ensure JSON and URL-encoded middleware are configured correctly for webhooks
   app.use(express.json({ limit: "50mb", strict: false })); // Use strict:false to accept malformed JSON
   app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 
-  // Add debugging middleware to log all incoming requests
-  app.use((req, res, next) => {
-    console.log(`${req.method} ${req.path} - ${new Date().toISOString()}`);
-    next();
-  });
-
-  // Add special handling for webhook endpoints to ensure we catch all data formats
-  app.use("/api/webhook", (req, res, next) => {
-    // Handle multipart/form-data with special care
-    if (
-      req.headers["content-type"] &&
-      req.headers["content-type"].includes("multipart/form-data")
-    ) {
-      console.log(
-        "Detected multipart/form-data in webhook - using default express-fileupload handler"
-      );
-      return next();
-    }
-
-    // For all other content types, we'll try to handle the raw data
-    let data = "";
-    req.on("data", (chunk) => {
-      data += chunk;
-    });
-
-    req.on("end", () => {
-      try {
-        if (data && (!req.body || Object.keys(req.body).length === 0)) {
-          console.log("Raw webhook data received, attempting to parse");
-          console.log("Content-Type:", req.headers["content-type"]);
-
-          // Handle different content types appropriately
-          if (
-            req.headers["content-type"] &&
-            req.headers["content-type"].includes("application/json")
-          ) {
-            // Try to parse as JSON
-            try {
-              req.body = JSON.parse(data);
-              console.log("Successfully parsed JSON data");
-            } catch (e) {
-              console.error(
-                "Failed to parse as JSON despite content-type:",
-                e.message
-              );
-            }
-          } else if (
-            req.headers["content-type"] &&
-            req.headers["content-type"].includes(
-              "application/x-www-form-urlencoded"
-            )
-          ) {
-            // Parse as URL encoded data
-            const querystring = require("querystring");
-            req.body = querystring.parse(data);
-            console.log("Successfully parsed form-urlencoded data");
-          } else if (
-            req.headers["content-type"] &&
-            req.headers["content-type"].includes("text/plain")
-          ) {
-            // For text/plain, try multiple parsing approaches
-            try {
-              // Try JSON first
-              req.body = JSON.parse(data);
-              console.log("Successfully parsed text/plain as JSON");
-            } catch (e) {
-              // If that fails, try form-urlencoded
-              const querystring = require("querystring");
-              req.body = querystring.parse(data);
-              console.log("Successfully parsed text/plain as form-urlencoded");
-
-              // If we didn't get any parsed fields, store the raw text too
-              if (Object.keys(req.body).length === 0) {
-                req.body = { rawText: data };
-                console.log("Stored raw text content in req.body.rawText");
-              }
-            }
-          } else {
-            // Unknown content-type, try multiple parsing approaches
-            try {
-              // Try JSON first
-              req.body = JSON.parse(data);
-            } catch (e) {
-              // If that fails, try form-urlencoded
-              const querystring = require("querystring");
-              req.body = querystring.parse(data);
-
-              // If we still have nothing, store the raw text
-              if (Object.keys(req.body).length === 0) {
-                req.body = { rawText: data };
-                console.log("Stored raw unknown content in req.body.rawText");
-              }
-            }
-          }
-
-          console.log("Parsed webhook body keys:", Object.keys(req.body));
-        }
-      } catch (err) {
-        console.error("Error parsing webhook data:", err);
-        // Store raw data in case parsing failed
-        req.rawWebhookData = data;
-      }
+  // Production logging middleware - only log in development
+  if (process.env.NODE_ENV === "development") {
+    app.use((req, res, next) => {
+      console.log(`${req.method} ${req.path} - ${new Date().toISOString()}`);
       next();
     });
-  });
+  }
+
+  // NOTE: Removed custom raw-body middleware for /api/webhook to avoid re-reading the stream.
+  // Rely on express.json, express.urlencoded, and express-fileupload to parse bodies.
 
   // Define error handler
   app.use((err, req, res, next) => {
@@ -231,12 +136,14 @@ function startServer() {
       throw new Error("Webhook routes module did not export router properly");
     }
 
-    // Add debug logging to check for request handling
-    enhancedWebhookRoutes.router.use((req, res, next) => {
-      console.log(`Webhook request received: ${req.method} ${req.path}`);
-      console.log(`Headers: ${JSON.stringify(req.headers)}`);
-      next();
-    });
+    // Add debug logging only in development
+    if (process.env.NODE_ENV === "development") {
+      enhancedWebhookRoutes.router.use((req, res, next) => {
+        console.log(`Webhook request received: ${req.method} ${req.path}`);
+        console.log(`Headers: ${JSON.stringify(req.headers)}`);
+        next();
+      });
+    }
 
     app.use("/api/webhook", enhancedWebhookRoutes.router);
     console.log("✅ Enhanced webhook routes loaded at /api/webhook");
@@ -332,15 +239,16 @@ function startServer() {
   const host = process.env.BACKEND_HOST || process.env.HOST || "0.0.0.0"; // Listen on all network interfaces
   app.listen(port, host, () => {
     console.log(`Server running on ${host}:${port}`);
-    console.log(`🌐 Accessible from network at: http://172.16.117.123:${port}`);
-    console.log(
-      `📡 Webhook endpoint: http://172.16.117.123:${port}/api/webhook/receive`
-    );
 
-    // Validation queue service removed - no longer needed // 10 seconds
+    // Only show development URLs in development mode
+    if (process.env.NODE_ENV === "development") {
+      const localIP = process.env.LOCAL_IP || "localhost";
+      console.log(`🌐 Accessible from network at: http://${localIP}:${port}`);
+      console.log(
+        `📡 Webhook endpoint: http://${localIP}:${port}/api/webhook/receive`
+      );
+    }
 
-    console.log(
-      "⏱️ Started validation timeout processor (runs every 10 seconds)"
-    );
+    console.log("⏱️ Application services initialized successfully");
   });
 }

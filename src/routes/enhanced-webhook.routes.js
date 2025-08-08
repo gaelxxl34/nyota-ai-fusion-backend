@@ -37,6 +37,42 @@ try {
   // We don't re-throw here to prevent the module from failing to load completely
 }
 
+// Helper: lazily ensure services exist (in case init above failed)
+function ensureServices() {
+  if (!db) db = getFirestore();
+  if (!leadService) leadService = new LeadService(db);
+  if (!conversationService) conversationService = new ConversationService(db);
+  if (!whatsappMessageService)
+    whatsappMessageService = new WhatsAppMessageService(
+      db,
+      leadService,
+      conversationService
+    );
+}
+
+// Helper: send a WhatsApp validation template and store message
+async function sendWhatsAppTemplate(toNumber, meta = {}) {
+  try {
+    if (!toNumber) return;
+    ensureServices();
+
+    const payload = {
+      messaging_product: "whatsapp",
+      to: toNumber,
+      type: "template",
+      template: {
+        name: "whatsapp_validation",
+        language: { code: "en_US" },
+      },
+    };
+
+    await whatsappMessageService.sendTemplateMessage(toNumber, payload, meta);
+    logger.info(`WhatsApp template sent to ${toNumber}`);
+  } catch (err) {
+    logger.error(`Failed to send WhatsApp template to ${toNumber}:`, err);
+  }
+}
+
 // No validation configuration needed - all validation has been removed
 
 // Simplified middleware with no validation
@@ -88,115 +124,16 @@ const normalizePhoneNumber = (phone) => {
 };
 
 /**
- * Test endpoint to understand Elementor's expectations
- * This endpoint will help debug the exact format Elementor needs
- */
-router.post("/wordpress-test", async (req, res) => {
-  logger.info("WordPress TEST endpoint hit with data:", req.body);
-  logger.info("Request headers:", req.headers);
-
-  // Test different response formats
-  const testCase = req.body.test_case || "error";
-
-  if (testCase === "error") {
-    // Test error response
-    logger.info("Sending TEST error response");
-    return res.status(400).json({
-      success: false,
-      message: "TEST: This is a test error message",
-      data: {
-        message: "TEST: This is a test error message",
-        errors: {
-          phone: "TEST: Invalid phone number",
-          "Phone Number": "TEST: Invalid phone number",
-        },
-      },
-    });
-  } else {
-    // Test success response
-    logger.info("Sending TEST success response");
-    return res.status(200).json({
-      success: true,
-      message: "TEST: Form submitted successfully",
-    });
-  }
-});
-
-/**
- * Echo endpoint for debugging webhook formats
- * This endpoint will echo back exactly what it receives to help debug the format
- */
-router.post("/echo", async (req, res) => {
-  logger.info("ECHO endpoint hit");
-  logger.info("Request headers:", JSON.stringify(req.headers));
-  logger.info("Request content-type:", req.headers["content-type"]);
-  logger.info("Raw body type:", typeof req.body);
-  logger.info("Raw body keys:", req.body ? Object.keys(req.body) : "none");
-
-  // Try to safely stringify the body
-  let bodyStr = "Could not stringify body";
-  try {
-    bodyStr = JSON.stringify(req.body, null, 2);
-  } catch (err) {
-    logger.error("Error stringifying body:", err.message);
-    bodyStr = "Circular reference in body or other stringify error";
-  }
-
-  logger.info("Raw request body:", bodyStr);
-
-  // Also check for files
-  if (req.files) {
-    logger.info("Files received:", Object.keys(req.files));
-  }
-
-  // Raw data if available
-  if (req.rawWebhookData) {
-    logger.info(
-      "Raw webhook data available (length):",
-      req.rawWebhookData.length
-    );
-  }
-
-  // Echo everything back
-  return res.status(200).json({
-    success: true,
-    message: "Echo response",
-    request: {
-      headers: req.headers,
-      body: req.body,
-      hasFiles: !!req.files,
-      filesInfo: req.files
-        ? Object.keys(req.files).map((key) => ({
-            name: key,
-            size: req.files[key].size,
-            mimetype: req.files[key].mimetype,
-          }))
-        : [],
-      hasRawData: !!req.rawWebhookData,
-      rawDataLength: req.rawWebhookData ? req.rawWebhookData.length : 0,
-    },
-  });
-});
-/**
  * Process WordPress website inquiries
  * This handles form submissions from the WordPress website
  * Expected fields: firstname, lastname, email, phone, message
  */
 router.post("/wordpress", validateWebhookSource, async (req, res) => {
   try {
-    // Add detailed debug information
-    logger.info("WordPress webhook request received");
-    logger.info("Request headers:", JSON.stringify(req.headers));
-    logger.info("Request content-type:", req.headers["content-type"]);
-    logger.info("Raw body type:", typeof req.body);
-    logger.info("Raw body available:", !!req.body);
+    ensureServices();
 
-    // Log the raw request to help debug
-    try {
-      logger.info("Raw request body:", JSON.stringify(req.body));
-    } catch (jsonErr) {
-      logger.error("Could not stringify request body:", jsonErr.message);
-    }
+    // Log only essential information in production
+    logger.info("WordPress webhook request received");
 
     // Make sure we have a formData object, even if empty
     let formData = req.body || {};
@@ -218,19 +155,24 @@ router.post("/wordpress", validateWebhookSource, async (req, res) => {
     ) {
       logger.info("Detected text/plain or form-urlencoded content");
 
-      // Try to parse as query string (name=value&name2=value2...)
-      try {
-        const querystring = require("querystring");
-        const rawBody =
-          typeof formData === "string" ? formData : JSON.stringify(formData);
-        const parsedBody = querystring.parse(rawBody);
-
-        if (Object.keys(parsedBody).length > 0) {
-          logger.info("Successfully parsed form data as query string");
-          formData = parsedBody;
+      // Only attempt manual parsing if body is a raw string
+      if (typeof formData === "string") {
+        try {
+          const querystring = require("querystring");
+          const parsedBody = querystring.parse(formData);
+          if (Object.keys(parsedBody).length > 0) {
+            logger.info("Successfully parsed raw string form data");
+            formData = parsedBody;
+          }
+        } catch (parseError) {
+          logger.error(
+            "Error parsing raw string form data:",
+            parseError.message
+          );
         }
-      } catch (parseError) {
-        logger.error("Error parsing form data:", parseError.message);
+      } else {
+        // Express has already parsed urlencoded into an object; do not re-parse
+        logger.info("Body already parsed by Express; skipping manual re-parse");
       }
     }
 
@@ -523,10 +465,6 @@ router.post("/wordpress", validateWebhookSource, async (req, res) => {
     // Just normalize phone if available
     if (phone && phone.trim()) {
       validatedPhone = phone.toString().replace(/^\+/, "").replace(/\D/g, "");
-      logger.debug(`Processing phone number: ${validatedPhone}`);
-    } else {
-      // If no phone number provided, we can still create the lead (email-only lead)
-      logger.debug("No phone number provided - creating email-only lead");
     }
 
     // If we get here, validation was successful or not required
@@ -541,13 +479,11 @@ router.post("/wordpress", validateWebhookSource, async (req, res) => {
 
     // First check by phone number if available
     if (phone && phone.trim()) {
-      logger.debug(`Checking for existing lead with phone: ${phone}`);
       existingLead = await leadService.findLeadByPhone(phone);
     }
 
     // If no lead found by phone, check by email
     if (!existingLead && email) {
-      logger.debug(`Checking for existing lead with email: ${email}`);
       existingLead = await leadService.findLeadByEmail(email);
     }
 
@@ -608,102 +544,26 @@ router.post("/wordpress", validateWebhookSource, async (req, res) => {
           whatsappValidationResult.validationMessageId;
       }
 
-      // Create the lead
+      // Create the lead using shared service
       leadId = await leadService.createLead(leadData, LEAD_SOURCES.WEBSITE);
       actionTaken = "created_new_lead";
-
-      // Link to existing conversation or create a new one
-      if (
-        validatedPhone &&
-        whatsappValidationResult &&
-        whatsappValidationResult.messageId
-      ) {
-        try {
-          const leadIdStr = leadId.id || leadId;
-
-          // Find existing conversation by phone number
-          let conversationId =
-            await whatsappMessageService.conversationService.findConversationByPhone(
-              validatedPhone
-            );
-
-          if (conversationId) {
-            // Update existing conversation with lead ID
-            await whatsappMessageService.updateConversationWithLead(
-              validatedPhone,
-              leadIdStr
-            );
-            logger.info(
-              `✅ Updated existing conversation for ${validatedPhone} with lead ID ${leadIdStr}`
-            );
-          } else {
-            // Create new conversation with template message included
-            const result =
-              await whatsappMessageService.createConversationForValidatedNumber(
-                whatsappValidationResult.messageId,
-                {
-                  leadId: leadIdStr,
-                  contactName: name,
-                  source: "wordpress",
-                }
-              );
-
-            if (result.success) {
-              logger.info(
-                `✅ Created new conversation ${result.conversationId} for lead ${leadIdStr}`
-              );
-            } else {
-              logger.error(
-                `❌ Failed to create conversation for lead: ${result.error}`
-              );
-            }
-          }
-        } catch (convError) {
-          logger.error(
-            `❌ Error linking conversation to lead: ${convError.message}`
-          );
-        }
-      }
-
       statusNote =
         "New lead created from WordPress contact form (user initiated contact)";
     }
 
-    // Update lead with WhatsApp validation results
-    if (phone && phone.trim() && validatedPhone) {
-      let whatsappStatus = "VALIDATED";
-      let whatsappValid = true;
-
-      // Check if this number has WhatsApp ecosystem restrictions
-      if (whatsappRestricted) {
-        whatsappStatus = "CONTACT_RESTRICTED";
-        whatsappValid = false;
-
-        await leadService.updateLead(leadId.id || leadId, {
-          lastWhatsAppContact: admin.firestore.FieldValue.serverTimestamp(),
-          lastWhatsAppStatus: whatsappStatus,
-          whatsappValid: false,
-          whatsappRestricted: true,
-          whatsappRestrictionReason:
-            restrictionReason || "ecosystem_engagement",
-          preferredContactMethod: "EMAIL", // Mark for email contact instead
-          needsAlternateContact: true,
-        });
-
-        statusNote +=
-          " (WhatsApp messaging restricted due to ecosystem policy - lead marked for alternate contact)";
-      } else {
-        // Normal successful validation
-        await leadService.updateLead(leadId.id || leadId, {
-          lastWhatsAppContact: admin.firestore.FieldValue.serverTimestamp(),
-          lastWhatsAppStatus: whatsappStatus,
-          whatsappValid: true, // Number is confirmed valid
-        });
-
-        statusNote += " (WhatsApp number verified and validation message sent)";
-      }
-      // Note: No additional welcome message needed - validation message serves as initial contact
-    } else if (!phone) {
+    // Send WhatsApp template if phone available
+    const toNumber = (validatedPhone || phone || "")
+      .toString()
+      .replace(/\D/g, "");
+    if (toNumber) {
+      await sendWhatsAppTemplate(toNumber, {
+        leadId: leadId?.id || leadId,
+        contactName: name,
+        source: "WordPress",
+        messageType: "whatsapp_validation",
+      });
+      statusNote += " (WhatsApp validation message sent)";
+    } else {
       statusNote += " (No phone number provided - email-only lead)";
     }
 
@@ -756,19 +616,17 @@ router.post("/wordpress", validateWebhookSource, async (req, res) => {
  */
 router.post("/google-ads", validateWebhookSource, async (req, res) => {
   try {
+    ensureServices();
     const formData = req.body;
     logger.webhook("Google Ads", formData);
 
-    // Check if body is empty
     if (!formData || Object.keys(formData).length === 0) {
-      logger.error("Google Ads webhook: Empty request body received");
-      return res.status(400).json({
-        success: false,
-        error: "No form data received",
-      });
+      return res
+        .status(400)
+        .json({ success: false, error: "No form data received" });
     }
 
-    // Extract data using field mapping for both standard and Elementor formats
+    // Extract
     const firstName =
       formData.firstname ||
       formData.first_name ||
@@ -782,88 +640,48 @@ router.post("/google-ads", validateWebhookSource, async (req, res) => {
     const email =
       formData.email ||
       formData["Email"] ||
-      formData["Enter your email"] || // Added this field name from the logs
+      formData["Enter your email"] ||
       formData["email"];
     const phone =
       formData.phone ||
       formData["Phone Number"] ||
-      formData["Phone Number / WhatsApp"] || // Added this field name from the logs
+      formData["Phone Number / WhatsApp"] ||
       formData["Phone"] ||
       formData["phone"];
     const programInterested =
       formData.program_interested ||
       formData.program ||
-      formData["Preferred Program"] || // Added this field name from the logs
-      formData["Program of Interest"] || // Additional field mapping
+      formData["Preferred Program"] ||
+      formData["Program of Interest"] ||
       formData.course_interested ||
       formData["Course of Interest"] ||
-      formData.course_of_interest || // Added this field from Google Ads
-      formData["course_of_interest"] || // Added in both formats
-      null; // Default to null instead of undefined
+      formData.course_of_interest ||
+      formData["course_of_interest"] ||
+      null;
 
-    // Log the program extraction for debugging
-    logger.debug(`Google Ads program extraction:`, {
-      program_interested: formData.program_interested,
-      program: formData.program,
-      "Preferred Program": formData["Preferred Program"],
-      "Program of Interest": formData["Program of Interest"],
-      course_interested: formData.course_interested,
-      "Course of Interest": formData["Course of Interest"],
-      course_of_interest: formData.course_of_interest, // Added this field log
-      course_of_interest: formData["course_of_interest"], // Added in both formats
-      finalProgramInterested: programInterested,
-    });
-
-    // Combine first and last name
     const name = `${firstName || ""} ${lastName || ""}`.trim() || "Unknown";
 
-    // No validation, just normalize phone if available
-    let validatedPhone = null;
-    let whatsappValidationResult = null;
-    let whatsappRestricted = false;
-    let restrictionReason = null;
+    // Normalize phone to digits
+    const normalizedPhone = phone ? phone.toString().replace(/\D/g, "") : null;
 
-    // Just normalize the phone number
-    if (phone && phone.trim()) {
-      // Simply normalize the phone number
-      validatedPhone = phone.toString().replace(/^\+/, "").replace(/\D/g, "");
-      logger.debug(`Processing Google Ads phone number: ${validatedPhone}`);
-
-      // Use our simplified phone normalizer
-      const normalizeResult = normalizePhoneNumber(phone);
-      validatedPhone = normalizeResult.normalizedPhone;
-      whatsappValidationResult = normalizeResult.validationResult;
-
-      logger.info(
-        `Google Ads webhook: Phone number processed without validation`
-      );
-    } else {
-      logger.info("Google Ads webhook: No phone number provided");
-    }
-
-    // Initialize services
-    const db = admin.firestore();
-    const leadService = new LeadService(db);
-
-    // Check for duplicate leads by phone or email
+    // Duplicate check
     let existingLead = null;
-    let actionTaken = "";
-
-    // First check by phone number (required)
-    existingLead = await leadService.findLeadByPhone(phone);
-
-    // If no lead found by phone, check by email
-    if (!existingLead && email) {
+    if (normalizedPhone)
+      existingLead = await leadService.findLeadByPhone(normalizedPhone);
+    if (!existingLead && email)
       existingLead = await leadService.findLeadByEmail(email);
-    }
 
     let leadId;
+    let actionTaken;
     let statusNote = "";
 
     if (existingLead) {
       leadId = existingLead;
+      actionTaken = "updated_existing_lead";
+      statusNote = `Updated existing lead (${
+        existingLead.email || existingLead.phone
+      }) with Google Ads inquiry`;
 
-      // Add interaction entry for Google Ads source
       await leadService.addInteraction(existingLead.id, {
         type: "GOOGLE_ADS_INQUIRY",
         content: `New inquiry from Google Ads - ${
@@ -877,116 +695,35 @@ router.post("/google-ads", validateWebhookSource, async (req, res) => {
         metadata: {
           programInterested,
           source: "Google Ads",
-          campaignData: {
-            campaignId:
-              formData.google_campaign_id || formData.campaign_id || null,
-            adGroupId:
-              formData.google_ad_group_id || formData.ad_group_id || null,
-            clickId: formData.gclid || null,
-          },
+          campaignData: { raw: formData },
         },
       });
-
-      actionTaken = "updated_existing_lead";
-      statusNote = `Updated existing lead (${
-        existingLead.email || existingLead.phone
-      }) with Google Ads inquiry`;
     } else {
       const leadData = {
         firstName,
         lastName,
         name,
         email,
-        phone: validatedPhone, // Always use validated phone since it's required
-        program: programInterested, // This should now properly map from "Preferred Program"
-        googleAdsInfo: {
-          campaignId:
-            formData.google_campaign_id || formData.campaign_id || null,
-          adGroupId:
-            formData.google_ad_group_id || formData.ad_group_id || null,
-          clickId: formData.gclid || null,
-          rawPayload: formData,
-        },
-        status: "CONTACTED", // User initiated contact via Google Ads form
+        phone: normalizedPhone,
+        program: programInterested,
+        status: "CONTACTED",
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
       };
-
-      // Log the lead data being created for debugging
-      logger.debug(`Google Ads lead data being created:`, {
-        name,
-        email,
-        phone: validatedPhone,
-        program: programInterested,
-        originalFormData: {
-          "Preferred Program": formData["Preferred Program"],
-          program_interested: formData.program_interested,
-          program: formData.program,
-        },
-      });
-
-      // Add validation message ID if available
-      if (
-        whatsappValidationResult &&
-        whatsappValidationResult.validationMessageId
-      ) {
-        leadData.whatsappValidationMessageId =
-          whatsappValidationResult.validationMessageId;
-      }
-
       leadId = await leadService.createLead(leadData, LEAD_SOURCES.GOOGLE_ADS);
       actionTaken = "created_new_lead";
-
       statusNote =
         "New lead created from Google Ads contact form (user initiated contact)";
-
-      // Create conversation if WhatsApp validation was successful
-      if (whatsappValidationResult && whatsappValidationResult.messageId) {
-        try {
-          await whatsappMessageService.createConversationForValidatedNumber(
-            whatsappValidationResult.messageId,
-            {
-              leadId: leadId.id || leadId,
-              contactName: name,
-              source: "Google Ads",
-            }
-          );
-          logger.info("Conversation created for validated WhatsApp number");
-        } catch (convError) {
-          logger.error("Failed to create conversation:", convError);
-        }
-      }
     }
 
-    // Update lead with WhatsApp validation results (phone is mandatory)
-    let whatsappStatus = "VALIDATED";
-    let whatsappValid = true;
-
-    // Check if this number has WhatsApp ecosystem restrictions
-    if (whatsappRestricted) {
-      whatsappStatus = "CONTACT_RESTRICTED";
-      whatsappValid = false;
-
-      await leadService.updateLead(leadId.id || leadId, {
-        lastWhatsAppContact: admin.firestore.FieldValue.serverTimestamp(),
-        lastWhatsAppStatus: whatsappStatus,
-        whatsappValid: false,
-        whatsappRestricted: true,
-        whatsappRestrictionReason: restrictionReason || "ecosystem_engagement",
-        preferredContactMethod: "EMAIL", // Mark for email contact instead
-        needsAlternateContact: true,
+    if (normalizedPhone) {
+      await sendWhatsAppTemplate(normalizedPhone, {
+        leadId: leadId?.id || leadId,
+        contactName: name,
+        source: "Google Ads",
+        messageType: "whatsapp_validation",
+        programInterest: programInterested,
       });
-
-      statusNote +=
-        " (WhatsApp messaging restricted due to ecosystem policy - lead marked for alternate contact)";
-    } else {
-      // Normal successful validation
-      await leadService.updateLead(leadId.id || leadId, {
-        lastWhatsAppContact: admin.firestore.FieldValue.serverTimestamp(),
-        lastWhatsAppStatus: whatsappStatus,
-        whatsappValid: true, // Number is confirmed valid
-      });
-
-      statusNote += " (WhatsApp number verified and validation message sent)";
+      statusNote += " (WhatsApp validation message sent)";
     }
 
     res.status(200).json({
@@ -1005,30 +742,124 @@ router.post("/google-ads", validateWebhookSource, async (req, res) => {
     });
   } catch (error) {
     logger.error("Google Ads webhook error:", error);
-
-    // Return user-friendly error message in Elementor format
-    let userMessage =
-      "We're having trouble processing your submission. Please try again.";
-
-    // Check for specific error types
-    if (error.message && error.message.includes("validation")) {
-      userMessage =
-        "Phone number validation failed. Please check your WhatsApp number and try again.";
-    } else if (error.message && error.message.includes("Firebase")) {
-      userMessage =
-        "System temporarily unavailable. Please try again in a moment.";
-    } else if (error.message && error.message.includes("programInterested")) {
-      userMessage = "Form processing error. Please try again.";
-    }
-
-    // Elementor expects 200 status with success: false for errors
     res.status(200).json({
       success: false,
-      message: userMessage,
+      message:
+        "We're having trouble processing your submission. Please try again.",
       data: {
-        message: userMessage,
+        message:
+          "We're having trouble processing your submission. Please try again.",
       },
     });
+  }
+});
+
+/**
+ * Process Meta (Facebook) Ads webhook (simplified)
+ */
+router.post("/meta-ads", validateWebhookSource, async (req, res) => {
+  try {
+    ensureServices();
+    const formData = req.body || {};
+    logger.webhook("Meta Ads", formData);
+
+    const firstName = formData.first_name || formData.firstname || "";
+    const lastName = formData.last_name || formData.lastname || "";
+    const email = formData.email || "";
+    const phone = formData.phone || formData.whatsapp_number || "";
+    const program = formData.program_interested_in || formData.program || "";
+    const country = formData.country_of_origin || formData.country || "";
+
+    if (!email && !phone) {
+      return res
+        .status(400)
+        .json({ success: false, error: "Either email or phone is required" });
+    }
+
+    const name = `${firstName || ""} ${lastName || ""}`.trim() || "Unknown";
+    const normalizedPhone = phone ? phone.toString().replace(/\D/g, "") : null;
+
+    // Duplicate check
+    let existingLead = null;
+    if (normalizedPhone)
+      existingLead = await leadService.findLeadByPhone(normalizedPhone);
+    if (!existingLead && email)
+      existingLead = await leadService.findLeadByEmail(email);
+
+    let leadId;
+    let actionTaken;
+    let statusNote = "";
+
+    if (existingLead) {
+      leadId = existingLead;
+      actionTaken = "updated_existing_lead";
+      statusNote = `Updated existing lead (${
+        existingLead.email || existingLead.phone
+      }) with Meta Ads inquiry`;
+
+      await leadService.addInteraction(existingLead.id, {
+        type: "META_ADS_INQUIRY",
+        content: `New inquiry from Meta Ads - ${
+          program ? `interested in ${program}` : "program inquiry"
+        }`,
+        channel: "META_ADS",
+        automated: true,
+        direction: "incoming",
+        metadata: {
+          program,
+          country,
+          source: "Meta Ads",
+          campaignData: { formData },
+        },
+      });
+    } else {
+      const leadData = {
+        firstName,
+        lastName,
+        name,
+        email,
+        phone: normalizedPhone || phone || null,
+        program,
+        country,
+        status: "CONTACTED",
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      };
+      leadId = await leadService.createLead(leadData, LEAD_SOURCES.META_ADS);
+      actionTaken = "created_new_lead";
+      statusNote =
+        "New lead created from Meta Ads contact form (user initiated contact)";
+    }
+
+    if (normalizedPhone) {
+      await sendWhatsAppTemplate(normalizedPhone, {
+        leadId: leadId?.id || leadId,
+        contactName: name,
+        source: "Meta Ads",
+        messageType: "whatsapp_validation",
+        programInterest: program,
+      });
+      statusNote += " (WhatsApp validation message sent)";
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Meta Ads lead successfully processed",
+      actionTaken,
+      leadId: leadId?.id || leadId,
+      statusNote,
+      leadInfo: {
+        name,
+        email,
+        program,
+        source: "Meta Ads",
+        isExisting: !!existingLead,
+      },
+    });
+  } catch (error) {
+    logger.error("Error processing Meta Ads webhook:", error);
+    return res
+      .status(500)
+      .json({ success: false, error: "Failed to process Meta Ads webhook" });
   }
 });
 
@@ -1082,7 +913,6 @@ router.post("/application-form", validateWebhookSource, async (req, res) => {
     if (phone && phone.trim()) {
       // Simple normalization without validation
       validatedPhone = phone.toString().replace(/^\+/, "").replace(/\D/g, "");
-      logger.debug(`Application form phone normalized: ${validatedPhone}`);
     }
 
     // Initialize services
@@ -1230,8 +1060,6 @@ router.post("/application-form", validateWebhookSource, async (req, res) => {
           },
         },
       };
-
-      logger.debug("Normalized application data:", applicationData);
 
       const result = await applicationService.submitApplication(
         applicationData
@@ -1403,8 +1231,6 @@ router.post("/receive", async (req, res) => {
             "Invalid phone number length. Please provide a valid international phone number.",
         });
       }
-
-      logger.debug(`Generic webhook phone normalized: ${validatedPhone}`);
     }
 
     // Initialize services
@@ -1417,7 +1243,7 @@ router.post("/receive", async (req, res) => {
       email,
       phone: validatedPhone || phone,
       program,
-      rawData: formData, // Store full payload for debugging
+      rawData: formData, // Store full payload for reference
       status: "CONTACTED", // User initiated contact via form submission
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
     };
@@ -1482,6 +1308,7 @@ router.post("/receive", async (req, res) => {
  */
 router.post("/meta-ads", validateWebhookSource, async (req, res) => {
   try {
+    ensureServices();
     const formData = req.body;
     logger.webhook("Meta Ads", formData);
 
@@ -1510,7 +1337,7 @@ router.post("/meta-ads", validateWebhookSource, async (req, res) => {
     let whatsappValidationResult = null;
 
     if (phone && phone.trim()) {
-      logger.debug(`Starting WhatsApp validation for ${phone}`);
+      logger.info(`Starting WhatsApp validation for ${phone}`);
 
       // Use centralized validation function (Meta Ads is not on Elementor, so isElementorForm = false)
       const validation = await validateWhatsAppNumber(
@@ -1553,13 +1380,11 @@ router.post("/meta-ads", validateWebhookSource, async (req, res) => {
 
     // First check by phone number
     if (phone && phone.trim()) {
-      logger.debug(`Checking for existing lead with phone: ${phone}`);
       existingLead = await leadService.findLeadByPhone(phone);
     }
 
     // If no lead found by phone, check by email
     if (!existingLead && email) {
-      logger.debug(`Checking for existing lead with email: ${email}`);
       existingLead = await leadService.findLeadByEmail(email);
     }
 
@@ -1587,7 +1412,6 @@ router.post("/meta-ads", validateWebhookSource, async (req, res) => {
 
         if (!existingPhones.includes(phone)) {
           hasNewPhoneNumber = true;
-          logger.debug(`Adding new phone number ${phone} to existing lead`);
 
           // Update lead with additional phone number
           try {
@@ -1627,7 +1451,6 @@ router.post("/meta-ads", validateWebhookSource, async (req, res) => {
 
         if (!existingEmails.includes(email)) {
           hasNewEmail = true;
-          logger.debug(`Adding new email ${email} to existing lead`);
 
           // Update lead with additional email
           try {
@@ -1694,7 +1517,7 @@ router.post("/meta-ads", validateWebhookSource, async (req, res) => {
         lastName,
         name,
         email,
-        phone: validatedPhone || phone,
+        phone: normalizedPhone || phone,
         program,
         country,
         status: "CONTACTED", // User initiated contact via Meta Ads form
@@ -1763,21 +1586,8 @@ router.post("/meta-ads", validateWebhookSource, async (req, res) => {
   }
 });
 
-// Add a test endpoint to check what data is being received
-router.post("/echo", (req, res) => {
-  logger.info("Echo endpoint hit with data:", req.body);
-  logger.info("Request headers:", req.headers);
-
-  return res.status(200).json({
-    success: true,
-    message: "Echo endpoint",
-    receivedHeaders: req.headers,
-    receivedBody: req.body,
-    receivedMethod: req.method,
-    receivedPath: req.path,
-    timestamp: new Date().toISOString(),
-  });
-});
+// Keep the detailed echo endpoint defined earlier in the file.
+// Remove the simpler duplicate /echo endpoint to prevent duplicate handlers.
 
 // Export both the router and the pendingValidations for use by WhatsApp webhook
 module.exports = {
