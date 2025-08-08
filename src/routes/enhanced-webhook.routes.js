@@ -37,581 +37,51 @@ try {
   // We don't re-throw here to prevent the module from failing to load completely
 }
 
-// Configuration options
-const WHATSAPP_VALIDATION_ENABLED =
-  process.env.NODE_ENV === "production"
-    ? process.env.WORDPRESS_WHATSAPP_VALIDATION !== "false"
-    : process.env.WHATSAPP_VALIDATION_ENABLED !== "false";
+// No validation configuration needed - all validation has been removed
 
-// Protection middleware
+// Simplified middleware with no validation
 const validateWebhookSource = (req, res, next) => {
-  // If webhook protection is disabled, skip validation
-  if (process.env.WEBHOOK_PROTECTION_ENABLED !== "true") {
-    if (process.env.NODE_ENV === "production") {
-      logger.warn(
-        "WARNING: Webhook protection disabled in production environment!"
-      );
-      logger.warn(
-        "This is a security risk. Enable WEBHOOK_PROTECTION_ENABLED in production."
-      );
-      // Allow webhooks to proceed anyway as per user's request
-      return next();
-    } else {
-      logger.debug("Webhook protection disabled for development");
-      return next();
-    }
-  }
+  // Log the webhook request
+  logger.info(`Webhook request received: ${req.path}`);
 
-  // For testing: Add a special test flag if X-Test-Request header is present
-  if (req.headers["x-test-request"] === "true") {
-    if (process.env.NODE_ENV !== "production") {
-      req.isTestRequest = true;
-      logger.debug("Test request detected - validation will be relaxed");
-    } else {
-      // In production, don't allow test mode via header
-      logger.warn(`Attempted test mode in production - DENIED`);
-      // Remove any test headers in production to prevent security bypass
-      delete req.headers["x-test-request"];
-      delete req.headers["x-bypass-whatsapp-validation"];
-      delete req.headers["x-bypass-whatsapp-validation"];
-    }
-  }
-
-  // Implement source validation logic for production environments
-  if (process.env.NODE_ENV === "production") {
-    // WordPress webhook validation
-    if (req.path === "/wordpress" && process.env.WORDPRESS_WEBHOOK_SECRET) {
-      // Verify WordPress secret if provided
-      const wpSecret = process.env.WORDPRESS_WEBHOOK_SECRET;
-      const providedSecret = req.headers["x-wordpress-webhook-secret"];
-
-      if (wpSecret !== providedSecret) {
-        logger.warn(`WordPress webhook unauthorized access attempt`);
-        return res.status(401).json({
-          success: false,
-          message: "Unauthorized webhook access",
-        });
-      }
-    }
-
-    // Google Ads webhook validation
-    if (req.path === "/google-ads" && process.env.GOOGLE_ADS_WEBHOOK_SECRET) {
-      const gaSecret = process.env.GOOGLE_ADS_WEBHOOK_SECRET;
-      const providedSecret = req.headers["x-google-ads-webhook-secret"];
-
-      if (gaSecret !== providedSecret) {
-        logger.warn(`Google Ads webhook unauthorized access attempt`);
-        return res.status(401).json({
-          success: false,
-          message: "Unauthorized webhook access",
-        });
-      }
-    }
-  }
-
+  // Always proceed without validation
   next();
 };
 
-// Store pending validations - this will hold promises that resolve when webhook responds
+// Store pending validations - this map is kept for backward compatibility but not used anymore
 const pendingValidations = new Map();
 
 /**
- * Validates WhatsApp number by sending a test message and waiting for webhook response
- * @param {string} phone - The phone number to validate
- * @param {string} name - The name of the person (for personalized message)
- * @param {string} source - The source of the webhook (wordpress, google_ads, meta_ads)
- * @param {boolean} isElementorForm - Whether this is from an Elementor form
- * @returns {Object} Validation result with success status and appropriate error response
+ * Simple phone number normalizer without validation
+ * @param {string} phone - The phone number to normalize
+ * @returns {Object} Normalized phone with success result
  */
-const validateWhatsAppNumber = async (
-  phone,
-  name,
-  source,
-  isElementorForm = false,
-  bypassValidation = false
-) => {
-  // For testing: bypass actual validation if requested
-  if (bypassValidation) {
-    // Only allow bypass in non-production environments
-    if (process.env.NODE_ENV !== "production") {
-      logger.debug(`Bypassing WhatsApp validation for testing: ${phone}`);
-
-      // Always normalize the phone number even in test mode
-      const normalizedPhone = phone
-        .toString()
-        .replace(/^\+/, "")
-        .replace(/\D/g, "");
-      logger.debug(
-        `Test mode: Treating ${normalizedPhone} as valid WhatsApp number`
-      );
-
-      // Force successful validation for test mode
-      return {
-        isValid: true,
-        normalizedPhone: normalizedPhone,
-        validationResult: {
-          success: true,
-          messageId: "test-message-id-" + Date.now(),
-        },
-      };
-    } else {
-      // In production, log attempt but don't allow bypass
-      logger.warn(
-        `Attempted to bypass WhatsApp validation in production for ${phone} - DENIED`
-      );
-      // Continue with normal validation in production
-    }
-  }
-
-  // Normalize the phone number - remove + and non-digits
-  const normalizedPhone = phone
-    .toString()
-    .replace(/^\+/, "")
-    .replace(/\D/g, "");
-
-  // Basic length validation
-  if (normalizedPhone.length < 10 || normalizedPhone.length > 15) {
-    const errorMessage =
-      "Invalid phone number format. Please enter a valid international WhatsApp number (10-15 digits).";
-
-    if (isElementorForm) {
-      return {
-        isValid: false,
-        errorResponse: {
-          status: 200,
-          body: {
-            success: false,
-            message: errorMessage,
-            data: {
-              message: errorMessage,
-              errors: {
-                phone: errorMessage,
-              },
-            },
-          },
-        },
-      };
-    }
-
-    return {
-      isValid: false,
-      errorResponse: {
-        status: 400,
-        body: {
-          success: false,
-          error: errorMessage,
-        },
-      },
-    };
-  }
-
-  // Check for obviously invalid patterns
-  if (
-    normalizedPhone.startsWith("000") ||
-    normalizedPhone.startsWith("111") ||
-    normalizedPhone.match(/^(\d)\1{9,}$/) || // All same digit
-    normalizedPhone.includes("12345") ||
-    normalizedPhone.includes("54321") ||
-    normalizedPhone.includes("00000")
-  ) {
-    const errorMessage =
-      "This appears to be an invalid phone number. Please provide your actual WhatsApp number.";
-
-    if (isElementorForm) {
-      return {
-        isValid: false,
-        errorResponse: {
-          status: 200,
-          body: {
-            success: false,
-            message: errorMessage,
-            data: {
-              message: errorMessage,
-              errors: {
-                phone: errorMessage,
-              },
-            },
-          },
-        },
-      };
-    }
-
-    return {
-      isValid: false,
-      errorResponse: {
-        status: 400,
-        body: {
-          success: false,
-          error: errorMessage,
-        },
-      },
-    };
-  }
-
-  logger.debug(
-    `Testing WhatsApp number: ${normalizedPhone} (source: ${source})`
-  );
-
-  // Use the whatsapp_validation template for validation (no parameters needed - static template)
-  const templatePayload = {
-    messaging_product: "whatsapp",
-    to: normalizedPhone,
-    type: "template",
-    template: {
-      name: "whatsapp_validation",
-      language: { code: "en_US" },
-    },
-  };
-
+const normalizePhoneNumber = (phone) => {
   try {
-    // First, try sending the whatsapp_validation template for validation
-    // Include metadata for validation but avoid creating conversation immediately
-    const messageMetadata = {
-      contactName: name,
-      source: source,
-      messageType: "whatsapp_validation",
-      validationType: "initial_validation",
-    };
+    // Just normalize the phone number without validation
+    const normalizedPhone = phone
+      .toString()
+      .replace(/^\+/, "")
+      .replace(/\D/g, "");
 
-    // Send validation message using the new specialized method
-    const validationResult = await whatsappMessageService.sendValidationMessage(
-      normalizedPhone,
-      "Validation message",
-      messageMetadata
-    );
-
-    logger.debug(
-      `WhatsApp whatsapp_validation template sent for ${normalizedPhone}:`,
-      validationResult
-    );
-
-    if (!validationResult.success) {
-      // If template fails, log the specific error and try a different approach
-      logger.error(
-        `WhatsApp template validation failed for ${normalizedPhone}: ${validationResult.error}`
-      );
-
-      // Check if it's a template-specific error or permissions issue
-      if (
-        validationResult.error.includes("does not exist") ||
-        validationResult.error.includes("missing permissions") ||
-        validationResult.error.includes("template")
-      ) {
-        // Template or permissions issue - fail the validation
-        const errorMessage =
-          "WhatsApp Business API configuration issue. Please contact support.";
-
-        logger.error(
-          `WhatsApp API configuration error for ${normalizedPhone}: ${validationResult.error}`
-        );
-
-        if (isElementorForm) {
-          return {
-            isValid: false,
-            errorResponse: {
-              status: 200,
-              body: {
-                success: false,
-                message: errorMessage,
-                data: {
-                  message: errorMessage,
-                  errors: {
-                    phone: errorMessage,
-                  },
-                },
-              },
-            },
-          };
-        }
-
-        return {
-          isValid: false,
-          errorResponse: {
-            status: 500,
-            body: {
-              success: false,
-              error: errorMessage,
-            },
-          },
-        };
-      } else {
-        // Likely an invalid number error
-        const errorMessage =
-          "Please provide a valid WhatsApp number. The number you entered is not registered on WhatsApp.";
-
-        logger.error(
-          `WhatsApp validation failed immediately for ${normalizedPhone}: ${validationResult.error}`
-        );
-
-        if (isElementorForm) {
-          return {
-            isValid: false,
-            errorResponse: {
-              status: 200,
-              body: {
-                success: false,
-                message: errorMessage,
-                data: {
-                  message: errorMessage,
-                  errors: {
-                    phone: errorMessage,
-                  },
-                },
-              },
-            },
-          };
-        }
-
-        return {
-          isValid: false,
-          errorResponse: {
-            status: 400,
-            body: {
-              success: false,
-              error: errorMessage,
-            },
-          },
-        };
-      }
-    }
-
-    // Message was queued successfully, now wait for webhook response
-    const messageId =
-      validationResult.messageId || validationResult.whatsappMessageId;
-    logger.debug(
-      `Waiting for webhook response for message ${messageId} to ${normalizedPhone}`
-    );
-
-    const validationPromise = new Promise((resolve, reject) => {
-      const timeoutId = setTimeout(() => {
-        pendingValidations.delete(messageId);
-        reject(new Error("Validation timeout - webhook response not received"));
-      }, 15000);
-
-      pendingValidations.set(messageId, {
-        resolve,
-        reject,
-        timeoutId,
-        phone: normalizedPhone,
-      });
-    });
-
-    const webhookResult = await validationPromise;
-
-    if (webhookResult.success) {
-      logger.debug(`WhatsApp validation successful for ${normalizedPhone}`);
-      return {
-        isValid: true,
-        normalizedPhone,
-        validationResult: webhookResult,
-        validationMessageId:
-          webhookResult.messageId || validationResult.messageId,
-        // No longer providing conversationId since we don't create it immediately
-      };
-    } else {
-      // Check the error type from webhook
-      const isInvalidNumber =
-        webhookResult.error &&
-        (webhookResult.error.includes("131026") ||
-          webhookResult.error.includes("131051") ||
-          webhookResult.error.includes("not registered on WhatsApp") ||
-          webhookResult.error.includes("Message undeliverable") ||
-          webhookResult.error.includes("invalid number"));
-
-      // Special case for "healthy ecosystem engagement" error (131049)
-      // This is a Meta/WhatsApp restriction, not necessarily an invalid number
-      const isEcosystemEngagementError =
-        webhookResult.error &&
-        (webhookResult.error.includes("131049") ||
-          webhookResult.error.includes("healthy ecosystem engagement"));
-
-      const is24HourError =
-        webhookResult.error &&
-        (webhookResult.error.includes("24 hour") ||
-          webhookResult.error.includes("outside the allowed window") ||
-          webhookResult.error.includes("template message") ||
-          webhookResult.error.includes("131047"));
-
-      if (isInvalidNumber) {
-        const errorMessage =
-          "Please provide a valid WhatsApp number. The number you entered is not registered on WhatsApp.";
-
-        logger.error(
-          `WhatsApp validation failed for ${normalizedPhone}: Invalid number (${webhookResult.error})`
-        );
-
-        if (isElementorForm) {
-          return {
-            isValid: false,
-            errorResponse: {
-              status: 400,
-              body: {
-                success: false,
-                message: errorMessage,
-                data: {
-                  message: errorMessage,
-                  errors: {
-                    phone: errorMessage,
-                    "Phone Number": errorMessage,
-                  },
-                  invalid_fields: {
-                    phone: errorMessage,
-                    "Phone Number": errorMessage,
-                  },
-                },
-                error: true,
-                error_message: errorMessage,
-              },
-            },
-          };
-        }
-
-        return {
-          isValid: false,
-          errorResponse: {
-            status: 400,
-            body: {
-              success: false,
-              error: errorMessage,
-            },
-          },
-        };
-      } else if (isEcosystemEngagementError) {
-        // Special handling for ecosystem engagement error (code 131049)
-        // This is a WhatsApp/Meta restriction, not necessarily an invalid number
-        // We'll treat the validation as valid but flag the lead for alternative contact methods
-        const errorMessage =
-          "Your number appears valid but WhatsApp message could not be delivered. We'll contact you through other means.";
-
-        logger.warn(
-          `WhatsApp ecosystem engagement restriction for ${normalizedPhone}: ${webhookResult.error}`
-        );
-
-        // We'll mark this as valid but add a flag to indicate special handling needed
-        return {
-          isValid: true, // Mark as valid so lead creation proceeds
-          normalizedPhone,
-          validationResult: {
-            success: false, // WhatsApp message failed
-            error: webhookResult.error,
-            errorCode: 131049,
-          },
-          validationMessageId: webhookResult.messageId,
-          whatsappRestricted: true, // Flag to indicate WhatsApp messaging restricted
-          restrictionReason: "ecosystem_engagement",
-        };
-      } else if (is24HourError) {
-        const errorMessage =
-          "Phone number validation failed. This WhatsApp number cannot receive messages due to 24-hour policy restrictions.";
-
-        logger.error(
-          `WhatsApp validation failed for ${normalizedPhone}: 24-hour policy restriction (${webhookResult.error})`
-        );
-
-        if (isElementorForm) {
-          return {
-            isValid: false,
-            errorResponse: {
-              status: 400,
-              body: {
-                success: false,
-                message: errorMessage,
-                data: {
-                  message: errorMessage,
-                  errors: {
-                    phone: errorMessage,
-                  },
-                },
-              },
-            },
-          };
-        }
-
-        return {
-          isValid: false,
-          errorResponse: {
-            status: 400,
-            body: {
-              success: false,
-              error: errorMessage,
-            },
-          },
-        };
-      } else {
-        const errorMessage =
-          "Unable to verify WhatsApp number. Please ensure the number is correct and registered on WhatsApp.";
-
-        logger.error(
-          `WhatsApp validation failed for ${normalizedPhone}: ${webhookResult.error}`
-        );
-
-        if (isElementorForm) {
-          return {
-            isValid: false,
-            errorResponse: {
-              status: 200,
-              body: {
-                success: false,
-                message: errorMessage,
-                data: {
-                  message: errorMessage,
-                  errors: {
-                    phone: errorMessage,
-                  },
-                },
-              },
-            },
-          };
-        }
-
-        return {
-          isValid: false,
-          errorResponse: {
-            status: 400,
-            body: {
-              success: false,
-              error: errorMessage,
-            },
-          },
-        };
-      }
-    }
-  } catch (validationError) {
-    logger.error(
-      `WhatsApp validation error for ${normalizedPhone}:`,
-      validationError
-    );
-
-    const errorMessage =
-      "Unable to verify WhatsApp number. Please ensure the number is correct and registered on WhatsApp.";
-
-    if (isElementorForm) {
-      return {
-        isValid: false,
-        errorResponse: {
-          status: 200,
-          body: {
-            success: false,
-            message: errorMessage,
-            data: {
-              message: errorMessage,
-              errors: {
-                phone: errorMessage,
-              },
-            },
-          },
-        },
-      };
-    }
+    logger.debug(`Normalized phone number: ${normalizedPhone}`);
 
     return {
-      isValid: false,
-      errorResponse: {
-        status: 400,
-        body: {
-          success: false,
-          error: errorMessage,
-        },
+      isValid: true,
+      normalizedPhone,
+      validationResult: {
+        success: true,
+        messageId: "no-validation-" + Date.now(),
+      },
+    };
+  } catch (error) {
+    logger.error(`Error normalizing phone number: ${error.message}`);
+    return {
+      isValid: true, // Always return valid for compatibility
+      normalizedPhone: phone.toString(),
+      validationResult: {
+        success: true,
+        messageId: "error-normalization-" + Date.now(),
       },
     };
   }
@@ -1044,37 +514,16 @@ router.post("/wordpress", validateWebhookSource, async (req, res) => {
       logger.info("No name fields found in form data, using 'Unknown'");
     }
 
-    // Validate required fields
-    if (!email) {
-      // Try 422 status (Unprocessable Entity) which is standard for validation errors
-      return res.status(422).json({
-        success: false,
-        message: "Email is required. Please provide a valid email address.",
-        data: {
-          message: "Email is required. Please provide a valid email address.",
-          errors: {
-            email: "Email is required. Please provide a valid email address.",
-            Email: "Email is required. Please provide a valid email address.", // Include exact field name
-          },
-        },
-      });
-    }
-
-    // WhatsApp validation for WordPress has been removed
-    // We'll process the phone number directly without validation
+    // Accept all data without validation
     let validatedPhone = null;
     let whatsappValidationResult = null;
     let whatsappRestricted = false;
     let restrictionReason = null;
-    if (phone && phone.trim()) {
-      // Simply normalize the phone number without validation
-      validatedPhone = phone.toString().replace(/^\+/, "").replace(/\D/g, "");
-      logger.debug(`Processing phone number directly: ${validatedPhone}`);
 
-      // No validation - directly proceed with lead processing
-      logger.info(
-        `Bypassing WhatsApp validation for WordPress webhook - per production requirement`
-      );
+    // Just normalize phone if available
+    if (phone && phone.trim()) {
+      validatedPhone = phone.toString().replace(/^\+/, "").replace(/\D/g, "");
+      logger.debug(`Processing phone number: ${validatedPhone}`);
     } else {
       // If no phone number provided, we can still create the lead (email-only lead)
       logger.debug("No phone number provided - creating email-only lead");
@@ -1368,105 +817,28 @@ router.post("/google-ads", validateWebhookSource, async (req, res) => {
     // Combine first and last name
     const name = `${firstName || ""} ${lastName || ""}`.trim() || "Unknown";
 
-    // Validate required fields
-    if (!email) {
-      logger.error("Google Ads webhook: Missing required email field");
-
-      return res.status(200).json({
-        success: false,
-        message: "Email is required. Please provide a valid email address.",
-        data: {
-          message: "Email is required. Please provide a valid email address.",
-        },
-      });
-    }
-
-    // Validate required phone number - no email-only leads allowed
-    if (!phone || !phone.trim()) {
-      logger.error("Google Ads webhook: Missing required phone field");
-
-      return res.status(200).json({
-        success: false,
-        message:
-          "Phone number is required. Please provide a valid WhatsApp number.",
-        data: {
-          message:
-            "Phone number is required. Please provide a valid WhatsApp number.",
-          errors: {
-            phone:
-              "Phone number is required. Please provide a valid WhatsApp number.",
-            "Phone Number":
-              "Phone number is required. Please provide a valid WhatsApp number.",
-            "Phone Number / WhatsApp":
-              "Phone number is required. Please provide a valid WhatsApp number.",
-          },
-        },
-      });
-    }
-
-    // MANDATORY WhatsApp validation - phone is required
+    // No validation, just normalize phone if available
     let validatedPhone = null;
     let whatsappValidationResult = null;
     let whatsappRestricted = false;
     let restrictionReason = null;
 
-    // Check if we should bypass validation (for testing)
-    let bypassValidation = false;
+    // Just normalize the phone number
+    if (phone && phone.trim()) {
+      // Simply normalize the phone number
+      validatedPhone = phone.toString().replace(/^\+/, "").replace(/\D/g, "");
+      logger.debug(`Processing Google Ads phone number: ${validatedPhone}`);
 
-    if (process.env.NODE_ENV === "production") {
-      // In production, completely ignore bypass attempts
-      if (
-        req.headers["x-bypass-whatsapp-validation"] === "true" ||
-        req.headers["x-test-request"] === "true"
-      ) {
-        logger.warn(
-          `WhatsApp validation bypass attempt for Google Ads in PRODUCTION - Denied`
-        );
-      }
-      bypassValidation = false;
-    } else {
-      // In development, allow bypass
-      bypassValidation =
-        req.headers["x-bypass-whatsapp-validation"] === "true" ||
-        req.headers["x-test-request"] === "true" ||
-        process.env.BYPASS_WHATSAPP_VALIDATION === "true";
+      // Use our simplified phone normalizer
+      const normalizeResult = normalizePhoneNumber(phone);
+      validatedPhone = normalizeResult.normalizedPhone;
+      whatsappValidationResult = normalizeResult.validationResult;
 
-      if (bypassValidation) {
-        logger.debug(
-          `WhatsApp validation bypass for Google Ads: ENABLED (non-production)`
-        );
-      }
-    }
-
-    // Use centralized validation function - this will test the actual WhatsApp number
-    const validation = await validateWhatsAppNumber(
-      phone,
-      name,
-      "google_ads",
-      true,
-      bypassValidation
-    );
-
-    // If validation failed, return the error response immediately - NO LEAD CREATION
-    if (!validation.isValid) {
-      logger.error(
-        "Google Ads webhook: WhatsApp validation failed - aborting lead creation"
+      logger.info(
+        `Google Ads webhook: Phone number processed without validation`
       );
-      return res
-        .status(validation.errorResponse.status)
-        .json(validation.errorResponse.body);
-    }
-
-    // If we get here, the WhatsApp number is valid
-    validatedPhone = validation.normalizedPhone;
-    whatsappValidationResult = validation.validationResult;
-    whatsappRestricted = validation.whatsappRestricted || false;
-    restrictionReason = validation.restrictionReason || null;
-
-    if (whatsappRestricted) {
-      logger.warn("Google Ads webhook: WhatsApp restricted but proceeding");
     } else {
-      logger.info("Google Ads webhook: WhatsApp validation successful");
+      logger.info("Google Ads webhook: No phone number provided");
     }
 
     // Initialize services
@@ -1703,67 +1075,13 @@ router.post("/application-form", validateWebhookSource, async (req, res) => {
     // Combine first and last name
     const name = `${firstName || ""} ${lastName || ""}`.trim() || "Unknown";
 
-    // Validate required fields
-    if (!email) {
-      // Elementor expects 200 status with success: false for form validation errors
-      return res.status(200).json({
-        success: false,
-        message: "Email is required. Please provide a valid email address.",
-        data: {
-          message: "Email is required. Please provide a valid email address.",
-        },
-      });
-    }
+    // No validation required for any fields
 
-    // WhatsApp validation if phone is provided (Application form doesn't strictly require WhatsApp validation)
+    // Just normalize the phone number if available
     let validatedPhone = null;
     if (phone && phone.trim()) {
-      // Check if we should bypass validation (for testing)
-      let bypassValidation = false;
-
-      if (process.env.NODE_ENV === "production") {
-        // In production, completely ignore bypass attempts
-        if (
-          req.headers["x-bypass-whatsapp-validation"] === "true" ||
-          req.headers["x-test-request"] === "true"
-        ) {
-          logger.warn(
-            `WhatsApp validation bypass attempt for Application Form in PRODUCTION - Denied`
-          );
-        }
-        bypassValidation = false;
-      } else {
-        // In development, allow bypass
-        bypassValidation =
-          req.headers["x-bypass-whatsapp-validation"] === "true" ||
-          req.headers["x-test-request"] === "true" ||
-          process.env.BYPASS_WHATSAPP_VALIDATION === "true";
-
-        if (bypassValidation) {
-          logger.debug(
-            `WhatsApp validation bypass for Application Form: ENABLED (non-production)`
-          );
-        }
-      }
-
-      // Use centralized validation function but only for formatting, not blocking
-      const validation = await validateWhatsAppNumber(
-        phone,
-        name,
-        "application",
-        true,
-        bypassValidation
-      );
-
-      // For application form, we don't block on WhatsApp validation
-      // Just use the normalized phone number
-      if (validation.normalizedPhone) {
-        validatedPhone = validation.normalizedPhone;
-      } else {
-        // If validation failed, still normalize the phone for storage
-        validatedPhone = phone.toString().replace(/^\+/, "").replace(/\D/g, "");
-      }
-
+      // Simple normalization without validation
+      validatedPhone = phone.toString().replace(/^\+/, "").replace(/\D/g, "");
       logger.debug(`Application form phone normalized: ${validatedPhone}`);
     }
 
