@@ -438,24 +438,70 @@ router.post("/wordpress", validateWebhookSource, async (req, res) => {
 
     logger.webhook("WordPress", formData);
 
-    // Simplified: Extract only the required WordPress fields
-    const firstName = (formData.firstname ?? "").toString().trim() || null;
-    const lastName = (formData.lastname ?? "").toString().trim() || null;
-    const email = (formData.email ?? "").toString().trim() || null;
-    const phone = (formData.phone ?? "").toString().trim() || null;
-    const message = (formData.message ?? "").toString().trim() || null;
+    // Simplified: Extract WordPress fields with flexible field name matching
+    const firstName =
+      (
+        formData.firstname ??
+        formData["First Name"] ??
+        formData.first_name ??
+        ""
+      )
+        .toString()
+        .trim() || null;
+
+    const lastName =
+      (formData.lastname ?? formData["Last Name"] ?? formData.last_name ?? "")
+        .toString()
+        .trim() || null;
+
+    const email =
+      (formData.email ?? formData["Email"] ?? formData.Email ?? "")
+        .toString()
+        .trim() || null;
+
+    const phone =
+      (
+        formData.phone ??
+        formData["Phone"] ??
+        formData["Phone "] ?? // Note: WordPress is sending "Phone " with a space!
+        formData.Phone ??
+        ""
+      )
+        .toString()
+        .trim() || null;
+
+    const message =
+      (
+        formData.message ??
+        formData["Message"] ??
+        formData["Messege"] ?? // Handle the typo from WordPress
+        formData.Messege ??
+        ""
+      )
+        .toString()
+        .trim() || null;
 
     // Build display name from first/last
     const name = `${firstName || ""} ${lastName || ""}`.trim() || "Unknown";
 
-    // Concise debug log
-    logger.info("WordPress (strict fields)", {
-      firstName,
-      lastName,
-      email,
-      phone,
-      message,
-      name,
+    // Enhanced debug log to confirm field mapping worked
+    logger.info("WordPress field mapping results:", {
+      originalKeys: Object.keys(formData),
+      extractedFields: {
+        firstName,
+        lastName,
+        email,
+        phone,
+        message,
+        name,
+      },
+      fieldExists: {
+        hasFirstName: !!firstName,
+        hasLastName: !!lastName,
+        hasEmail: !!email,
+        hasPhone: !!phone,
+        hasMessage: !!message,
+      },
     });
 
     // Accept all data without validation
