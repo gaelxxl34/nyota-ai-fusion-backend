@@ -148,6 +148,50 @@ router.post("/wordpress", validateWebhookSource, async (req, res) => {
     // Log only essential information in production
     logger.info("WordPress webhook request received");
 
+    // === RAW DEBUG MODE: bypass all processing and echo what we received ===
+    const debugRawMode =
+      (req.query && (req.query.debug === "raw" || req.query.debug === "1")) ||
+      req.headers["x-debug-raw"] === "1" ||
+      req.headers["x-debug-raw"] === "true" ||
+      process.env.WORDPRESS_WEBHOOK_DEBUG_RAW === "true";
+
+    if (debugRawMode) {
+      const debugPayload = {
+        mode: "raw-debug",
+        receivedAt: new Date().toISOString(),
+        method: req.method,
+        path: req.path,
+        query: req.query,
+        headers: req.headers,
+        contentType: req.headers["content-type"] || null,
+        bodyType: typeof req.body,
+        bodyKeys: req.body ? Object.keys(req.body) : [],
+        parsedBody: req.body,
+        rawBody: req.rawBody || req.rawWebhookData || null,
+      };
+
+      logger.info("RAW DEBUG - WordPress webhook payload (summary)", {
+        method: debugPayload.method,
+        path: debugPayload.path,
+        contentType: debugPayload.contentType,
+        bodyType: debugPayload.bodyType,
+        bodyKeys: debugPayload.bodyKeys,
+      });
+      logger.info("RAW DEBUG - Parsed body:", debugPayload.parsedBody);
+      if (debugPayload.rawBody) {
+        logger.info("RAW DEBUG - Raw body (string):", debugPayload.rawBody);
+      }
+      // Also print to stdout in case logger output is filtered
+      try {
+        console.log(
+          "RAW DEBUG - WordPress webhook payload:",
+          JSON.stringify(debugPayload, null, 2)
+        );
+      } catch {}
+
+      return res.status(200).json(debugPayload);
+    }
+
     // Make sure we have a formData object, even if empty
     let formData = req.body || {};
 
