@@ -81,17 +81,6 @@ class LeadModel {
    * Ensures status field and timeline are synchronized
    */
   static createLead(contactInfo, source = null) {
-    // Enhanced logging for debugging phone number issues
-    console.log("LeadModel.createLead - contactInfo received:", {
-      contactInfoPhone: contactInfo.phone,
-      contactInfoPhoneType: typeof contactInfo.phone,
-      contactInfoWhatsappNumber: contactInfo.whatsappNumber,
-      contactInfoKeys: Object.keys(contactInfo),
-      hasPhoneField: "phone" in contactInfo,
-      phoneValue: contactInfo.phone,
-      phoneExists: !!contactInfo.phone,
-    });
-
     // Determine the initial status (use provided status or default to CONTACTED)
     const initialStatus = contactInfo.status || LEAD_STATUSES.CONTACTED;
 
@@ -119,14 +108,6 @@ class LeadModel {
       phone: contactInfo.phone || null,
       email: contactInfo.email || null,
       whatsappNumber: contactInfo.whatsappNumber || contactInfo.phone,
-
-      // Enhanced logging after field assignment
-      ...(console.log("LeadModel fields assigned:", {
-        assignedPhone: contactInfo.phone || null,
-        assignedWhatsappNumber: contactInfo.whatsappNumber || contactInfo.phone,
-        contactInfoPhone: contactInfo.phone,
-        contactInfoWhatsappNumber: contactInfo.whatsappNumber,
-      }) || {}), // This will log and return empty object to spread
 
       // Application Info
       program: null,
@@ -157,22 +138,6 @@ class LeadModel {
    */
   static validate(leadData) {
     const errors = [];
-
-    // Enhanced debugging for validation
-    console.log("🔍 VALIDATION DEBUG - Lead data received:", {
-      leadData: leadData,
-      phone: leadData.phone,
-      phoneType: typeof leadData.phone,
-      phoneExists: !!leadData.phone,
-      phoneNotEmpty: leadData.phone && leadData.phone.toString().trim() !== "",
-      email: leadData.email,
-      emailType: typeof leadData.email,
-      emailExists: !!leadData.email,
-      emailNotEmpty: leadData.email && leadData.email.toString().trim() !== "",
-      hasPhoneOrEmail:
-        (leadData.phone && leadData.phone.toString().trim() !== "") ||
-        (leadData.email && leadData.email.toString().trim() !== ""),
-    });
 
     if (!leadData.phone && !leadData.email) {
       errors.push("Either phone or email is required");

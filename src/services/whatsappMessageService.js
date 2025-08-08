@@ -57,13 +57,13 @@ class WhatsAppMessageService {
 
       // If we have a message ID, handle the message
       if (messageId) {
-        // For validation messages, we'll handle them differently
+        // For validation messages, we'll handle them differently but still create conversation
         if (isValidationMessage) {
-          // Store validation message info without creating a conversation or database entry
           console.log(
-            `📱 Tracking validation message ${messageId} for phone ${phoneNumber} (no conversation created)`
+            `📱 Processing validation template message ${messageId} for phone ${phoneNumber} - creating conversation`
           );
 
+          // Store validation message info
           this.validationMessages.set(messageId, {
             phoneNumber: phoneNumber,
             timestamp: new Date(),
@@ -73,12 +73,122 @@ class WhatsAppMessageService {
             status: "sent",
           });
 
-          // Return success with messageId only - no conversation or database entry yet
-          return {
-            success: true,
-            messageId,
-            isValidation: true,
-          };
+          try {
+            // Extract leadId from metadata or try to find existing lead
+            let leadId = metadata?.leadId;
+
+            // If no leadId provided but we have a phone number, try to find the lead
+            if (!leadId && phoneNumber) {
+              try {
+                // Validate that required services are available
+                if (
+                  !this.leadService ||
+                  typeof this.leadService.findLeadByPhone !== "function"
+                ) {
+                  console.log(
+                    "Lead service not available for validation message"
+                  );
+                } else {
+                  const normalizedPhone = phoneNumber.replace(/[^\d+]/g, "");
+                  const phoneWithoutPlus = phoneNumber.replace(/[^\d]/g, "");
+
+                  // Try to find lead by phone number
+                  const existingLead =
+                    (await this.leadService.findLeadByPhone(normalizedPhone)) ||
+                    (await this.leadService.findLeadByPhone(
+                      phoneWithoutPlus
+                    )) ||
+                    (await this.leadService.findLeadByPhone(
+                      `+${phoneWithoutPlus}`
+                    ));
+
+                  if (existingLead) {
+                    leadId = existingLead.id;
+                    console.log(
+                      `📱 Found lead ${leadId} for validation template to ${phoneNumber}`
+                    );
+                  }
+                }
+              } catch (leadLookupError) {
+                console.warn(
+                  `⚠️ Error finding lead for validation template: ${leadLookupError.message}`
+                );
+              }
+            }
+
+            // Create or get conversation for validation template
+            const conversationId =
+              await this.conversationService.createOrGetConversation(
+                phoneNumber,
+                leadId,
+                metadata?.contactName || null
+              );
+
+            // Define the welcome message content that should be stored
+            const welcomeMessageContent = `Hello👋
+
+Thank you for your interest in IUEA! 🎓
+We've received your message and we're here to help.😊
+
+Is there a specific program you're interested in, or would you like some help with the admission process?`;
+
+            // Store the welcome message in our database (this represents what the user sees)
+            const messageDoc = {
+              messageId: messageId,
+              conversationId: conversationId,
+              from: process.env.WHATSAPP_PHONE_NUMBER_ID,
+              to: phoneNumber,
+              content: welcomeMessageContent,
+              messageType: "template",
+              templateName: templateName,
+              templateLanguage: templateLanguage,
+              senderType: "outgoing",
+              direction: "outgoing",
+              timestamp: new Date(),
+              status: "sent",
+              metadata: metadata || {},
+              createdAt: new Date(),
+            };
+
+            // Add to messages collection
+            const messageRef = await this.db
+              .collection("messages")
+              .add(messageDoc);
+
+            // Update conversation with latest message
+            await this.db
+              .collection("conversations")
+              .doc(conversationId)
+              .update({
+                lastMessage: "Hello👋 Thank you for your interest in IUEA! 🎓",
+                lastMessageTime: new Date(),
+                lastMessageFrom: "business",
+                updatedAt: new Date(),
+              });
+
+            console.log(
+              `💾 Validation template message ${messageId} saved to conversation ${conversationId} with welcome content`
+            );
+
+            return {
+              success: true,
+              messageId,
+              conversationId,
+              savedMessageId: messageRef.id,
+              isValidation: true,
+            };
+          } catch (error) {
+            console.error(
+              `❌ Error storing validation template message: ${error.message}`
+            );
+            // Return success since the WhatsApp API call worked, but note the storage error
+            return {
+              success: true,
+              messageId,
+              isValidation: true,
+              error: `Message sent but not saved: ${error.message}`,
+            };
+          }
         }
 
         try {

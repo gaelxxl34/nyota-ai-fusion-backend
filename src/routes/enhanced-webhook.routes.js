@@ -143,302 +143,29 @@ const normalizePhoneNumber = (phone) => {
  */
 router.post("/wordpress", validateWebhookSource, async (req, res) => {
   try {
-    // === IMMEDIATE RAW DATA DUMP - FIRST THING ===
-    console.log("🔍🔍🔍 IMMEDIATE RAW DUMP - START 🔍🔍🔍");
-    console.log("Request Body Type:", typeof req.body);
-    console.log("Request Body Keys:", req.body ? Object.keys(req.body) : []);
-    console.log("Request Body Content:", JSON.stringify(req.body, null, 2));
-    console.log("Request Headers:", JSON.stringify(req.headers, null, 2));
-    console.log("🔍🔍🔍 IMMEDIATE RAW DUMP - END 🔍🔍🔍");
-
     ensureServices();
 
-    // Log only essential information in production
-    logger.info("WordPress webhook request received");
-
-    // === ALWAYS SHOW RAW DATA FIRST ===
-    logger.info("🔍 RAW DEBUG - Complete Request Analysis:", {
-      method: req.method,
-      path: req.path,
-      query: req.query,
-      headers: req.headers,
-      contentType: req.headers["content-type"] || null,
-      bodyType: typeof req.body,
-      bodyKeys: req.body ? Object.keys(req.body) : [],
-      bodyStringified: JSON.stringify(req.body, null, 2),
+    // Log incoming WordPress webhook data
+    logger.info("📝 WordPress webhook received:", {
+      formData: req.body,
+      source: req.headers["user-agent"] || "Unknown",
+      contentType: req.headers["content-type"],
     });
 
-    // Also console.log for immediate visibility
-    console.log("🔍 RAW REQUEST BODY:", JSON.stringify(req.body, null, 2));
-    console.log(
-      "🔍 RAW REQUEST HEADERS:",
-      JSON.stringify(req.headers, null, 2)
-    );
-
-    // === RAW DEBUG MODE: bypass all processing and echo what we received ===
-    const debugRawMode =
-      (req.query && (req.query.debug === "raw" || req.query.debug === "1")) ||
-      req.headers["x-debug-raw"] === "1" ||
-      req.headers["x-debug-raw"] === "true" ||
-      process.env.WORDPRESS_WEBHOOK_DEBUG_RAW === "true";
-
-    if (debugRawMode) {
-      const debugPayload = {
-        mode: "raw-debug",
-        receivedAt: new Date().toISOString(),
-        method: req.method,
-        path: req.path,
-        query: req.query,
+    // Debug mode for troubleshooting
+    if (req.query.debug === "raw") {
+      return res.status(200).json({
+        mode: "debug",
+        received: req.body,
         headers: req.headers,
-        contentType: req.headers["content-type"] || null,
-        bodyType: typeof req.body,
-        bodyKeys: req.body ? Object.keys(req.body) : [],
-        parsedBody: req.body,
-        rawBody: req.rawBody || req.rawWebhookData || null,
-      };
-
-      logger.info("RAW DEBUG - WordPress webhook payload (summary)", {
-        method: debugPayload.method,
-        path: debugPayload.path,
-        contentType: debugPayload.contentType,
-        bodyType: debugPayload.bodyType,
-        bodyKeys: debugPayload.bodyKeys,
+        timestamp: new Date().toISOString(),
       });
-      logger.info("RAW DEBUG - Parsed body:", debugPayload.parsedBody);
-      if (debugPayload.rawBody) {
-        logger.info("RAW DEBUG - Raw body (string):", debugPayload.rawBody);
-      }
-      // Also print to stdout in case logger output is filtered
-      try {
-        console.log(
-          "RAW DEBUG - WordPress webhook payload:",
-          JSON.stringify(debugPayload, null, 2)
-        );
-      } catch {}
-
-      return res.status(200).json(debugPayload);
     }
 
-    // Make sure we have a formData object, even if empty
+    // Process form data (WordPress sends as direct object)
     let formData = req.body || {};
 
-    logger.info(
-      "Initial formData type:",
-      typeof formData,
-      "keys:",
-      formData ? Object.keys(formData).length : 0
-    );
-
-    // Special handling for raw text content (common with some WordPress plugins)
-    if (
-      req.headers["content-type"] &&
-      (req.headers["content-type"].includes("text/plain") ||
-        req.headers["content-type"].includes(
-          "application/x-www-form-urlencoded"
-        ))
-    ) {
-      logger.info("Detected text/plain or form-urlencoded content");
-
-      // Only attempt manual parsing if body is a raw string
-      if (typeof formData === "string") {
-        try {
-          const querystring = require("querystring");
-          const parsedBody = querystring.parse(formData);
-          if (Object.keys(parsedBody).length > 0) {
-            logger.info("Successfully parsed raw string form data");
-            formData = parsedBody;
-          }
-        } catch (parseError) {
-          logger.error(
-            "Error parsing raw string form data:",
-            parseError.message
-          );
-        }
-      } else {
-        // Express has already parsed urlencoded into an object; do not re-parse
-        logger.info("Body already parsed by Express; skipping manual re-parse");
-      }
-    }
-
-    // Handle WordPress form data which might come in various formats
-    // Check for common WordPress form formats
-    if (formData.form_fields || formData.form_data) {
-      logger.info("Detected WordPress form fields format");
-      formData = formData.form_fields || formData.form_data || formData;
-    }
-
-    // Check for Contact Form 7 format
-    if (formData._wpcf7 || formData["your-name"] || formData["your-email"]) {
-      logger.info("Detected Contact Form 7 format");
-      // CF7 format is usually flat key-value pairs, no transformation needed
-    }
-
-    // Check for Elementor form format
-    if (formData.form_id && formData.form_fields) {
-      logger.info("Detected Elementor form format");
-      formData = formData.form_fields;
-    }
-
-    // If we get an array, try to convert it to an object
-    if (Array.isArray(formData)) {
-      logger.info("Converting array form data to object");
-      const formObject = {};
-      formData.forEach((item) => {
-        if (item.name && item.value !== undefined) {
-          formObject[item.name] = item.value;
-        }
-      });
-      formData = formObject;
-    }
-
-    // Check if we have raw text from middleware
-    if (Object.keys(formData).length === 0 && req.body && req.body.rawText) {
-      logger.info("Found rawText property, attempting to parse");
-
-      try {
-        // Try to parse as query string or key=value format
-        const querystring = require("querystring");
-        const parsedText = querystring.parse(req.body.rawText);
-
-        if (Object.keys(parsedText).length > 0) {
-          logger.info("Successfully parsed rawText as query string");
-          formData = parsedText;
-        } else {
-          // If parsing fails, try to identify form fields in the raw text
-          const rawText = req.body.rawText;
-
-          // Look for patterns like "Name: John" or "Email: john@example.com"
-          const patterns = [
-            { field: "name", regex: /(?:name|full[ _-]?name)[ :]+([^\n]+)/i },
-            { field: "email", regex: /(?:email|e-mail)[ :]+([^\n]+)/i },
-            {
-              field: "phone",
-              regex: /(?:phone|telephone|mobile|whatsapp)[ :]+([^\n]+)/i,
-            },
-            {
-              field: "message",
-              regex: /(?:message|comment|enquiry|comments)[ :]+([^\n]+)/i,
-            },
-          ];
-
-          // Extract values using patterns
-          patterns.forEach((pattern) => {
-            const match = rawText.match(pattern.regex);
-            if (match && match[1]) {
-              formData[pattern.field] = match[1].trim();
-              logger.info(
-                `Extracted ${pattern.field} from raw text: ${
-                  formData[pattern.field]
-                }`
-              );
-            }
-          });
-        }
-      } catch (parseError) {
-        logger.error("Error parsing rawText:", parseError.message);
-      }
-    }
-
-    // Check for raw webhook data stored during parsing failures
-    if (Object.keys(formData).length === 0 && req.rawWebhookData) {
-      logger.info("Found rawWebhookData, attempting to parse");
-
-      try {
-        // Similar approach as with rawText
-        const querystring = require("querystring");
-        const parsedData = querystring.parse(req.rawWebhookData);
-
-        if (Object.keys(parsedData).length > 0) {
-          logger.info("Successfully parsed rawWebhookData");
-          formData = parsedData;
-        }
-      } catch (parseError) {
-        logger.error("Error parsing rawWebhookData:", parseError.message);
-      }
-    }
-
-    // Final transformation check - if form is still empty but raw body exists, try direct mapping
-    if (
-      Object.keys(formData).length === 0 &&
-      req.body &&
-      typeof req.body === "object"
-    ) {
-      logger.info("Attempting direct extraction from raw body");
-
-      // Direct mapping for common field names
-      const possibleFieldNames = [
-        "name",
-        "your-name",
-        "fullname",
-        "full_name",
-        "firstName",
-        "first_name",
-        "lastname",
-        "last_name",
-        "email",
-        "your-email",
-        "emailaddress",
-        "email_address",
-        "phone",
-        "your-phone",
-        "phonenumber",
-        "phone_number",
-        "whatsapp",
-        "message",
-        "your-message",
-        "comments",
-        "subject",
-      ];
-
-      // Try to extract directly from request body
-      for (const field of possibleFieldNames) {
-        if (req.body[field]) {
-          formData[field] = req.body[field];
-        }
-      }
-    }
-
-    logger.info("Processed formData keys:", Object.keys(formData));
-
-    // Enhanced raw data logging for debugging
-    logger.info("Raw formData content:", {
-      formDataKeys: Object.keys(formData),
-      formDataValues: formData,
-      formDataType: typeof formData,
-      formDataStringified: JSON.stringify(formData, null, 2),
-    });
-
-    // === DEBUGGING: COMPLETE RAW DATA ANALYSIS ===
-    logger.info("🔍 DEBUGGING - RAW REQUEST BODY:", {
-      body: req.body,
-      bodyType: typeof req.body,
-      bodyKeys: req.body ? Object.keys(req.body) : [],
-      bodyStringified: JSON.stringify(req.body, null, 2),
-    });
-
-    logger.info("🔍 DEBUGGING - FORM DATA:", {
-      formData: formData,
-      formDataType: typeof formData,
-      formDataKeys: formData ? Object.keys(formData) : [],
-      formDataStringified: JSON.stringify(formData, null, 2),
-    });
-
-    // Log every single field and its value for complete visibility
-    logger.info("Complete field-by-field analysis:");
-    Object.keys(formData).forEach((key) => {
-      logger.info(`Field '${key}':`, {
-        value: formData[key],
-        type: typeof formData[key],
-        length: formData[key] ? formData[key].length : 0,
-        isEmpty: formData[key] === "",
-        isNull: formData[key] === null,
-        isUndefined: formData[key] === undefined,
-      });
-    });
-
-    logger.webhook("WordPress", formData);
-
-    // Simplified: Extract WordPress fields with flexible field name matching
+    // Extract WordPress fields with flexible field name matching
     const firstName =
       (
         formData.firstname ??
@@ -463,7 +190,7 @@ router.post("/wordpress", validateWebhookSource, async (req, res) => {
       (
         formData.phone ??
         formData["Phone"] ??
-        formData["Phone "] ?? // Note: WordPress is sending "Phone " with a space!
+        formData["Phone "] ?? // Handle WordPress trailing space
         formData.Phone ??
         ""
       )
@@ -474,7 +201,7 @@ router.post("/wordpress", validateWebhookSource, async (req, res) => {
       (
         formData.message ??
         formData["Message"] ??
-        formData["Messege"] ?? // Handle the typo from WordPress
+        formData["Messege"] ?? // Handle WordPress typo
         formData.Messege ??
         ""
       )
@@ -484,38 +211,21 @@ router.post("/wordpress", validateWebhookSource, async (req, res) => {
     // Build display name from first/last
     const name = `${firstName || ""} ${lastName || ""}`.trim() || "Unknown";
 
-    // Enhanced debug log to confirm field mapping worked
-    logger.info("WordPress field mapping results:", {
-      originalKeys: Object.keys(formData),
-      extractedFields: {
-        firstName,
-        lastName,
-        email,
-        phone,
-        message,
-        name,
-      },
-      fieldExists: {
-        hasFirstName: !!firstName,
-        hasLastName: !!lastName,
-        hasEmail: !!email,
-        hasPhone: !!phone,
-        hasMessage: !!message,
-      },
+    // Log extracted contact information
+    logger.info("✅ Extracted contact info:", {
+      firstName,
+      lastName,
+      name,
+      email,
+      phone,
+      message: message ? `${message.substring(0, 50)}...` : null,
     });
 
-    // Accept all data without validation
+    // Normalize phone number if available
     let validatedPhone = null;
-    let whatsappValidationResult = null;
-    let whatsappRestricted = false;
-    let restrictionReason = null;
-
-    // Just normalize phone if available
     if (phone && phone.trim()) {
       validatedPhone = phone.toString().replace(/^\+/, "").replace(/\D/g, "");
-      logger.info(`Phone normalized: "${phone}" -> "${validatedPhone}"`);
-    } else {
-      logger.info("No phone number provided in WordPress form");
+      logger.info(`📞 Phone normalized: "${phone}" -> "${validatedPhone}"`);
     }
 
     // Ensure services are initialized
@@ -539,12 +249,11 @@ router.post("/wordpress", validateWebhookSource, async (req, res) => {
     let statusNote = "";
 
     if (existingLead) {
-      // Update existing lead with WordPress inquiry information
+      // Update existing lead with WordPress inquiry
       logger.info(
-        `Updating existing lead ${existingLead.id} with WordPress inquiry data`
+        `🔄 Updating existing lead ${existingLead.id} with new inquiry`
       );
 
-      // Use the existing lead ID
       leadId = existingLead;
 
       // Add interaction entry for WordPress source
@@ -563,14 +272,11 @@ router.post("/wordpress", validateWebhookSource, async (req, res) => {
       });
 
       actionTaken = "updated_existing_lead";
-      statusNote = `Updated existing lead (${
-        existingLead.email || existingLead.phone
-      }) with WordPress inquiry`;
+      statusNote = `Updated existing lead with WordPress inquiry`;
     } else {
-      // Set initial status to CONTACTED since user initiated contact via form
-      const initialStatus = "CONTACTED";
+      // Create new lead record
+      logger.info("🆕 Creating new lead from WordPress form submission");
 
-      // Create lead record
       const leadData = {
         firstName,
         lastName,
@@ -578,67 +284,19 @@ router.post("/wordpress", validateWebhookSource, async (req, res) => {
         email,
         phone: validatedPhone || phone,
         message,
-        status: initialStatus,
+        status: "CONTACTED",
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
       };
 
-      // === DEBUGGING: LEAD DATA BEFORE CREATION ===
-      logger.info("🔍 DEBUGGING - LEAD DATA BEFORE CREATION:", {
-        leadData: leadData,
-        leadDataStringified: JSON.stringify(leadData, null, 2),
-        firstName: firstName,
-        lastName: lastName,
-        name: name,
-        email: email,
-        originalPhone: phone,
-        validatedPhone: validatedPhone,
-        finalPhoneValue: leadData.phone,
-        message: message,
-        emailExists: !!email,
-        phoneExists: !!leadData.phone,
-        emailNotEmpty: email && email.trim() !== "",
-        phoneNotEmpty: leadData.phone && leadData.phone.trim() !== "",
-      });
-
-      // Enhanced logging for lead data before creation
-      logger.info("Lead data being created:", {
-        leadDataPhone: leadData.phone,
-        leadDataPhoneType: typeof leadData.phone,
-        originalPhone: phone,
-        validatedPhone: validatedPhone,
-        phoneFieldExists: "phone" in leadData,
-        phoneFieldValue: leadData.phone,
-      });
-
-      // Add validation message ID if available
-      if (
-        validatedPhone &&
-        whatsappValidationResult &&
-        whatsappValidationResult.validationMessageId
-      ) {
-        leadData.whatsappValidationMessageId =
-          whatsappValidationResult.validationMessageId;
-      }
-
-      // Create the lead using shared service
       leadId = await leadService.createLead(leadData, LEAD_SOURCES.WEBSITE);
       actionTaken = "created_new_lead";
-      statusNote =
-        "New lead created from WordPress contact form (user initiated contact)";
+      statusNote = "New lead created from WordPress contact form";
     }
 
-    // Send WhatsApp template if phone available
+    // Send WhatsApp template if phone is available
     const toNumber = (validatedPhone || phone || "")
       .toString()
       .replace(/\D/g, "");
-
-    logger.info("WhatsApp sending logic:", {
-      validatedPhone,
-      originalPhone: phone,
-      toNumber,
-      toNumberExists: !!toNumber,
-      toNumberLength: toNumber ? toNumber.length : 0,
-    });
 
     if (toNumber) {
       await sendWhatsAppTemplate(toNumber, {
@@ -647,9 +305,7 @@ router.post("/wordpress", validateWebhookSource, async (req, res) => {
         source: "WordPress",
         messageType: "whatsapp_validation",
       });
-      statusNote += " (WhatsApp validation message sent)";
-    } else {
-      statusNote += " (No phone number provided - email-only lead)";
+      statusNote += " (WhatsApp validation sent)";
     }
 
     const successResponse = {
@@ -660,39 +316,22 @@ router.post("/wordpress", validateWebhookSource, async (req, res) => {
       statusNote,
     };
 
-    logger.info(
-      `WordPress webhook SUCCESS response for ${
-        validatedPhone || phone || "no-phone"
-      }:`,
-      successResponse
-    );
+    logger.info(`✅ WordPress webhook completed:`, {
+      action: actionTaken,
+      leadId: leadId?.id || leadId,
+      contact: `${name} (${email || phone})`,
+    });
+
     res.status(200).json(successResponse);
   } catch (error) {
-    logger.error("Error processing WordPress webhook:", error);
+    logger.error("❌ Error processing WordPress webhook:", error.message);
 
-    // Return user-friendly error message in Elementor format
-    let userMessage =
-      "Failed: We're having trouble processing your submission. Please try again.";
-
-    // Check for specific error types
-    if (error.message && error.message.includes("validation")) {
-      userMessage =
-        "Failed: Phone number validation failed. Please provide a valid WhatsApp number.";
-    } else if (error.message && error.message.includes("Firebase")) {
-      userMessage =
-        "Failed: System temporarily unavailable. Please try again in a moment.";
-    }
-
-    // Use 400 status for errors to ensure Elementor recognizes the failure
+    // Return user-friendly error message
     res.status(400).json({
       success: false,
-      message: userMessage,
-      data: {
-        message: userMessage,
-      },
-      // Add alternative error format
+      message:
+        "We're having trouble processing your submission. Please try again.",
       error: true,
-      error_message: userMessage,
     });
   }
 });
