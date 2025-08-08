@@ -456,6 +456,17 @@ router.post("/wordpress", validateWebhookSource, async (req, res) => {
       logger.info("No name fields found in form data, using 'Unknown'");
     }
 
+    // Log extracted field data for debugging
+    logger.info("WordPress webhook extracted fields:", {
+      name,
+      email,
+      phone,
+      message: message ? message.substring(0, 100) + "..." : null,
+      firstName,
+      lastName,
+      fullName,
+    });
+
     // Accept all data without validation
     let validatedPhone = null;
     let whatsappValidationResult = null;
@@ -465,21 +476,23 @@ router.post("/wordpress", validateWebhookSource, async (req, res) => {
     // Just normalize phone if available
     if (phone && phone.trim()) {
       validatedPhone = phone.toString().replace(/^\+/, "").replace(/\D/g, "");
+      logger.info(`Phone normalized: "${phone}" -> "${validatedPhone}"`);
+    } else {
+      logger.info("No phone number provided in WordPress form");
     }
 
     // If we get here, validation was successful or not required
 
-    // Initialize services
-    const db = admin.firestore();
-    const leadService = new LeadService(db);
+    // Ensure services are initialized
+    ensureServices();
 
     // Check for duplicate leads by phone or email
     let existingLead = null;
     let actionTaken = "";
 
-    // First check by phone number if available
-    if (phone && phone.trim()) {
-      existingLead = await leadService.findLeadByPhone(phone);
+    // First check by phone number if available - use normalized phone for consistent lookup
+    if (validatedPhone) {
+      existingLead = await leadService.findLeadByPhone(validatedPhone);
     }
 
     // If no lead found by phone, check by email
@@ -576,7 +589,9 @@ router.post("/wordpress", validateWebhookSource, async (req, res) => {
     };
 
     logger.info(
-      `WordPress webhook SUCCESS response for ${phone}:`,
+      `WordPress webhook SUCCESS response for ${
+        validatedPhone || phone || "no-phone"
+      }:`,
       successResponse
     );
     res.status(200).json(successResponse);
