@@ -53,7 +53,18 @@ function ensureServices() {
 // Helper: send a WhatsApp validation template and store message
 async function sendWhatsAppTemplate(toNumber, meta = {}) {
   try {
-    if (!toNumber) return;
+    logger.info("sendWhatsAppTemplate called with:", {
+      toNumber,
+      toNumberType: typeof toNumber,
+      toNumberLength: toNumber ? toNumber.length : 0,
+      meta,
+    });
+
+    if (!toNumber) {
+      logger.warn("sendWhatsAppTemplate: toNumber is empty/null");
+      return;
+    }
+
     ensureServices();
 
     const payload = {
@@ -65,6 +76,8 @@ async function sendWhatsAppTemplate(toNumber, meta = {}) {
         language: { code: "en_US" },
       },
     };
+
+    logger.info("WhatsApp payload being sent:", payload);
 
     await whatsappMessageService.sendTemplateMessage(toNumber, payload, meta);
     logger.info(`WhatsApp template sent to ${toNumber}`);
@@ -315,156 +328,48 @@ router.post("/wordpress", validateWebhookSource, async (req, res) => {
     }
 
     logger.info("Processed formData keys:", Object.keys(formData));
+
+    // Enhanced raw data logging for debugging
+    logger.info("Raw formData content:", {
+      formDataKeys: Object.keys(formData),
+      formDataValues: formData,
+      formDataType: typeof formData,
+      formDataStringified: JSON.stringify(formData, null, 2),
+    });
+
+    // Log every single field and its value for complete visibility
+    logger.info("Complete field-by-field analysis:");
+    Object.keys(formData).forEach((key) => {
+      logger.info(`Field '${key}':`, {
+        value: formData[key],
+        type: typeof formData[key],
+        length: formData[key] ? formData[key].length : 0,
+        isEmpty: formData[key] === "",
+        isNull: formData[key] === null,
+        isUndefined: formData[key] === undefined,
+      });
+    });
+
     logger.webhook("WordPress", formData);
 
-    // Extract data using more comprehensive field name mapping
-    // This handles various WordPress form plugins that use different field naming
-    const extractField = (possibleKeys) => {
-      for (const key of possibleKeys) {
-        if (formData[key] !== undefined && formData[key] !== null) {
-          return formData[key];
-        }
-      }
-      return null;
-    };
+    // Simplified: Extract only the required WordPress fields
+    const firstName = (formData.firstname ?? "").toString().trim() || null;
+    const lastName = (formData.lastname ?? "").toString().trim() || null;
+    const email = (formData.email ?? "").toString().trim() || null;
+    const phone = (formData.phone ?? "").toString().trim() || null;
+    const message = (formData.message ?? "").toString().trim() || null;
 
-    // Extract all possible field variations
-    const firstName = extractField([
-      "firstname",
-      "first_name",
-      "fname",
-      "firstName",
-      "First Name",
-      "first-name",
-      "your-first-name",
-      "FirstName",
-      "given-name",
-      "name-first",
-      "your-fname",
-    ]);
+    // Build display name from first/last
+    const name = `${firstName || ""} ${lastName || ""}`.trim() || "Unknown";
 
-    const lastName = extractField([
-      "lastname",
-      "last_name",
-      "lname",
-      "lastName",
-      "Last Name",
-      "last-name",
-      "your-last-name",
-      "LastName",
-      "family-name",
-      "name-last",
-      "your-lname",
-    ]);
-
-    // If we have a single name field but not first/last separately
-    const fullName = extractField([
-      "name",
-      "full_name",
-      "fullname",
-      "full-name",
-      "your-name",
-      "Name",
-      "FullName",
-      "contactName",
-      "contact_name",
-      "contact-name",
-    ]);
-
-    const email = extractField([
-      "email",
-      "Email",
-      "email_address",
-      "emailaddress",
-      "your-email",
-      "email-address",
-      "e-mail",
-      "E-mail",
-      "contact_email",
-      "userEmail",
-      "visitor_email",
-      "your_email",
-    ]);
-
-    const phone = extractField([
-      "phone",
-      "Phone",
-      "phone_number",
-      "phoneNumber",
-      "Phone Number",
-      "your-phone",
-      "mobile",
-      "tel",
-      "telephone",
-      "cell",
-      "cellphone",
-      "contact_phone",
-      "your_phone",
-      "phone-number",
-      "whatsapp",
-      "whatsapp_number",
-      "whatsapp-number",
-      "mobile_number",
-      "your-tel",
-    ]);
-
-    const message = extractField([
-      "message",
-      "Message",
-      "Messege",
-      "your-message",
-      "comments",
-      "comment",
-      "enquiry",
-      "enquiry_details",
-      "description",
-      "details",
-      "content",
-      "notes",
-      "question",
-      "your_message",
-      "message_content",
-      "inquiry",
-      "inquiry_details",
-    ]);
-
-    // Combine first and last name or use full name if provided
-    let name;
-    if (fullName) {
-      // Use the provided full name field
-      name = fullName.trim();
-
-      // If we also have first/last name separately but didn't use them,
-      // log this to help debug field mappings
-      if (
-        (firstName || lastName) &&
-        !name.includes(firstName || "") &&
-        !name.includes(lastName || "")
-      ) {
-        logger.info(
-          `Note: Using fullName field '${name}' over firstName '${firstName}' and lastName '${lastName}'`
-        );
-      }
-    } else {
-      // Combine first and last name fields
-      name = `${firstName || ""} ${lastName || ""}`.trim();
-    }
-
-    // If no name was found at all, use "Unknown"
-    if (!name) {
-      name = "Unknown";
-      logger.info("No name fields found in form data, using 'Unknown'");
-    }
-
-    // Log extracted field data for debugging
-    logger.info("WordPress webhook extracted fields:", {
-      name,
-      email,
-      phone,
-      message: message ? message.substring(0, 100) + "..." : null,
+    // Concise debug log
+    logger.info("WordPress (strict fields)", {
       firstName,
       lastName,
-      fullName,
+      email,
+      phone,
+      message,
+      name,
     });
 
     // Accept all data without validation
@@ -480,8 +385,6 @@ router.post("/wordpress", validateWebhookSource, async (req, res) => {
     } else {
       logger.info("No phone number provided in WordPress form");
     }
-
-    // If we get here, validation was successful or not required
 
     // Ensure services are initialized
     ensureServices();
@@ -547,6 +450,16 @@ router.post("/wordpress", validateWebhookSource, async (req, res) => {
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
       };
 
+      // Enhanced logging for lead data before creation
+      logger.info("Lead data being created:", {
+        leadDataPhone: leadData.phone,
+        leadDataPhoneType: typeof leadData.phone,
+        originalPhone: phone,
+        validatedPhone: validatedPhone,
+        phoneFieldExists: "phone" in leadData,
+        phoneFieldValue: leadData.phone,
+      });
+
       // Add validation message ID if available
       if (
         validatedPhone &&
@@ -568,6 +481,15 @@ router.post("/wordpress", validateWebhookSource, async (req, res) => {
     const toNumber = (validatedPhone || phone || "")
       .toString()
       .replace(/\D/g, "");
+
+    logger.info("WhatsApp sending logic:", {
+      validatedPhone,
+      originalPhone: phone,
+      toNumber,
+      toNumberExists: !!toNumber,
+      toNumberLength: toNumber ? toNumber.length : 0,
+    });
+
     if (toNumber) {
       await sendWhatsAppTemplate(toNumber, {
         leadId: leadId?.id || leadId,
@@ -833,7 +755,7 @@ router.post("/meta-ads", validateWebhookSource, async (req, res) => {
         lastName,
         name,
         email,
-        phone: normalizedPhone || phone || null,
+        phone: normalizedPhone || phone,
         program,
         country,
         status: "CONTACTED",

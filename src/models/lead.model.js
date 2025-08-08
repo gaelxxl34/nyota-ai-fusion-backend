@@ -81,6 +81,17 @@ class LeadModel {
    * Ensures status field and timeline are synchronized
    */
   static createLead(contactInfo, source = null) {
+    // Enhanced logging for debugging phone number issues
+    console.log("LeadModel.createLead - contactInfo received:", {
+      contactInfoPhone: contactInfo.phone,
+      contactInfoPhoneType: typeof contactInfo.phone,
+      contactInfoWhatsappNumber: contactInfo.whatsappNumber,
+      contactInfoKeys: Object.keys(contactInfo),
+      hasPhoneField: "phone" in contactInfo,
+      phoneValue: contactInfo.phone,
+      phoneExists: !!contactInfo.phone,
+    });
+
     // Determine the initial status (use provided status or default to CONTACTED)
     const initialStatus = contactInfo.status || LEAD_STATUSES.CONTACTED;
 
@@ -108,6 +119,14 @@ class LeadModel {
       phone: contactInfo.phone || null,
       email: contactInfo.email || null,
       whatsappNumber: contactInfo.whatsappNumber || contactInfo.phone,
+
+      // Enhanced logging after field assignment
+      ...(console.log("LeadModel fields assigned:", {
+        assignedPhone: contactInfo.phone || null,
+        assignedWhatsappNumber: contactInfo.whatsappNumber || contactInfo.phone,
+        contactInfoPhone: contactInfo.phone,
+        contactInfoWhatsappNumber: contactInfo.whatsappNumber,
+      }) || {}), // This will log and return empty object to spread
 
       // Application Info
       program: null,
