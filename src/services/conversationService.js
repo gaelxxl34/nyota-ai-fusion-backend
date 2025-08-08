@@ -296,36 +296,13 @@ class ConversationService {
         return existingConversationId;
       }
 
-      // If we don't have a leadId, we need to create a temporary lead
+      // If we don't have a leadId, just log it and continue without creating a lead
       if (!leadId) {
         console.log(
-          `⚠️ No lead ID for ${phoneNumber}, creating temporary lead for new conversation`
+          `ℹ️ No lead ID for ${phoneNumber}, creating conversation without lead association`
         );
-
-        // Create a new lead for this unknown contact
-        try {
-          const leadData = {
-            name: contactName || `Unknown Contact ${phoneNumber.slice(-4)}`,
-            phone: phoneNumber,
-            status: "CONTACTED",
-            source: "WHATSAPP",
-            isTemporary: true, // Mark as temporary lead
-            createdAt: new Date(), // Use standard JavaScript Date instead of Firestore timestamp
-            notes: "Automatically created from direct WhatsApp message",
-          };
-
-          // Create the lead
-          const leadRef = await this.db.collection("leads").add(leadData);
-          leadId = leadRef.id;
-
-          console.log(`✅ Created temporary lead ${leadId} for ${phoneNumber}`);
-        } catch (leadError) {
-          console.error(
-            `❌ Failed to create temporary lead: ${leadError.message}`
-          );
-          // Even if lead creation fails, we'll create a conversation without a lead ID
-          // to ensure we don't lose the conversation
-        }
+        // We'll proceed to create a conversation without a lead ID
+        // This way the message is stored but no temporary lead is created
       }
 
       // If we have a leadId, get the lead status

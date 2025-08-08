@@ -71,6 +71,10 @@ class ApplicationModel {
       passportPhoto: applicationData.passportPhoto || null,
       postalAddress: applicationData.postalAddress || null,
 
+      // Initially null - will be populated with user information by the service
+      // if the application is submitted manually or by an admin user
+      submittedBy: null,
+
       // Academic Information
       modeOfStudy: applicationData.modeOfStudy,
       preferredIntake: applicationData.preferredIntake,
@@ -91,22 +95,14 @@ class ApplicationModel {
       createdAt: now,
       updatedAt: now,
 
-      // Tracking
-      timeline: [
-        {
-          date: now,
-          status: APPLICATION_STATUSES.SUBMITTED,
-          action: "APPLICATION_SUBMITTED",
-          notes: "Application submitted through online form",
-          automated: true,
-        },
-      ],
+      // Application stage - defaults to "new"
+      stage: applicationData.stage || "new",
+
+      // Simple status note instead of timeline
+      statusNote: "Application submitted",
 
       // Additional Fields
-      documents: [],
-      interviews: [],
       notes: "",
-      assignedTo: null,
 
       // Integration
       leadId: null, // Will be populated when lead is created/updated
@@ -215,117 +211,12 @@ class ApplicationModel {
   static updateStatus(application, newStatus, notes = "", updatedBy = null) {
     const now = new Date();
 
-    // Add timeline entry
-    const timelineEntry = {
-      date: now,
-      status: newStatus,
-      action: `STATUS_CHANGED_TO_${newStatus}`,
-      notes: notes || `Status changed to ${newStatus}`,
-      automated: !updatedBy,
-      updatedBy: updatedBy,
-    };
-
     return {
       ...application,
       status: newStatus,
       updatedAt: now,
-      timeline: [...(application.timeline || []), timelineEntry],
+      lastUpdatedBy: updatedBy || application.lastUpdatedBy,
     };
-  }
-
-  /**
-   * Add timeline entry
-   */
-  static addTimelineEntry(
-    timeline = [],
-    action,
-    status,
-    notes = "",
-    additionalData = {}
-  ) {
-    const entry = {
-      date: new Date(),
-      action,
-      status: status || "NO_STATUS_CHANGE",
-      notes,
-      automated: additionalData.automated || false,
-      updatedBy: additionalData.updatedBy || null,
-      ...additionalData,
-    };
-
-    return [...timeline, entry];
-  }
-
-  /**
-   * Add document to application
-   */
-  static addDocument(application, documentData) {
-    const document = {
-      id: Date.now().toString(),
-      name: documentData.name,
-      type: documentData.type,
-      url: documentData.url,
-      uploadedAt: new Date(),
-      uploadedBy: documentData.uploadedBy || null,
-      verified: false,
-    };
-
-    const timeline = this.addTimelineEntry(
-      application.timeline,
-      "DOCUMENT_ADDED",
-      application.status,
-      `Document added: ${documentData.name}`,
-      { documentId: document.id, automated: false }
-    );
-
-    return {
-      ...application,
-      documents: [...(application.documents || []), document],
-      timeline,
-      updatedAt: new Date(),
-    };
-  }
-
-  /**
-   * Get human-readable program name
-   */
-  static getProgramName(programCode) {
-    const programNames = {
-      [PROGRAMS.BACHELOR_IT]: "Bachelor of Information Technology (BIT)",
-      [PROGRAMS.BACHELOR_BBA]: "Bachelor of Business Administration (BBA)",
-      [PROGRAMS.BACHELOR_BCOM]: "Bachelor of Commerce (BCOM)",
-      [PROGRAMS.MASTER_MIT]: "Master of Information Technology (MIT)",
-      [PROGRAMS.MASTER_MBA]: "Master of Business Administration (MBA)",
-      [PROGRAMS.DIPLOMA_IT]: "Diploma in Information Technology",
-      [PROGRAMS.DIPLOMA_BA]: "Diploma in Business Administration",
-      [PROGRAMS.CERTIFICATE]: "Certificate Programs",
-    };
-
-    return programNames[programCode] || programCode;
-  }
-
-  /**
-   * Get human-readable status
-   */
-  static getStatusDisplay(status) {
-    const statusDisplayMap = {
-      [APPLICATION_STATUSES.SUBMITTED]: "Application Submitted",
-      [APPLICATION_STATUSES.UNDER_REVIEW]: "Under Review",
-      [APPLICATION_STATUSES.DOCUMENTS_REQUIRED]: "Documents Required",
-      [APPLICATION_STATUSES.DOCUMENTS_RECEIVED]: "Documents Received",
-      [APPLICATION_STATUSES.INTERVIEW_SCHEDULED]: "Interview Scheduled",
-      [APPLICATION_STATUSES.INTERVIEW_COMPLETED]: "Interview Completed",
-      [APPLICATION_STATUSES.CONDITIONALLY_ACCEPTED]: "Conditionally Accepted",
-      [APPLICATION_STATUSES.ACCEPTED]: "Accepted",
-      [APPLICATION_STATUSES.REJECTED]: "Rejected",
-      [APPLICATION_STATUSES.WAITLISTED]: "Waitlisted",
-      [APPLICATION_STATUSES.ENROLLED]: "Enrolled",
-      [APPLICATION_STATUSES.DEFERRED]: "Deferred",
-      [APPLICATION_STATUSES.WITHDRAWN]: "Withdrawn",
-      [APPLICATION_STATUSES.EXPIRED]: "Expired",
-    };
-
-    return statusDisplayMap[status] || status;
   }
 }
 

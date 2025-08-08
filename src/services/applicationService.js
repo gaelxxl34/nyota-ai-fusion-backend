@@ -12,11 +12,157 @@ const {
 const { LEAD_STATUSES } = require("../config/lead.constants");
 
 class ApplicationService {
-  constructor(firestore, leadService, whatsappMessageService) {
+  constructor(
+    firestore,
+    leadService,
+    whatsappMessageService,
+    storageService = null
+  ) {
     this.db = firestore;
     this.leadService = leadService;
     this.whatsappService = whatsappMessageService;
     this.collection = "applications";
+    this.storageService = storageService;
+    this.storageBasePath = "applications"; // Base path for application files in storage
+  }
+
+  /**
+   * Upload a file for an application document
+   * @param {string|Object} file - File path or buffer or base64 string
+   * @param {string} path - Storage path
+   * @returns {Promise<string>} - Download URL
+   */
+  async uploadFile(file, path) {
+    // Handle base64 data URLs
+    if (typeof file === "string" && file.startsWith("data:")) {
+      console.log("Detected base64 file, storing directly as base64");
+      // Return the base64 string directly instead of uploading to storage
+      return file;
+    }
+
+    // Handle file path (from express-fileupload)
+    if (typeof file === "string") {
+      // This is either a file path or it's already a URL/string reference
+      // If it starts with http or https, it's already a URL
+      if (file.startsWith("http://") || file.startsWith("https://")) {
+        return file;
+      }
+
+      try {
+        const fs = require("fs");
+        const fileData = fs.readFileSync(file);
+        // Convert to base64
+        const base64Data = `data:application/octet-stream;base64,${fileData.toString(
+          "base64"
+        )}`;
+        return base64Data;
+      } catch (error) {
+        console.error("Error reading file:", error);
+        throw error;
+      }
+    }
+
+    // Handle file buffer
+    if (Buffer.isBuffer(file)) {
+      // Convert to base64
+      const base64Data = `data:application/octet-stream;base64,${file.toString(
+        "base64"
+      )}`;
+      return base64Data;
+    }
+
+    // Handle file object (e.g., from multer)
+    if (file && file.buffer) {
+      // Convert to base64
+      const base64Data = `data:${
+        file.mimetype || "application/octet-stream"
+      };base64,${file.buffer.toString("base64")}`;
+      return base64Data;
+    }
+
+    throw new Error("Unsupported file format");
+  }
+
+  /**
+   * Upload application document - Stores document as base64 string
+   * @param {string} applicationId - Application ID
+   * @param {string} documentType - Document type (passportPhoto, academicDocuments, identificationDocument)
+   * @param {string|Object} fileData - File data (base64 string or file object)
+   * @returns {Promise<string>} - Base64 string of the document
+   */
+  async uploadApplicationDocument(applicationId, documentType, fileData) {
+    // Check if documentType is valid
+    const validDocumentTypes = [
+      "passportPhoto",
+      "academicDocuments",
+      "identificationDocument",
+      "idDocument",
+    ];
+
+    if (!validDocumentTypes.includes(documentType)) {
+      throw new Error(
+        `Invalid document type: ${documentType}. Valid types are: ${validDocumentTypes.join(
+          ", "
+        )}`
+      );
+    }
+
+    // For direct base64 data, just return it
+    if (typeof fileData === "string" && fileData.startsWith("data:")) {
+      console.log(`Using provided base64 data for ${documentType}`);
+      return fileData;
+    }
+
+    // Handle file objects
+    if (fileData && (fileData.buffer || fileData.tempFilePath)) {
+      const filePath = fileData.tempFilePath || null;
+
+      if (filePath) {
+        // Read the file and convert to base64
+        const fs = require("fs");
+        const fileBuffer = fs.readFileSync(filePath);
+        const mimeType =
+          fileData.mimetype || this._getMimeTypeFromFileName(fileData.name);
+        const base64Data = `data:${mimeType};base64,${fileBuffer.toString(
+          "base64"
+        )}`;
+        return base64Data;
+      } else if (fileData.buffer) {
+        // Convert buffer to base64
+        const mimeType = fileData.mimetype || "application/octet-stream";
+        const base64Data = `data:${mimeType};base64,${fileData.buffer.toString(
+          "base64"
+        )}`;
+        return base64Data;
+      }
+    }
+
+    throw new Error("Invalid file data provided for document upload");
+  }
+
+  /**
+   * Get MIME type from file name
+   * @private
+   * @param {string} fileName - File name
+   * @returns {string} - MIME type
+   */
+  _getMimeTypeFromFileName(fileName) {
+    const extension = fileName.split(".").pop().toLowerCase();
+    const mimeTypes = {
+      jpg: "image/jpeg",
+      jpeg: "image/jpeg",
+      png: "image/png",
+      gif: "image/gif",
+      pdf: "application/pdf",
+      doc: "application/msword",
+      docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      xls: "application/vnd.ms-excel",
+      xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      ppt: "application/vnd.ms-powerpoint",
+      pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    };
+
+    return mimeTypes[extension] || "application/octet-stream";
   }
 
   /**
@@ -34,21 +180,103 @@ class ApplicationService {
       // 2. Create application document
       const applicationDoc =
         ApplicationModel.createApplication(applicationData);
-      console.log(`📋 Creating application for ${applicationData.name}...`);
 
-      // If submittedBy info is provided, add it to the timeline
-      if (applicationData.submittedBy) {
-        applicationDoc.timeline[0] = {
-          ...applicationDoc.timeline[0],
-          submittedBy: applicationData.submittedBy,
-          notes: `Application submitted through online form by ${
-            applicationData.submittedBy.name ||
-            applicationData.submittedBy.email
-          } (${applicationData.submittedBy.role})`,
-        };
+      // Add formatted program name for better display
+      if (applicationData.preferredProgram) {
+        applicationDoc.programName = this._getProgramName(
+          applicationData.preferredProgram
+        );
       }
 
-      // 3. Check if lead exists (by phone or email)
+      console.log(`📋 Creating application for ${applicationData.name}...`);
+
+      // If submittedBy info is provided, add it to the application document
+      if (applicationData.submittedBy) {
+        // Fetch proper user name from database if available
+        let userName = applicationData.submittedBy.name;
+
+        if (!userName && applicationData.submittedBy.email) {
+          userName = await this._getUserNameByEmail(
+            applicationData.submittedBy.email
+          );
+        }
+
+        // Store submittedBy at top level without uid
+        applicationDoc.submittedBy = {
+          email: applicationData.submittedBy.email || null,
+          name: userName || applicationData.submittedBy.email || "Unknown User",
+          role: applicationData.submittedBy.role || null,
+          timestamp: new Date(),
+        };
+
+        // Update status note instead of timeline
+        applicationDoc.statusNote = `Application submitted through online form by ${applicationDoc.submittedBy.name} (${applicationData.submittedBy.role})`;
+
+        // We have submittedBy field already, no need for additional metadata
+      }
+
+      // 3. Save application to database first
+      // Sanitize any arrays to make sure they're valid for Firestore
+      this._sanitizeForFirestore(applicationDoc);
+
+      // Check document size after sanitization
+      const documentSize = JSON.stringify(applicationDoc).length;
+      const MAX_FIRESTORE_DOC_SIZE = 1000000; // ~1MB with safety margin
+
+      if (documentSize > MAX_FIRESTORE_DOC_SIZE) {
+        console.error(
+          `❌ Document size (${documentSize} bytes) exceeds Firestore limit (${MAX_FIRESTORE_DOC_SIZE} bytes)`
+        );
+
+        // Emergency measure: Remove large fields to prevent Firestore errors
+        if (applicationDoc.passportPhoto) {
+          console.log(`⚠️ Removing passportPhoto to reduce document size`);
+          applicationDoc.passportPhoto = "TOO_LARGE_REMOVED";
+        }
+
+        if (applicationDoc.academicDocuments) {
+          console.log(`⚠️ Removing academicDocuments to reduce document size`);
+          applicationDoc.academicDocuments = "TOO_LARGE_REMOVED";
+        }
+
+        if (applicationDoc.identificationDocument) {
+          console.log(
+            `⚠️ Removing identificationDocument to reduce document size`
+          );
+          applicationDoc.identificationDocument = "TOO_LARGE_REMOVED";
+        }
+
+        // Recheck size after removing large fields
+        const newSize = JSON.stringify(applicationDoc).length;
+        console.log(
+          `📏 Document size reduced from ${documentSize} to ${newSize} bytes`
+        );
+
+        if (newSize > MAX_FIRESTORE_DOC_SIZE) {
+          throw new Error(
+            `Document size (${newSize} bytes) still exceeds Firestore limit after removing large fields`
+          );
+        }
+      }
+
+      console.log(
+        `🔍 About to save application with fields:`,
+        Object.keys(applicationDoc).join(", ")
+      );
+
+      // Save the application first - this is the main record
+      const docRef = await this.db
+        .collection(this.collection)
+        .add(applicationDoc);
+
+      console.log(`✅ Application created with ID: ${docRef.id}`);
+
+      const savedApplication = {
+        id: docRef.id,
+        ...applicationDoc,
+      };
+
+      // 4. Now check if lead exists (by phone or email)
       let existingLead = null;
 
       // First check by phone number
@@ -68,7 +296,7 @@ class ApplicationService {
       let lead = null;
 
       if (existingLead) {
-        // 4a. Update existing lead status to APPLIED
+        // 5a. Update existing lead status to APPLIED
         console.log(
           `📞 Updating existing lead ${existingLead.id} to APPLIED status...`
         );
@@ -76,16 +304,22 @@ class ApplicationService {
         lead = await this.leadService.updateLeadStatus(
           existingLead.id,
           LEAD_STATUSES.APPLIED,
-          `Application submitted for ${ApplicationModel.getProgramName(
+          `Application submitted for ${this._getProgramName(
             applicationData.preferredProgram
           )}`,
           "SYSTEM"
         );
 
-        // Update application with lead ID
-        applicationDoc.leadId = existingLead.id;
+        // Update the application with the lead ID
+        await this.db
+          .collection(this.collection)
+          .doc(docRef.id)
+          .update({ leadId: existingLead.id });
+
+        // Update saved application with lead ID
+        savedApplication.leadId = existingLead.id;
       } else {
-        // 4b. Create new lead with APPLIED status
+        // 5b. Create new lead with APPLIED status
         console.log(`🆕 Creating new lead with APPLIED status...`);
 
         const contactInfo = {
@@ -95,18 +329,34 @@ class ApplicationService {
         };
 
         const additionalData = {
-          program: ApplicationModel.getProgramName(
-            applicationData.preferredProgram
-          ),
+          // Store both the code and display name for the program
+          program: {
+            code: applicationData.preferredProgram,
+            name: this._getProgramName(applicationData.preferredProgram),
+          },
           modeOfStudy: applicationData.modeOfStudy,
           preferredIntake: applicationData.preferredIntake,
           countryOfBirth: applicationData.countryOfBirth,
           gender: applicationData.gender,
+          // Add reference to the application
+          applicationId: docRef.id,
         };
 
         // Create lead directly with APPLIED status
-        // We'll modify the timeline during creation to ensure it starts with APPLIED directly
+        // Explicitly set status to ensure it's handled correctly
         contactInfo.status = LEAD_STATUSES.APPLIED; // Set initial status to APPLIED
+
+        // Add explicit timeline entry for the application submission
+        const timelineEntry = {
+          date: new Date(),
+          action: "APPLICATION_SUBMITTED",
+          status: LEAD_STATUSES.APPLIED,
+          notes: `Application submitted for ${this._getProgramName(
+            applicationData.preferredProgram
+          )}`,
+        };
+
+        additionalData.initialTimeline = [timelineEntry]; // Provide explicit initial timeline
 
         lead = await this.leadService.createLead(
           contactInfo,
@@ -114,21 +364,19 @@ class ApplicationService {
           additionalData
         );
 
-        // Update application with lead ID
-        applicationDoc.leadId = lead.id;
+        // Update the application with the lead ID
+        await this.db
+          .collection(this.collection)
+          .doc(docRef.id)
+          .update({ leadId: lead.id });
+
+        // Update saved application with lead ID
+        savedApplication.leadId = lead.id;
       }
 
-      // 5. Save application to database
-      const docRef = await this.db
-        .collection(this.collection)
-        .add(applicationDoc);
-
-      console.log(`✅ Application created with ID: ${docRef.id}`);
-
-      const savedApplication = {
-        id: docRef.id,
-        ...applicationDoc,
-      };
+      console.log(
+        `✅ Application created and lead linked successfully with ID: ${docRef.id}`
+      );
 
       // 6. Send WhatsApp thank you message (if not skipped)
       let whatsappResult = null;
@@ -249,9 +497,7 @@ class ApplicationService {
    * @deprecated No longer in use - replaced by application_received template
    */
   generateThankYouMessage(applicationData) {
-    const programName = ApplicationModel.getProgramName(
-      applicationData.preferredProgram
-    );
+    const programName = this._getProgramName(applicationData.preferredProgram);
     const intakeName =
       applicationData.preferredIntake.charAt(0).toUpperCase() +
       applicationData.preferredIntake.slice(1);
@@ -293,6 +539,7 @@ IUEA Admissions Team`;
         .get();
 
       if (!doc.exists) {
+        console.log(`❌ No application found with ID: ${applicationId}`);
         return null;
       }
 
@@ -301,7 +548,36 @@ IUEA Admissions Team`;
         ...doc.data(),
       };
     } catch (error) {
-      console.error("❌ Error getting application:", error);
+      console.error(`❌ Error getting application by ID: ${error.message}`);
+      throw error;
+    }
+  }
+
+  /**
+   * Get application by Lead ID
+   */
+  async getApplicationByLeadId(leadId) {
+    try {
+      const snapshot = await this.db
+        .collection(this.collection)
+        .where("leadId", "==", leadId)
+        .limit(1)
+        .get();
+
+      if (snapshot.empty) {
+        console.log(`❌ No application found for lead ID: ${leadId}`);
+        return null;
+      }
+
+      const doc = snapshot.docs[0];
+      return {
+        id: doc.id,
+        ...doc.data(),
+      };
+    } catch (error) {
+      console.error(
+        `❌ Error getting application by lead ID: ${error.message}`
+      );
       throw error;
     }
   }
@@ -495,19 +771,52 @@ IUEA Admissions Team`;
    * Get a user-friendly program name from program code
    */
   _getProgramName(programCode) {
-    if (!programCode) return "our university programs";
+    if (!programCode) return "Program Not Selected";
 
+    // Expanded list with more program options
     const programNames = {
       bachelor_information_technology: "Bachelor of Information Technology",
       bachelor_business_administration: "Bachelor of Business Administration",
       bachelor_commerce: "Bachelor of Commerce",
+      bachelor_software_engineering: "Bachelor of Software Engineering",
+      bachelor_computer_science: "Bachelor of Computer Science",
+      bachelor_accounting: "Bachelor of Accounting",
+      bachelor_marketing: "Bachelor of Marketing",
       master_information_technology: "Master of Information Technology",
       master_business_administration: "Master of Business Administration",
+      master_computer_science: "Master of Computer Science",
+      master_data_science: "Master of Data Science",
       diploma_information_technology: "Diploma in Information Technology",
       diploma_business_administration: "Diploma in Business Administration",
+      diploma_software_engineering: "Diploma in Software Engineering",
+      certificate_programming: "Certificate in Programming",
+      certificate_web_development: "Certificate in Web Development",
     };
 
-    return programNames[programCode] || "our university programs";
+    // If it's not in our mapping, try to format it from the code
+    if (!programNames[programCode]) {
+      // Convert snake_case to Title Case with proper formatting
+      return programCode
+        .split("_")
+        .map((part, index) => {
+          // Capitalize first letter of each word
+          const capitalized = part.charAt(0).toUpperCase() + part.slice(1);
+
+          // For first word, prefix with appropriate degree type
+          if (index === 0) {
+            if (part === "bachelor") return "Bachelor of";
+            if (part === "master") return "Master of";
+            if (part === "diploma") return "Diploma in";
+            if (part === "certificate") return "Certificate in";
+            return capitalized;
+          }
+
+          return capitalized;
+        })
+        .join(" ");
+    }
+
+    return programNames[programCode];
   }
 
   /**
@@ -532,20 +841,42 @@ IUEA Admissions Team`;
         ApplicationModel.createApplication(applicationData);
       applicationDoc.source = "MANUAL_FORM";
 
-      // If submittedBy info is provided, add it to the timeline
+      // Add formatted program name for better display
+      if (applicationData.preferredProgram) {
+        applicationDoc.programName = this._getProgramName(
+          applicationData.preferredProgram
+        );
+      }
+
+      // If submittedBy info is provided, add it to the application document
+      // This is the primary source of truth for who created the application
       if (applicationData.submittedBy) {
-        applicationDoc.timeline[0] = {
-          ...applicationDoc.timeline[0],
-          submittedBy: applicationData.submittedBy,
-          notes: `Application submitted through manual form by ${
-            applicationData.submittedBy.name ||
+        // Fetch proper user name from database if available
+        let userName = applicationData.submittedBy.name;
+
+        if (!userName && applicationData.submittedBy.email) {
+          userName = await this._getUserNameByEmail(
             applicationData.submittedBy.email
-          } (${applicationData.submittedBy.role})`,
+          );
+        }
+
+        // Store submittedBy at top level without uid
+        applicationDoc.submittedBy = {
+          email: applicationData.submittedBy.email || null,
+          name: userName || applicationData.submittedBy.email || "Unknown User",
+          role: applicationData.submittedBy.role || null,
+          timestamp: new Date(),
         };
+
+        // Update status note instead of timeline
+        applicationDoc.statusNote = `Application submitted through manual form by ${applicationDoc.submittedBy.name} (${applicationData.submittedBy.role})`;
+
+        // We have submittedBy field already, no need for additional metadata
       } else {
         // Update notes to indicate it's a manual submission
-        applicationDoc.timeline[0].notes =
-          "Application submitted through manual form";
+        applicationDoc.statusNote = "Application submitted through manual form";
+
+        // Just set the source field, no need for additional metadata
       }
 
       // 3. Check if lead exists (by phone or email)
@@ -578,9 +909,11 @@ IUEA Admissions Team`;
           .collection("leads")
           .doc(existingLead.id)
           .update({
-            program: ApplicationModel.getProgramName(
-              applicationData.preferredProgram
-            ),
+            // Store both the code and display name for the program
+            program: {
+              code: applicationData.preferredProgram,
+              name: this._getProgramName(applicationData.preferredProgram),
+            },
             modeOfStudy: applicationData.modeOfStudy,
             preferredIntake: applicationData.preferredIntake,
             countryOfBirth: applicationData.countryOfBirth,
@@ -606,7 +939,7 @@ IUEA Admissions Team`;
         lead = await this.leadService.updateLeadStatus(
           existingLead.id,
           LEAD_STATUSES.APPLIED,
-          `Application submitted manually for ${ApplicationModel.getProgramName(
+          `Application submitted manually for ${this._getProgramName(
             applicationData.preferredProgram
           )}`,
           "MANUAL_FORM"
@@ -628,9 +961,11 @@ IUEA Admissions Team`;
         };
 
         const additionalData = {
-          program: ApplicationModel.getProgramName(
-            applicationData.preferredProgram
-          ),
+          // Store both the code and display name for the program
+          program: {
+            code: applicationData.preferredProgram,
+            name: this._getProgramName(applicationData.preferredProgram),
+          },
           modeOfStudy: applicationData.modeOfStudy,
           preferredIntake: applicationData.preferredIntake,
           countryOfBirth: applicationData.countryOfBirth,
@@ -639,6 +974,9 @@ IUEA Admissions Team`;
           applicationSubmitted: true,
           applicationDate: new Date(),
           notes: "Application submitted through manual form",
+
+          // We're not duplicating submittedBy in the lead document
+          // This information is stored only in the application document
 
           // Add sponsor info if available
           ...(applicationData.sponsorEmail || applicationData.sponsorTelephone
@@ -662,6 +1000,14 @@ IUEA Admissions Team`;
       }
 
       // 5. Save application to database
+      // Sanitize any arrays to make sure they're valid for Firestore
+      this._sanitizeForFirestore(applicationDoc);
+
+      console.log(
+        `🔍 About to save manual application with fields:`,
+        Object.keys(applicationDoc).join(", ")
+      );
+
       const docRef = await this.db
         .collection(this.collection)
         .add(applicationDoc);
@@ -682,6 +1028,303 @@ IUEA Admissions Team`;
     } catch (error) {
       console.error("❌ Error submitting manual application:", error);
       throw error;
+    }
+  }
+  /**
+   * Fetch user's name from users collection using their email
+   * Used to ensure we always get a proper name for the user
+   */
+  async _getUserNameByEmail(email) {
+    try {
+      if (!email) return null;
+
+      const usersRef = this.db.collection("users");
+      const snapshot = await usersRef
+        .where("email", "==", email)
+        .limit(1)
+        .get();
+
+      if (snapshot.empty) {
+        console.log(`⚠️ No user found with email: ${email}`);
+        return null;
+      }
+
+      // Return the user's display name or full name if available
+      const userData = snapshot.docs[0].data();
+      return userData.displayName || userData.fullName || userData.name || null;
+    } catch (error) {
+      console.error("❌ Error fetching user name:", error);
+      return null;
+    }
+  }
+
+  /**
+   * Sanitize document object for Firestore
+   * This method processes objects to ensure they can be stored in Firestore
+   * - Converts File objects to strings
+   * - Ensures arrays contain only valid Firestore types
+   * - Removes any circular references or invalid types
+   */
+  _sanitizeForFirestore(obj) {
+    if (!obj) return obj;
+
+    // Check total document size before processing
+    const MAX_DOCUMENT_SIZE = 1000000; // ~1MB with some buffer
+    const stringSize = JSON.stringify(obj).length;
+
+    if (stringSize > MAX_DOCUMENT_SIZE) {
+      console.error(
+        `⚠️ Document too large (${stringSize} bytes). Maximum allowed is ${MAX_DOCUMENT_SIZE} bytes.`
+      );
+
+      // Check for large fields (especially base64 images)
+      for (const key in obj) {
+        if (typeof obj[key] === "string" && obj[key].length > 100000) {
+          console.error(
+            `⚠️ Large field detected: ${key} (${obj[key].length} bytes)`
+          );
+        }
+      }
+
+      // Reduce size of large base64 fields
+      if (obj.passportPhoto && obj.passportPhoto.length > 200000) {
+        console.error(
+          `⚠️ Passport photo too large (${obj.passportPhoto.length} bytes). Truncating to prevent Firestore error.`
+        );
+        obj.passportPhoto = "DATA_TOO_LARGE";
+      }
+
+      if (
+        obj.academicDocuments &&
+        typeof obj.academicDocuments === "string" &&
+        obj.academicDocuments.length > 350000
+      ) {
+        console.error(
+          `⚠️ Academic documents too large (${obj.academicDocuments.length} bytes). Truncating to prevent Firestore error.`
+        );
+        obj.academicDocuments = "DATA_TOO_LARGE";
+      }
+
+      if (
+        obj.identificationDocument &&
+        typeof obj.identificationDocument === "string" &&
+        obj.identificationDocument.length > 300000
+      ) {
+        console.error(
+          `⚠️ ID document too large (${obj.identificationDocument.length} bytes). Truncating to prevent Firestore error.`
+        );
+        obj.identificationDocument = "DATA_TOO_LARGE";
+      }
+    }
+
+    // Handle arrays - a common source of Firestore errors
+    for (const key in obj) {
+      const value = obj[key];
+
+      // Skip null/undefined values
+      if (value == null) continue;
+
+      // Handle array fields - the most common source of nested entity errors
+      if (Array.isArray(value)) {
+        console.log(
+          `🔍 Checking array field: ${key} with ${value.length} items`
+        );
+
+        // Filter out any non-serializable items
+        obj[key] = value.filter((item) => {
+          if (item === null || item === undefined) return false;
+
+          if (typeof item === "object") {
+            // For objects, check if they're valid for Firestore
+            // Convert complex objects to strings to avoid nested entity errors
+            if (
+              typeof item.toString === "function" &&
+              item.toString !== Object.prototype.toString
+            ) {
+              console.log(`⚠️ Converting complex object in ${key} to string`);
+              return false; // We'll filter this out and handle specially if needed
+            }
+
+            // Make sure there are no nested arrays or invalid types
+            for (const subKey in item) {
+              if (Array.isArray(item[subKey])) {
+                console.log(
+                  `⚠️ Found nested array in ${key}.${subKey} - removing`
+                );
+                delete item[subKey]; // Remove nested arrays to prevent errors
+              }
+            }
+          }
+
+          return true;
+        });
+
+        // If this is academicDocuments, ensure it's valid
+        if (key === "academicDocuments" || key === "identificationDocument") {
+          console.log(`🔍 Sanitizing ${key} specifically`);
+
+          // Ensure it's an empty array if present but invalid
+          if (obj[key].length === 0) {
+            console.log(`⚠️ ${key} is empty, setting to null`);
+            obj[key] = null;
+          } else if (typeof obj[key][0] === "object" && obj[key][0] !== null) {
+            // Convert any objects to simple string references if possible
+            obj[key] = obj[key].map((doc) => {
+              // If it's a file object with a URL, just keep the URL
+              if (doc && doc.url) return doc.url;
+              if (typeof doc === "string") return doc;
+
+              // For other objects, convert to a sanitized simple object
+              return {
+                name: doc.name || "document",
+                url: doc.url || null,
+              };
+            });
+          }
+        }
+      }
+      // Handle object fields (non-array)
+      else if (typeof value === "object" && value !== null) {
+        // Recursively sanitize nested objects
+        this._sanitizeForFirestore(value);
+      }
+    }
+
+    return obj;
+  }
+
+  /**
+   * Check if an application with the same email or phone already exists
+   * Returns existing applications and leads that match the provided information
+   * @param {string} email - Email to check
+   * @param {string} phoneNumber - Phone number to check
+   * @returns {Object} Object containing information about existing entries
+   */
+  async checkExistingApplications(email, phoneNumber) {
+    try {
+      console.log(
+        `🔍 Checking for existing applications with email=${email}, phone=${phoneNumber}`
+      );
+
+      const result = {
+        hasDuplicates: false,
+        applications: {
+          byEmail: [],
+          byPhone: [],
+        },
+        leads: {
+          byEmail: null,
+          byPhone: null,
+        },
+      };
+
+      // Only proceed with checks if we have at least one contact method
+      if (!email && !phoneNumber) {
+        return result;
+      }
+
+      // 1. Check for existing applications with the same email
+      if (email) {
+        const emailApplications = await this.getApplicationsByEmail(email);
+        if (emailApplications && emailApplications.length > 0) {
+          result.applications.byEmail = emailApplications.map((app) => ({
+            id: app.id,
+            name: app.name,
+            email: app.email,
+            phone: app.phoneNumber,
+            program: app.programName || app.preferredProgram,
+            status: app.status,
+            submittedAt: app.submittedAt,
+          }));
+          result.hasDuplicates = true;
+        }
+      }
+
+      // 2. Check for existing applications with the same phone number
+      if (phoneNumber) {
+        const phoneApplications = await this.getApplicationsByPhone(
+          phoneNumber
+        );
+        if (phoneApplications && phoneApplications.length > 0) {
+          result.applications.byPhone = phoneApplications.map((app) => ({
+            id: app.id,
+            name: app.name,
+            email: app.email,
+            phone: app.phoneNumber,
+            program: app.programName || app.preferredProgram,
+            status: app.status,
+            submittedAt: app.submittedAt,
+          }));
+          result.hasDuplicates = true;
+        }
+      }
+
+      // 3. Check for existing leads with the same email
+      if (email) {
+        const existingEmailLead = await this.leadService.findLeadByEmail(email);
+        if (existingEmailLead) {
+          result.leads.byEmail = {
+            id: existingEmailLead.id,
+            name: existingEmailLead.name,
+            email: existingEmailLead.email,
+            phone: existingEmailLead.phone,
+            status: existingEmailLead.status,
+            createdAt: existingEmailLead.createdAt,
+            // Include program info if available
+            program: existingEmailLead.program
+              ? existingEmailLead.program.name || existingEmailLead.program.code
+              : null,
+          };
+          result.hasDuplicates = true;
+        }
+      }
+
+      // 4. Check for existing leads with the same phone number
+      if (phoneNumber) {
+        const existingPhoneLead = await this.leadService.findLeadByPhone(
+          phoneNumber
+        );
+        if (existingPhoneLead) {
+          result.leads.byPhone = {
+            id: existingPhoneLead.id,
+            name: existingPhoneLead.name,
+            email: existingPhoneLead.email,
+            phone: existingPhoneLead.phone,
+            status: existingPhoneLead.status,
+            createdAt: existingPhoneLead.createdAt,
+            // Include program info if available
+            program: existingPhoneLead.program
+              ? existingPhoneLead.program.name || existingPhoneLead.program.code
+              : null,
+          };
+          result.hasDuplicates = true;
+        }
+      }
+
+      // Return the results
+      if (result.hasDuplicates) {
+        console.log(
+          `⚠️ Found ${
+            result.applications.byEmail.length +
+            result.applications.byPhone.length
+          } matching applications and ${
+            (result.leads.byEmail ? 1 : 0) + (result.leads.byPhone ? 1 : 0)
+          } matching leads`
+        );
+      } else {
+        console.log(`✅ No matching applications or leads found`);
+      }
+
+      return result;
+    } catch (error) {
+      console.error("❌ Error checking for existing applications:", error);
+      // Return a safe response even in case of error
+      return {
+        hasDuplicates: false,
+        error: error.message,
+        applications: { byEmail: [], byPhone: [] },
+        leads: { byEmail: null, byPhone: null },
+      };
     }
   }
 }

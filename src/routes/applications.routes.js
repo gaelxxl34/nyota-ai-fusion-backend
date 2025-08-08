@@ -42,7 +42,7 @@ const initializeApplicationService = (
  */
 router.post("/submit", ensureApplicationService, async (req, res) => {
   try {
-    const { submittedBy, ...applicationData } = req.body;
+    const { submittedBy, forceSubmit, ...applicationData } = req.body;
 
     if (!applicationData) {
       return res.status(400).json({
@@ -69,6 +69,25 @@ router.post("/submit", ensureApplicationService, async (req, res) => {
       ...applicationData,
       submittedBy: submitterInfo,
     };
+
+    // Check for duplicates if forceSubmit is not true
+    if (!forceSubmit) {
+      // Check if there are existing applications with the same email or phone
+      const existingEntries =
+        await applicationService.checkExistingApplications(
+          applicationData.email,
+          applicationData.phoneNumber
+        );
+
+      if (existingEntries.hasDuplicates) {
+        return res.status(409).json({
+          success: false,
+          duplicatesFound: true,
+          existingData: existingEntries,
+          message: "Matching records found with the same email or phone number",
+        });
+      }
+    }
 
     const result = await applicationService.submitApplication(
       dataWithSubmitter
@@ -96,7 +115,7 @@ router.post("/submit", ensureApplicationService, async (req, res) => {
  */
 router.post("/submit-manual", ensureApplicationService, async (req, res) => {
   try {
-    const { submittedBy, ...applicationData } = req.body;
+    const { submittedBy, forceSubmit, ...applicationData } = req.body;
 
     if (!applicationData) {
       return res.status(400).json({
@@ -123,6 +142,25 @@ router.post("/submit-manual", ensureApplicationService, async (req, res) => {
       ...applicationData,
       submittedBy: submitterInfo,
     };
+
+    // Check for duplicates if forceSubmit is not true
+    if (!forceSubmit) {
+      // Check if there are existing applications with the same email or phone
+      const existingEntries =
+        await applicationService.checkExistingApplications(
+          applicationData.email,
+          applicationData.phoneNumber
+        );
+
+      if (existingEntries.hasDuplicates) {
+        return res.status(409).json({
+          success: false,
+          duplicatesFound: true,
+          existingData: existingEntries,
+          message: "Matching records found with the same email or phone number",
+        });
+      }
+    }
 
     // Use the dedicated manual application submission method
     const result = await applicationService.submitManualApplication(
@@ -272,6 +310,40 @@ router.get(
 );
 
 /**
+ * Get application by lead ID
+ * GET /api/applications/lead/:leadId
+ */
+router.get("/lead/:leadId", ensureApplicationService, async (req, res) => {
+  try {
+    const { leadId } = req.params;
+    console.log(`🔍 Finding application by leadId: ${leadId}`);
+    const application = await applicationService.getApplicationByLeadId(leadId);
+
+    if (!application) {
+      console.log(`❌ No application found for leadId: ${leadId}`);
+      return res.status(404).json({
+        success: false,
+        error: "No application found for this lead",
+        message: "No application record exists for this lead yet",
+      });
+    }
+
+    console.log(`✅ Found application for leadId ${leadId}: ${application.id}`);
+    res.json({
+      success: true,
+      data: application,
+    });
+  } catch (error) {
+    console.error("❌ Error finding application by lead ID:", error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      message: "An error occurred while retrieving application data",
+    });
+  }
+});
+
+/**
  * Get all applications with pagination and filters
  * GET /api/applications
  */
@@ -336,6 +408,199 @@ router.get("/:id", ensureApplicationService, async (req, res) => {
 });
 
 /**
+ * Get application document by ID and document type
+ * GET /api/applications/:id/document/:documentType
+ */
+router.get(
+  "/:id/document/:documentType",
+  ensureApplicationService,
+  async (req, res) => {
+    try {
+      const { id, documentType } = req.params;
+      console.log(
+        `🔍 REQUEST: GET /applications/${id}/document/${documentType}`
+      );
+      console.log(
+        `🔍 Retrieving ${documentType} document for application: ${id}`
+      );
+      console.log(
+        `Full URL: ${req.protocol}://${req.get("host")}${req.originalUrl}`
+      );
+      console.log(`Request headers:`, req.headers);
+
+      // Check if required parameters are present
+      if (!id) {
+        console.error("❌ Missing application ID parameter");
+        return res.status(400).json({
+          success: false,
+          error: "Missing application ID",
+          message: "Application ID is required",
+        });
+      }
+
+      if (!documentType) {
+        console.error("❌ Missing document type parameter");
+        return res.status(400).json({
+          success: false,
+          error: "Missing document type",
+          message: "Document type is required",
+        });
+      }
+
+      // Validate document type
+      console.log(`Document type received: '${documentType}'`);
+      console.log(
+        `Valid document types: academicDocuments, identificationDocument, passportPhoto`
+      );
+
+      if (
+        ![
+          "academicDocuments",
+          "identificationDocument",
+          "passportPhoto",
+        ].includes(documentType)
+      ) {
+        console.error(`❌ Invalid document type: ${documentType}`);
+        return res.status(400).json({
+          success: false,
+          error: "Invalid document type",
+          message:
+            "Document type must be 'academicDocuments', 'identificationDocument', or 'passportPhoto'",
+        });
+      }
+
+      // Get the application
+      const application = await applicationService.getApplicationById(id);
+
+      if (!application) {
+        return res.status(404).json({
+          success: false,
+          error: "Application not found",
+          message: "Application not found with the provided ID",
+        });
+      }
+
+      // Log detailed application structure for debugging
+      console.log(`Application found with ID: ${id}`);
+      console.log(`Full application data structure:`);
+      const safeApplication = JSON.parse(JSON.stringify(application));
+      console.log(
+        JSON.stringify(safeApplication, null, 2).substring(0, 1000) + "..."
+      );
+
+      // Get the document URL from the application
+      console.log(`Application keys:`, Object.keys(application));
+
+      // Check for possible alternate field names
+      let documentUrl = null;
+      const possibleFieldNames = {
+        academicDocuments: [
+          "academicDocuments",
+          "academicDocument",
+          "academicDocs",
+          "academic_documents",
+          "documents",
+        ],
+        identificationDocument: [
+          "identificationDocument",
+          "idDocument",
+          "identification",
+          "id_document",
+          "idCard",
+        ],
+        passportPhoto: [
+          "passportPhoto",
+          "passport_photo",
+          "photo",
+          "passportImage",
+          "picture",
+        ],
+      };
+
+      // Try the exact field name first
+      documentUrl = application[documentType];
+
+      // If not found, try alternative field names
+      if (!documentUrl && possibleFieldNames[documentType]) {
+        console.log(
+          `Document not found with exact field name. Trying alternatives for ${documentType}...`
+        );
+        for (const altField of possibleFieldNames[documentType]) {
+          if (altField !== documentType && application[altField]) {
+            console.log(`Found document in alternative field: ${altField}`);
+            documentUrl = application[altField];
+            break;
+          }
+        }
+      }
+
+      // Handle array of documents (if multiple documents are stored)
+      if (Array.isArray(documentUrl)) {
+        console.log(
+          `Document field is an array with ${documentUrl.length} items`
+        );
+        if (documentUrl.length > 0) {
+          documentUrl = documentUrl[0]; // Use the first document in the array
+          console.log(`Using first document in array: ${documentUrl}`);
+        } else {
+          documentUrl = null;
+        }
+      }
+
+      console.log(`Looking for document type: ${documentType} in application`);
+      console.log(`Document URL found: ${documentUrl ? "YES" : "NO"}`);
+      console.log(`Document URL: ${documentUrl || "undefined"}`);
+
+      if (!documentUrl) {
+        console.error(`❌ Document not found for type: ${documentType}`);
+        return res.status(404).json({
+          success: false,
+          error: "Document not found",
+          message: `No ${documentType} found for this application`,
+        });
+      }
+
+      // For Firebase Storage URLs, we need to get a download URL or redirect to it
+      if (
+        documentUrl.startsWith("https://firebasestorage.googleapis.com") ||
+        documentUrl.startsWith("gs://")
+      ) {
+        // Return the document URL for the frontend to use
+        return res.json({
+          success: true,
+          url: documentUrl,
+          documentType: documentType,
+        });
+      }
+      // For base64 encoded data
+      else if (documentUrl.startsWith("data:")) {
+        return res.json({
+          success: true,
+          url: documentUrl,
+          documentType: documentType,
+          isBase64: true,
+        });
+      }
+      // For document IDs (assuming they're stored in another collection)
+      else {
+        return res.json({
+          success: true,
+          url: `/api/documents/${documentUrl}`,
+          documentType: documentType,
+        });
+      }
+    } catch (error) {
+      console.error(`❌ Error retrieving document: ${error}`);
+      res.status(500).json({
+        success: false,
+        error: error.message,
+        message: "Failed to retrieve document",
+      });
+    }
+  }
+);
+
+/**
  * Update application status
  * PUT /api/applications/:id/status
  */
@@ -376,6 +641,231 @@ router.put("/:id/status", ensureApplicationService, async (req, res) => {
       error: error.message,
     });
   }
+});
+
+/**
+ * Update application details
+ * PUT /api/applications/:id
+ */
+router.put("/:id", ensureApplicationService, async (req, res) => {
+  try {
+    const { id } = req.params;
+    let applicationData = req.body;
+
+    // Handle file uploads if available
+    const files = {};
+    if (req.files) {
+      console.log("Files received in update request:", Object.keys(req.files));
+
+      // Process each uploaded file
+      for (const fieldName in req.files) {
+        const file = req.files[fieldName];
+        console.log(
+          `Processing file upload for field: ${fieldName}`,
+          file.name
+        );
+
+        try {
+          // Upload file as base64 string using the new document upload method
+          const documentType =
+            fieldName === "passportPhoto"
+              ? "passportPhoto"
+              : fieldName === "academicDocuments"
+              ? "academicDocuments"
+              : fieldName === "idDocument"
+              ? "identificationDocument"
+              : fieldName;
+
+          // Convert the file to base64 and store directly
+          const base64Data = await applicationService.uploadApplicationDocument(
+            id,
+            documentType,
+            file
+          );
+
+          console.log(
+            `File uploaded successfully as base64. Field: ${fieldName}`
+          );
+
+          // Add the base64 data to application data
+          files[fieldName] = base64Data;
+        } catch (fileError) {
+          console.error(`Error uploading file for ${fieldName}:`, fileError);
+          return res.status(500).json({
+            success: false,
+            error: `File upload failed for ${fieldName}: ${fileError.message}`,
+          });
+        }
+      }
+
+      // Merge file data with application data
+      applicationData = { ...applicationData, ...files };
+    }
+
+    // Check for base64 document data in the request body
+    const documentFields = [
+      "passportPhoto",
+      "academicDocuments",
+      "idDocument",
+      "identificationDocument",
+    ];
+    for (const field of documentFields) {
+      if (
+        applicationData[field] &&
+        typeof applicationData[field] === "string" &&
+        applicationData[field].startsWith("data:")
+      ) {
+        console.log(`Found base64 data for ${field} in request body`);
+        // Data is already in base64 format, no need to process further
+        files[field] = applicationData[field];
+      }
+    }
+
+    if (
+      !applicationData ||
+      (Object.keys(applicationData).length === 0 && !req.files)
+    ) {
+      return res.status(400).json({
+        success: false,
+        error: "Application data is required",
+      });
+    }
+
+    // Get existing application
+    const existingApplication = await applicationService.getApplicationById(id);
+
+    if (!existingApplication) {
+      return res.status(404).json({
+        success: false,
+        error: "Application not found",
+      });
+    }
+
+    // Update the application with new data
+    const updatedApplication = {
+      ...existingApplication,
+      ...applicationData,
+      updatedAt: new Date().toISOString(),
+    };
+
+    // Add updatedBy field only if user info is available
+    if (req.user) {
+      updatedApplication.updatedBy = {
+        uid: req.user.uid,
+        email: req.user.email,
+        name: req.user.displayName || req.user.email,
+        role: req.user.role,
+      };
+    }
+
+    console.log("Updating application with data:", updatedApplication);
+
+    // Helper function to recursively remove undefined values and sanitize data for Firestore
+    const sanitizeForFirestore = (obj) => {
+      if (!obj || typeof obj !== "object") return;
+
+      Object.keys(obj).forEach((key) => {
+        // Handle undefined values - remove them
+        if (obj[key] === undefined) {
+          console.log(`Removing undefined field: ${key}`);
+          delete obj[key];
+        }
+        // Handle null values - keep them as Firestore accepts null
+        else if (obj[key] === null) {
+          // Firestore accepts null values, so we keep them
+          console.log(`Found null field: ${key} (keeping it)`);
+        }
+        // Handle nested objects recursively
+        else if (
+          obj[key] &&
+          typeof obj[key] === "object" &&
+          !Array.isArray(obj[key])
+        ) {
+          sanitizeForFirestore(obj[key]);
+          // If the nested object is empty after sanitizing, remove it
+          if (Object.keys(obj[key]).length === 0) {
+            console.log(`Removing empty object field: ${key}`);
+            delete obj[key];
+          }
+        }
+        // Handle arrays
+        else if (Array.isArray(obj[key])) {
+          // Sanitize each object in the array
+          obj[key].forEach((item) => {
+            if (item && typeof item === "object") {
+              sanitizeForFirestore(item);
+            }
+          });
+          // Filter out undefined values from arrays
+          obj[key] = obj[key].filter((item) => item !== undefined);
+        }
+      });
+    };
+
+    // Sanitize the application data for Firestore
+    sanitizeForFirestore(updatedApplication);
+
+    // Create a clean update object without any problematic values
+    const updateData = {};
+
+    // Only include changed fields to minimize update size
+    Object.keys(updatedApplication).forEach((key) => {
+      // Skip _id or id field as they shouldn't be updated
+      if (key === "_id" || key === "id") {
+        return;
+      }
+      updateData[key] = updatedApplication[key];
+    });
+
+    console.log("Final update data:", JSON.stringify(updateData, null, 2));
+
+    // Save the updated application
+    await applicationService.db
+      .collection(applicationService.collection)
+      .doc(id)
+      .update(updateData);
+
+    res.json({
+      success: true,
+      data: updatedApplication,
+      message: "Application updated successfully",
+    });
+  } catch (error) {
+    console.error("❌ Error updating application:", error);
+
+    // Check for specific Firestore errors and provide more helpful messages
+    if (error.code === "invalid-argument") {
+      console.error("Invalid data format in the update:", error);
+      return res.status(400).json({
+        success: false,
+        error: "Invalid data format in the update request",
+        message: error.message,
+        details:
+          "Check for undefined values or invalid data types in your request",
+      });
+    }
+
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      message: "Failed to update application",
+    });
+  }
+});
+
+/**
+ * Health check endpoint
+ * GET /api/applications/health
+ */
+router.get("/health", (req, res) => {
+  console.log("🏥 Health check request received");
+  res.json({
+    success: true,
+    message: "Applications service is up and running",
+    timestamp: new Date().toISOString(),
+    path: req.originalUrl,
+    fullUrl: `${req.protocol}://${req.get("host")}${req.originalUrl}`,
+  });
 });
 
 module.exports = {

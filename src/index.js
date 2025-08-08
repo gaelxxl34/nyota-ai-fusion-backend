@@ -44,12 +44,22 @@ initializeFirebase()
 function startServer() {
   // Initialize Express app
   const app = express();
+  const fileUpload = require("express-fileupload");
 
   // Middleware
   app.use(
     cors({
       origin: process.env.FRONTEND_URL || "http://localhost:3001",
       credentials: true,
+    })
+  );
+  // File upload middleware
+  app.use(
+    fileUpload({
+      limits: { fileSize: 50 * 1024 * 1024 }, // 50MB limit
+      useTempFiles: true,
+      tempFileDir: "/tmp/",
+      debug: true,
     })
   );
   app.use(express.json({ limit: "50mb" }));

@@ -1596,6 +1596,8 @@ router.post("/application-form", validateWebhookSource, async (req, res) => {
         sponsor: sponsor || null,
         sponsorTelephone: sponsorTelephone || null,
         sponsorEmail: sponsorEmail || null,
+        // Set stage to "new" just like in manual applications
+        stage: "new",
         additionalInfo: {
           firstName,
           lastName,

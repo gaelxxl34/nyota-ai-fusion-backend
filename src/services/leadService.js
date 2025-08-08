@@ -163,17 +163,50 @@ class LeadService {
       // Add any additional data
       const fullLeadData = { ...leadData, ...additionalData };
 
-      // If submittedBy info is provided, add it at top level only
-      if (additionalData.submittedBy) {
-        // Add submittedBy at top level for analytics
-        fullLeadData.submittedBy = additionalData.submittedBy;
+      // Handle initialTimeline if provided in additionalData
+      if (
+        additionalData.initialTimeline &&
+        Array.isArray(additionalData.initialTimeline)
+      ) {
+        console.log("ℹ️ Using provided initialTimeline for lead");
+        fullLeadData.timeline = additionalData.initialTimeline;
+        delete fullLeadData.initialTimeline; // Remove this field as it's been processed
+      }
 
-        // Update timeline notes to reflect who created it, but don't store submittedBy in timeline
+      // Ensure timeline is always a valid array
+      if (!fullLeadData.timeline || !Array.isArray(fullLeadData.timeline)) {
+        console.log("⚠️ Initializing lead timeline as empty array");
+        fullLeadData.timeline = [];
+
+        // Add the initial status entry if timeline was invalid
+        fullLeadData.timeline.push({
+          date: new Date(),
+          action: "CREATED",
+          status: fullLeadData.status || LEAD_STATUSES.CONTACTED,
+          notes: `Lead created from ${source || "unknown source"}`,
+        });
+      }
+
+      // If submittedBy info is provided, only use it in timeline for transparency
+      // but don't duplicate at the top level (kept only in the application document)
+      if (
+        additionalData.submittedBy &&
+        Array.isArray(fullLeadData.timeline) &&
+        fullLeadData.timeline.length > 0
+      ) {
+        // Only update timeline notes to reflect who created it
         fullLeadData.timeline[0] = {
           ...fullLeadData.timeline[0],
           notes: `Lead created from ${source || "unknown source"} by ${
-            additionalData.submittedBy.name || additionalData.submittedBy.email
+            additionalData.submittedBy.name ||
+            additionalData.submittedBy.email ||
+            additionalData.submittedBy.uid
           } (${additionalData.submittedBy.role})`,
+          // Only include minimal reference to who created it for historical tracking
+          createdBy: {
+            uid: additionalData.submittedBy.uid || null,
+            role: additionalData.submittedBy.role || null,
+          },
         };
       }
 

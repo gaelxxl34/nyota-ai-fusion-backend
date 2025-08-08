@@ -84,20 +84,24 @@ class LeadModel {
     // Determine the initial status (use provided status or default to CONTACTED)
     const initialStatus = contactInfo.status || LEAD_STATUSES.CONTACTED;
 
-    // Create the initial timeline entry
+    // Create the initial timeline entry with reliable date object
+    const now = new Date();
     const initialTimelineEntry = {
-      date: new Date(),
+      date: now,
       action: "CREATED",
       status: initialStatus, // Same as the status field for consistency
       notes: `Lead created from ${source || "unknown source"}`,
     };
 
+    // Always use an array for timeline
+    const timeline = [initialTimelineEntry];
+
     return {
       // Basic Info
       status: initialStatus, // Status field is synchronized with timeline
       source: source,
-      createdAt: new Date(),
-      updatedAt: new Date(),
+      createdAt: now,
+      updatedAt: now,
 
       // Contact Info
       name: contactInfo.name || null,
@@ -120,7 +124,8 @@ class LeadModel {
       nextFollowUpDate: null,
 
       // Timeline - with synchronized initial status
-      timeline: [initialTimelineEntry],
+      // Explicitly ensure it's always an array
+      timeline: Array.isArray(timeline) ? timeline : [initialTimelineEntry],
 
       // Notes
       notes: "",
