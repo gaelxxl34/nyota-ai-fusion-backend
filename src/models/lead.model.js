@@ -158,8 +158,29 @@ class LeadModel {
   static validate(leadData) {
     const errors = [];
 
+    // Enhanced debugging for validation
+    console.log("🔍 VALIDATION DEBUG - Lead data received:", {
+      leadData: leadData,
+      phone: leadData.phone,
+      phoneType: typeof leadData.phone,
+      phoneExists: !!leadData.phone,
+      phoneNotEmpty: leadData.phone && leadData.phone.toString().trim() !== "",
+      email: leadData.email,
+      emailType: typeof leadData.email,
+      emailExists: !!leadData.email,
+      emailNotEmpty: leadData.email && leadData.email.toString().trim() !== "",
+      hasPhoneOrEmail:
+        (leadData.phone && leadData.phone.toString().trim() !== "") ||
+        (leadData.email && leadData.email.toString().trim() !== ""),
+    });
+
     if (!leadData.phone && !leadData.email) {
       errors.push("Either phone or email is required");
+    } else if (
+      (!leadData.phone || leadData.phone.toString().trim() === "") &&
+      (!leadData.email || leadData.email.toString().trim() === "")
+    ) {
+      errors.push("Either phone or email must have a non-empty value");
     }
 
     if (!Object.values(LEAD_STATUSES).includes(leadData.status)) {

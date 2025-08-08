@@ -337,6 +337,21 @@ router.post("/wordpress", validateWebhookSource, async (req, res) => {
       formDataStringified: JSON.stringify(formData, null, 2),
     });
 
+    // === DEBUGGING: COMPLETE RAW DATA ANALYSIS ===
+    logger.info("🔍 DEBUGGING - RAW REQUEST BODY:", {
+      body: req.body,
+      bodyType: typeof req.body,
+      bodyKeys: req.body ? Object.keys(req.body) : [],
+      bodyStringified: JSON.stringify(req.body, null, 2),
+    });
+
+    logger.info("🔍 DEBUGGING - FORM DATA:", {
+      formData: formData,
+      formDataType: typeof formData,
+      formDataKeys: formData ? Object.keys(formData) : [],
+      formDataStringified: JSON.stringify(formData, null, 2),
+    });
+
     // Log every single field and its value for complete visibility
     logger.info("Complete field-by-field analysis:");
     Object.keys(formData).forEach((key) => {
@@ -449,6 +464,24 @@ router.post("/wordpress", validateWebhookSource, async (req, res) => {
         status: initialStatus,
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
       };
+
+      // === DEBUGGING: LEAD DATA BEFORE CREATION ===
+      logger.info("🔍 DEBUGGING - LEAD DATA BEFORE CREATION:", {
+        leadData: leadData,
+        leadDataStringified: JSON.stringify(leadData, null, 2),
+        firstName: firstName,
+        lastName: lastName,
+        name: name,
+        email: email,
+        originalPhone: phone,
+        validatedPhone: validatedPhone,
+        finalPhoneValue: leadData.phone,
+        message: message,
+        emailExists: !!email,
+        phoneExists: !!leadData.phone,
+        emailNotEmpty: email && email.trim() !== "",
+        phoneNotEmpty: leadData.phone && leadData.phone.trim() !== "",
+      });
 
       // Enhanced logging for lead data before creation
       logger.info("Lead data being created:", {
