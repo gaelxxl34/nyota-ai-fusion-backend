@@ -143,10 +143,37 @@ const normalizePhoneNumber = (phone) => {
  */
 router.post("/wordpress", validateWebhookSource, async (req, res) => {
   try {
+    // === IMMEDIATE RAW DATA DUMP - FIRST THING ===
+    console.log("🔍🔍🔍 IMMEDIATE RAW DUMP - START 🔍🔍🔍");
+    console.log("Request Body Type:", typeof req.body);
+    console.log("Request Body Keys:", req.body ? Object.keys(req.body) : []);
+    console.log("Request Body Content:", JSON.stringify(req.body, null, 2));
+    console.log("Request Headers:", JSON.stringify(req.headers, null, 2));
+    console.log("🔍🔍🔍 IMMEDIATE RAW DUMP - END 🔍🔍🔍");
+
     ensureServices();
 
     // Log only essential information in production
     logger.info("WordPress webhook request received");
+
+    // === ALWAYS SHOW RAW DATA FIRST ===
+    logger.info("🔍 RAW DEBUG - Complete Request Analysis:", {
+      method: req.method,
+      path: req.path,
+      query: req.query,
+      headers: req.headers,
+      contentType: req.headers["content-type"] || null,
+      bodyType: typeof req.body,
+      bodyKeys: req.body ? Object.keys(req.body) : [],
+      bodyStringified: JSON.stringify(req.body, null, 2),
+    });
+
+    // Also console.log for immediate visibility
+    console.log("🔍 RAW REQUEST BODY:", JSON.stringify(req.body, null, 2));
+    console.log(
+      "🔍 RAW REQUEST HEADERS:",
+      JSON.stringify(req.headers, null, 2)
+    );
 
     // === RAW DEBUG MODE: bypass all processing and echo what we received ===
     const debugRawMode =
