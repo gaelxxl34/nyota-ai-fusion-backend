@@ -651,6 +651,62 @@ router.post("/wordpress-test", async (req, res) => {
     });
   }
 });
+
+/**
+ * Echo endpoint for debugging webhook formats
+ * This endpoint will echo back exactly what it receives to help debug the format
+ */
+router.post("/echo", async (req, res) => {
+  logger.info("ECHO endpoint hit");
+  logger.info("Request headers:", JSON.stringify(req.headers));
+  logger.info("Request content-type:", req.headers["content-type"]);
+  logger.info("Raw body type:", typeof req.body);
+  logger.info("Raw body keys:", req.body ? Object.keys(req.body) : "none");
+
+  // Try to safely stringify the body
+  let bodyStr = "Could not stringify body";
+  try {
+    bodyStr = JSON.stringify(req.body, null, 2);
+  } catch (err) {
+    logger.error("Error stringifying body:", err.message);
+    bodyStr = "Circular reference in body or other stringify error";
+  }
+
+  logger.info("Raw request body:", bodyStr);
+
+  // Also check for files
+  if (req.files) {
+    logger.info("Files received:", Object.keys(req.files));
+  }
+
+  // Raw data if available
+  if (req.rawWebhookData) {
+    logger.info(
+      "Raw webhook data available (length):",
+      req.rawWebhookData.length
+    );
+  }
+
+  // Echo everything back
+  return res.status(200).json({
+    success: true,
+    message: "Echo response",
+    request: {
+      headers: req.headers,
+      body: req.body,
+      hasFiles: !!req.files,
+      filesInfo: req.files
+        ? Object.keys(req.files).map((key) => ({
+            name: key,
+            size: req.files[key].size,
+            mimetype: req.files[key].mimetype,
+          }))
+        : [],
+      hasRawData: !!req.rawWebhookData,
+      rawDataLength: req.rawWebhookData ? req.rawWebhookData.length : 0,
+    },
+  });
+});
 /**
  * Process WordPress website inquiries
  * This handles form submissions from the WordPress website
@@ -660,12 +716,53 @@ router.post("/wordpress", validateWebhookSource, async (req, res) => {
   try {
     // Add detailed debug information
     logger.info("WordPress webhook request received");
-    logger.info("Request headers:", req.headers);
+    logger.info("Request headers:", JSON.stringify(req.headers));
     logger.info("Request content-type:", req.headers["content-type"]);
+    logger.info("Raw body type:", typeof req.body);
     logger.info("Raw body available:", !!req.body);
+
+    // Log the raw request to help debug
+    try {
+      logger.info("Raw request body:", JSON.stringify(req.body));
+    } catch (jsonErr) {
+      logger.error("Could not stringify request body:", jsonErr.message);
+    }
 
     // Make sure we have a formData object, even if empty
     let formData = req.body || {};
+
+    logger.info(
+      "Initial formData type:",
+      typeof formData,
+      "keys:",
+      formData ? Object.keys(formData).length : 0
+    );
+
+    // Special handling for raw text content (common with some WordPress plugins)
+    if (
+      req.headers["content-type"] &&
+      (req.headers["content-type"].includes("text/plain") ||
+        req.headers["content-type"].includes(
+          "application/x-www-form-urlencoded"
+        ))
+    ) {
+      logger.info("Detected text/plain or form-urlencoded content");
+
+      // Try to parse as query string (name=value&name2=value2...)
+      try {
+        const querystring = require("querystring");
+        const rawBody =
+          typeof formData === "string" ? formData : JSON.stringify(formData);
+        const parsedBody = querystring.parse(rawBody);
+
+        if (Object.keys(parsedBody).length > 0) {
+          logger.info("Successfully parsed form data as query string");
+          formData = parsedBody;
+        }
+      } catch (parseError) {
+        logger.error("Error parsing form data:", parseError.message);
+      }
+    }
 
     // Handle WordPress form data which might come in various formats
     // Check for common WordPress form formats
@@ -674,8 +771,21 @@ router.post("/wordpress", validateWebhookSource, async (req, res) => {
       formData = formData.form_fields || formData.form_data || formData;
     }
 
+    // Check for Contact Form 7 format
+    if (formData._wpcf7 || formData["your-name"] || formData["your-email"]) {
+      logger.info("Detected Contact Form 7 format");
+      // CF7 format is usually flat key-value pairs, no transformation needed
+    }
+
+    // Check for Elementor form format
+    if (formData.form_id && formData.form_fields) {
+      logger.info("Detected Elementor form format");
+      formData = formData.form_fields;
+    }
+
     // If we get an array, try to convert it to an object
     if (Array.isArray(formData)) {
+      logger.info("Converting array form data to object");
       const formObject = {};
       formData.forEach((item) => {
         if (item.name && item.value !== undefined) {
@@ -685,20 +795,254 @@ router.post("/wordpress", validateWebhookSource, async (req, res) => {
       formData = formObject;
     }
 
+    // Check if we have raw text from middleware
+    if (Object.keys(formData).length === 0 && req.body && req.body.rawText) {
+      logger.info("Found rawText property, attempting to parse");
+
+      try {
+        // Try to parse as query string or key=value format
+        const querystring = require("querystring");
+        const parsedText = querystring.parse(req.body.rawText);
+
+        if (Object.keys(parsedText).length > 0) {
+          logger.info("Successfully parsed rawText as query string");
+          formData = parsedText;
+        } else {
+          // If parsing fails, try to identify form fields in the raw text
+          const rawText = req.body.rawText;
+
+          // Look for patterns like "Name: John" or "Email: john@example.com"
+          const patterns = [
+            { field: "name", regex: /(?:name|full[ _-]?name)[ :]+([^\n]+)/i },
+            { field: "email", regex: /(?:email|e-mail)[ :]+([^\n]+)/i },
+            {
+              field: "phone",
+              regex: /(?:phone|telephone|mobile|whatsapp)[ :]+([^\n]+)/i,
+            },
+            {
+              field: "message",
+              regex: /(?:message|comment|enquiry|comments)[ :]+([^\n]+)/i,
+            },
+          ];
+
+          // Extract values using patterns
+          patterns.forEach((pattern) => {
+            const match = rawText.match(pattern.regex);
+            if (match && match[1]) {
+              formData[pattern.field] = match[1].trim();
+              logger.info(
+                `Extracted ${pattern.field} from raw text: ${
+                  formData[pattern.field]
+                }`
+              );
+            }
+          });
+        }
+      } catch (parseError) {
+        logger.error("Error parsing rawText:", parseError.message);
+      }
+    }
+
+    // Check for raw webhook data stored during parsing failures
+    if (Object.keys(formData).length === 0 && req.rawWebhookData) {
+      logger.info("Found rawWebhookData, attempting to parse");
+
+      try {
+        // Similar approach as with rawText
+        const querystring = require("querystring");
+        const parsedData = querystring.parse(req.rawWebhookData);
+
+        if (Object.keys(parsedData).length > 0) {
+          logger.info("Successfully parsed rawWebhookData");
+          formData = parsedData;
+        }
+      } catch (parseError) {
+        logger.error("Error parsing rawWebhookData:", parseError.message);
+      }
+    }
+
+    // Final transformation check - if form is still empty but raw body exists, try direct mapping
+    if (
+      Object.keys(formData).length === 0 &&
+      req.body &&
+      typeof req.body === "object"
+    ) {
+      logger.info("Attempting direct extraction from raw body");
+
+      // Direct mapping for common field names
+      const possibleFieldNames = [
+        "name",
+        "your-name",
+        "fullname",
+        "full_name",
+        "firstName",
+        "first_name",
+        "lastname",
+        "last_name",
+        "email",
+        "your-email",
+        "emailaddress",
+        "email_address",
+        "phone",
+        "your-phone",
+        "phonenumber",
+        "phone_number",
+        "whatsapp",
+        "message",
+        "your-message",
+        "comments",
+        "subject",
+      ];
+
+      // Try to extract directly from request body
+      for (const field of possibleFieldNames) {
+        if (req.body[field]) {
+          formData[field] = req.body[field];
+        }
+      }
+    }
+
+    logger.info("Processed formData keys:", Object.keys(formData));
     logger.webhook("WordPress", formData);
 
-    // Extract data using exact field names provided by developer
-    // Handle both lowercase and capitalized field names from Elementor
-    const firstName = formData.firstname || formData["First Name"];
-    const lastName = formData.lastname || formData["Last Name"];
-    const email = formData.email || formData["Email"];
-    const phone = formData.phone || formData["Phone Number"];
-    // Handle both correct spelling "Message" and misspelling "Messege"
-    const message =
-      formData.message || formData["Message"] || formData["Messege"];
+    // Extract data using more comprehensive field name mapping
+    // This handles various WordPress form plugins that use different field naming
+    const extractField = (possibleKeys) => {
+      for (const key of possibleKeys) {
+        if (formData[key] !== undefined && formData[key] !== null) {
+          return formData[key];
+        }
+      }
+      return null;
+    };
 
-    // Combine first and last name
-    const name = `${firstName || ""} ${lastName || ""}`.trim() || "Unknown";
+    // Extract all possible field variations
+    const firstName = extractField([
+      "firstname",
+      "first_name",
+      "fname",
+      "firstName",
+      "First Name",
+      "first-name",
+      "your-first-name",
+      "FirstName",
+      "given-name",
+      "name-first",
+      "your-fname",
+    ]);
+
+    const lastName = extractField([
+      "lastname",
+      "last_name",
+      "lname",
+      "lastName",
+      "Last Name",
+      "last-name",
+      "your-last-name",
+      "LastName",
+      "family-name",
+      "name-last",
+      "your-lname",
+    ]);
+
+    // If we have a single name field but not first/last separately
+    const fullName = extractField([
+      "name",
+      "full_name",
+      "fullname",
+      "full-name",
+      "your-name",
+      "Name",
+      "FullName",
+      "contactName",
+      "contact_name",
+      "contact-name",
+    ]);
+
+    const email = extractField([
+      "email",
+      "Email",
+      "email_address",
+      "emailaddress",
+      "your-email",
+      "email-address",
+      "e-mail",
+      "E-mail",
+      "contact_email",
+      "userEmail",
+      "visitor_email",
+      "your_email",
+    ]);
+
+    const phone = extractField([
+      "phone",
+      "Phone",
+      "phone_number",
+      "phoneNumber",
+      "Phone Number",
+      "your-phone",
+      "mobile",
+      "tel",
+      "telephone",
+      "cell",
+      "cellphone",
+      "contact_phone",
+      "your_phone",
+      "phone-number",
+      "whatsapp",
+      "whatsapp_number",
+      "whatsapp-number",
+      "mobile_number",
+      "your-tel",
+    ]);
+
+    const message = extractField([
+      "message",
+      "Message",
+      "Messege",
+      "your-message",
+      "comments",
+      "comment",
+      "enquiry",
+      "enquiry_details",
+      "description",
+      "details",
+      "content",
+      "notes",
+      "question",
+      "your_message",
+      "message_content",
+      "inquiry",
+      "inquiry_details",
+    ]);
+
+    // Combine first and last name or use full name if provided
+    let name;
+    if (fullName) {
+      // Use the provided full name field
+      name = fullName.trim();
+
+      // If we also have first/last name separately but didn't use them,
+      // log this to help debug field mappings
+      if (
+        (firstName || lastName) &&
+        !name.includes(firstName || "") &&
+        !name.includes(lastName || "")
+      ) {
+        logger.info(
+          `Note: Using fullName field '${name}' over firstName '${firstName}' and lastName '${lastName}'`
+        );
+      }
+    } else {
+      // Combine first and last name fields
+      name = `${firstName || ""} ${lastName || ""}`.trim();
+    }
+
+    // If no name was found at all, use "Unknown"
+    if (!name) {
+      name = "Unknown";
+      logger.info("No name fields found in form data, using 'Unknown'");
+    }
 
     // Validate required fields
     if (!email) {

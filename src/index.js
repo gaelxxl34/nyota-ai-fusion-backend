@@ -91,6 +91,18 @@ function startServer() {
 
   // Add special handling for webhook endpoints to ensure we catch all data formats
   app.use("/api/webhook", (req, res, next) => {
+    // Handle multipart/form-data with special care
+    if (
+      req.headers["content-type"] &&
+      req.headers["content-type"].includes("multipart/form-data")
+    ) {
+      console.log(
+        "Detected multipart/form-data in webhook - using default express-fileupload handler"
+      );
+      return next();
+    }
+
+    // For all other content types, we'll try to handle the raw data
     let data = "";
     req.on("data", (chunk) => {
       data += chunk;
@@ -100,20 +112,78 @@ function startServer() {
       try {
         if (data && (!req.body || Object.keys(req.body).length === 0)) {
           console.log("Raw webhook data received, attempting to parse");
+          console.log("Content-Type:", req.headers["content-type"]);
 
-          // Try to parse as JSON first
-          try {
-            req.body = JSON.parse(data);
-          } catch (e) {
-            // If JSON parsing fails, try to parse as URL encoded
+          // Handle different content types appropriately
+          if (
+            req.headers["content-type"] &&
+            req.headers["content-type"].includes("application/json")
+          ) {
+            // Try to parse as JSON
+            try {
+              req.body = JSON.parse(data);
+              console.log("Successfully parsed JSON data");
+            } catch (e) {
+              console.error(
+                "Failed to parse as JSON despite content-type:",
+                e.message
+              );
+            }
+          } else if (
+            req.headers["content-type"] &&
+            req.headers["content-type"].includes(
+              "application/x-www-form-urlencoded"
+            )
+          ) {
+            // Parse as URL encoded data
             const querystring = require("querystring");
             req.body = querystring.parse(data);
+            console.log("Successfully parsed form-urlencoded data");
+          } else if (
+            req.headers["content-type"] &&
+            req.headers["content-type"].includes("text/plain")
+          ) {
+            // For text/plain, try multiple parsing approaches
+            try {
+              // Try JSON first
+              req.body = JSON.parse(data);
+              console.log("Successfully parsed text/plain as JSON");
+            } catch (e) {
+              // If that fails, try form-urlencoded
+              const querystring = require("querystring");
+              req.body = querystring.parse(data);
+              console.log("Successfully parsed text/plain as form-urlencoded");
+
+              // If we didn't get any parsed fields, store the raw text too
+              if (Object.keys(req.body).length === 0) {
+                req.body = { rawText: data };
+                console.log("Stored raw text content in req.body.rawText");
+              }
+            }
+          } else {
+            // Unknown content-type, try multiple parsing approaches
+            try {
+              // Try JSON first
+              req.body = JSON.parse(data);
+            } catch (e) {
+              // If that fails, try form-urlencoded
+              const querystring = require("querystring");
+              req.body = querystring.parse(data);
+
+              // If we still have nothing, store the raw text
+              if (Object.keys(req.body).length === 0) {
+                req.body = { rawText: data };
+                console.log("Stored raw unknown content in req.body.rawText");
+              }
+            }
           }
 
-          console.log("Parsed webhook body:", req.body);
+          console.log("Parsed webhook body keys:", Object.keys(req.body));
         }
       } catch (err) {
         console.error("Error parsing webhook data:", err);
+        // Store raw data in case parsing failed
+        req.rawWebhookData = data;
       }
       next();
     });
