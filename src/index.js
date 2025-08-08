@@ -79,8 +79,45 @@ function startServer() {
       debug: true,
     })
   );
-  app.use(express.json({ limit: "50mb" }));
+  // Ensure JSON and URL-encoded middleware are configured correctly for webhooks
+  app.use(express.json({ limit: "50mb", strict: false })); // Use strict:false to accept malformed JSON
   app.use(express.urlencoded({ extended: true, limit: "50mb" }));
+
+  // Add debugging middleware to log all incoming requests
+  app.use((req, res, next) => {
+    console.log(`${req.method} ${req.path} - ${new Date().toISOString()}`);
+    next();
+  });
+
+  // Add special handling for webhook endpoints to ensure we catch all data formats
+  app.use("/api/webhook", (req, res, next) => {
+    let data = "";
+    req.on("data", (chunk) => {
+      data += chunk;
+    });
+
+    req.on("end", () => {
+      try {
+        if (data && (!req.body || Object.keys(req.body).length === 0)) {
+          console.log("Raw webhook data received, attempting to parse");
+
+          // Try to parse as JSON first
+          try {
+            req.body = JSON.parse(data);
+          } catch (e) {
+            // If JSON parsing fails, try to parse as URL encoded
+            const querystring = require("querystring");
+            req.body = querystring.parse(data);
+          }
+
+          console.log("Parsed webhook body:", req.body);
+        }
+      } catch (err) {
+        console.error("Error parsing webhook data:", err);
+      }
+      next();
+    });
+  });
 
   // Define error handler
   app.use((err, req, res, next) => {
@@ -119,8 +156,20 @@ function startServer() {
   // Enhanced webhook routes
   try {
     const enhancedWebhookRoutes = require("./routes/enhanced-webhook.routes");
+
+    if (!enhancedWebhookRoutes || !enhancedWebhookRoutes.router) {
+      throw new Error("Webhook routes module did not export router properly");
+    }
+
+    // Add debug logging to check for request handling
+    enhancedWebhookRoutes.router.use((req, res, next) => {
+      console.log(`Webhook request received: ${req.method} ${req.path}`);
+      console.log(`Headers: ${JSON.stringify(req.headers)}`);
+      next();
+    });
+
     app.use("/api/webhook", enhancedWebhookRoutes.router);
-    console.log("✅ Enhanced webhook routes loaded");
+    console.log("✅ Enhanced webhook routes loaded at /api/webhook");
   } catch (error) {
     console.warn("❌ Enhanced webhook routes not loaded:", error.message);
     console.error(error); // Log the full error for debugging

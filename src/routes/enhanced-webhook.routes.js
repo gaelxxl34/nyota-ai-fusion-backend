@@ -8,6 +8,9 @@ const LeadService = require("../services/leadService");
 const WhatsAppMessageService = require("../services/whatsappMessageService");
 const { getFirestore } = require("firebase-admin/firestore");
 const ConversationService = require("../services/conversationService");
+const ApplicationService = require("../services/applicationService");
+const logger = require("../utils/logger");
+
 // Initialize services properly to avoid circular dependencies
 let db, leadService, conversationService, whatsappMessageService;
 
@@ -33,8 +36,6 @@ try {
   );
   // We don't re-throw here to prevent the module from failing to load completely
 }
-const ApplicationService = require("../services/applicationService");
-const logger = require("../utils/logger");
 
 // Configuration options
 const WHATSAPP_VALIDATION_ENABLED =
@@ -657,7 +658,33 @@ router.post("/wordpress-test", async (req, res) => {
  */
 router.post("/wordpress", validateWebhookSource, async (req, res) => {
   try {
-    const formData = req.body;
+    // Add detailed debug information
+    logger.info("WordPress webhook request received");
+    logger.info("Request headers:", req.headers);
+    logger.info("Request content-type:", req.headers["content-type"]);
+    logger.info("Raw body available:", !!req.body);
+
+    // Make sure we have a formData object, even if empty
+    let formData = req.body || {};
+
+    // Handle WordPress form data which might come in various formats
+    // Check for common WordPress form formats
+    if (formData.form_fields || formData.form_data) {
+      logger.info("Detected WordPress form fields format");
+      formData = formData.form_fields || formData.form_data || formData;
+    }
+
+    // If we get an array, try to convert it to an object
+    if (Array.isArray(formData)) {
+      const formObject = {};
+      formData.forEach((item) => {
+        if (item.name && item.value !== undefined) {
+          formObject[item.name] = item.value;
+        }
+      });
+      formData = formObject;
+    }
+
     logger.webhook("WordPress", formData);
 
     // Extract data using exact field names provided by developer
@@ -2072,6 +2099,22 @@ router.post("/meta-ads", validateWebhookSource, async (req, res) => {
       error: "Failed to process Meta Ads webhook",
     });
   }
+});
+
+// Add a test endpoint to check what data is being received
+router.post("/echo", (req, res) => {
+  logger.info("Echo endpoint hit with data:", req.body);
+  logger.info("Request headers:", req.headers);
+
+  return res.status(200).json({
+    success: true,
+    message: "Echo endpoint",
+    receivedHeaders: req.headers,
+    receivedBody: req.body,
+    receivedMethod: req.method,
+    receivedPath: req.path,
+    timestamp: new Date().toISOString(),
+  });
 });
 
 // Export both the router and the pendingValidations for use by WhatsApp webhook
