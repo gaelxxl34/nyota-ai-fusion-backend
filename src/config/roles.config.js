@@ -127,6 +127,7 @@ const canViewLeadStage = (role, stage) => {
 
   // Map database status values to our LEAD_STAGES
   const statusToStageMap = {
+    NO_LEAD: LEAD_STAGES.NEW_CONTACT, // Conversations not linked to leads
     INQUIRY: LEAD_STAGES.NEW_CONTACT,
     CONTACTED: LEAD_STAGES.CONTACTED,
     PRE_QUALIFIED: LEAD_STAGES.QUALIFIED,
@@ -136,6 +137,10 @@ const canViewLeadStage = (role, stage) => {
     ENROLLED: LEAD_STAGES.ENROLLED,
     REJECTED: LEAD_STAGES.NEW_CONTACT,
     NURTURE: LEAD_STAGES.CONTACTED,
+    FOLLOW_UP: LEAD_STAGES.QUALIFIED,
+    REVIEW: LEAD_STAGES.APPLIED,
+    PENDING_DOCS: LEAD_STAGES.APPLIED,
+    SUCCESS: LEAD_STAGES.ENROLLED,
   };
 
   // Convert the stage if it's a database status value

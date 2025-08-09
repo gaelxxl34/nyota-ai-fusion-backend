@@ -1225,6 +1225,7 @@ class LeadService {
 
   /**
    * Get leads submitted by a specific user (for "For You" tab)
+   * This includes both direct lead submissions and leads associated with applications submitted by the user
    */
   async getLeadsBySubmitter(userEmail, options = {}) {
     try {
@@ -1232,41 +1233,107 @@ class LeadService {
 
       console.log(`🔍 Fetching leads submitted by: ${userEmail}`);
 
-      let query = this.db
+      // Step 1: Get leads directly submitted by the user
+      let leadQuery = this.db
         .collection(this.collection)
         .where("submittedBy.email", "==", userEmail);
 
       // Add status filter if provided
       if (status) {
-        query = query.where("status", "==", status);
+        leadQuery = leadQuery.where("status", "==", status);
       }
 
       // Order by creation date (newest first)
-      query = query.orderBy("createdAt", "desc");
+      leadQuery = leadQuery.orderBy("createdAt", "desc");
 
-      // Apply pagination
-      if (offset > 0) {
-        const offsetSnapshot = await query.limit(offset).get();
-        if (!offsetSnapshot.empty) {
-          const lastDoc = offsetSnapshot.docs[offsetSnapshot.docs.length - 1];
-          query = query.startAfter(lastDoc);
+      const leadSnapshot = await leadQuery.get();
+      const directLeads = [];
+      leadSnapshot.forEach((doc) => {
+        const lead = this._normalizeLead(doc.id, doc.data());
+        directLeads.push(lead);
+      });
+
+      console.log(
+        `📋 Found ${directLeads.length} direct leads submitted by ${userEmail}`
+      );
+
+      // Step 2: Get applications submitted by the user that have associated leadId
+      const applicationQuery = this.db
+        .collection("applications")
+        .where("submittedBy.email", "==", userEmail)
+        .where("leadId", "!=", null);
+
+      const applicationSnapshot = await applicationQuery.get();
+      const leadIdsFromApplications = [];
+      applicationSnapshot.forEach((doc) => {
+        const appData = doc.data();
+        if (appData.leadId) {
+          leadIdsFromApplications.push(appData.leadId);
+        }
+      });
+
+      console.log(
+        `📋 Found ${leadIdsFromApplications.length} applications with leadIds submitted by ${userEmail}`
+      );
+
+      // Step 3: Get leads associated with these applications
+      const applicationLinkedLeads = [];
+      if (leadIdsFromApplications.length > 0) {
+        // Get each lead by ID
+        for (const leadId of leadIdsFromApplications) {
+          try {
+            const leadDoc = await this.db
+              .collection(this.collection)
+              .doc(leadId)
+              .get();
+            if (leadDoc.exists) {
+              const lead = this._normalizeLead(leadDoc.id, leadDoc.data());
+
+              // Apply status filter if provided
+              if (!status || lead.status === status) {
+                // Only add if not already in direct leads
+                const alreadyExists = directLeads.find(
+                  (existingLead) => existingLead.id === lead.id
+                );
+                if (!alreadyExists) {
+                  applicationLinkedLeads.push(lead);
+                }
+              }
+            }
+          } catch (docError) {
+            console.warn(
+              `⚠️ Could not fetch lead ${leadId}: ${docError.message}`
+            );
+          }
         }
       }
 
-      // Apply limit
-      query = query.limit(limit);
+      console.log(
+        `📋 Found ${applicationLinkedLeads.length} additional leads from applications submitted by ${userEmail}`
+      );
 
-      const snapshot = await query.get();
+      // Step 4: Combine and sort all leads
+      const allLeads = [...directLeads, ...applicationLinkedLeads];
 
-      const leads = [];
-      snapshot.forEach((doc) => {
-        const lead = this._normalizeLead(doc.id, doc.data());
-        leads.push(lead);
+      // Sort by creation date (newest first)
+      allLeads.sort((a, b) => {
+        const dateA =
+          a.createdAt instanceof Date ? a.createdAt : new Date(a.createdAt);
+        const dateB =
+          b.createdAt instanceof Date ? b.createdAt : new Date(b.createdAt);
+        return dateB - dateA;
       });
 
-      console.log(`✅ Found ${leads.length} leads submitted by ${userEmail}`);
+      // Apply pagination after combining and sorting
+      const startIndex = offset;
+      const endIndex = offset + limit;
+      const paginatedLeads = allLeads.slice(startIndex, endIndex);
 
-      return leads;
+      console.log(
+        `✅ Total found: ${allLeads.length} leads, returning ${paginatedLeads.length} after pagination`
+      );
+
+      return paginatedLeads;
     } catch (error) {
       console.error(
         `❌ Error fetching leads by submitter ${userEmail}:`,

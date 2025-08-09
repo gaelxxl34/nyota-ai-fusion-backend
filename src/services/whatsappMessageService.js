@@ -36,6 +36,10 @@ class WhatsAppMessageService {
       metadata?.validationType === "initial_validation" ||
       templatePayload.template?.name === "whatsapp_validation";
 
+    // Check if this is an application received message
+    const isApplicationReceivedMessage =
+      templatePayload.template?.name === "application_received";
+
     try {
       // Extract template information for logging
       const templateName = templatePayload.template?.name || "unknown_template";
@@ -186,6 +190,139 @@ Is there a specific program you're interested in, or would you like some help wi
               success: true,
               messageId,
               isValidation: true,
+              error: `Message sent but not saved: ${error.message}`,
+            };
+          }
+        }
+
+        // For application received messages, create conversation and store application confirmation message
+        if (isApplicationReceivedMessage) {
+          console.log(
+            `📱 Processing application received template message ${messageId} for phone ${phoneNumber} - creating conversation`
+          );
+
+          // Store application message info
+          this.validationMessages.set(messageId, {
+            phoneNumber: phoneNumber,
+            timestamp: new Date(),
+            metadata: metadata || {},
+            templateName: templateName,
+            templateLanguage: templateLanguage,
+            status: "sent",
+          });
+
+          try {
+            // Extract leadId from metadata or try to find existing lead
+            let leadId = metadata?.leadId;
+
+            // If no leadId provided but we have a phone number, try to find the lead
+            if (!leadId && phoneNumber) {
+              try {
+                // Validate that required services are available
+                if (
+                  !this.leadService ||
+                  typeof this.leadService.findLeadByPhone !== "function"
+                ) {
+                  console.log(
+                    "Lead service not available for application received message"
+                  );
+                } else {
+                  const normalizedPhone = phoneNumber.replace(/[^\d+]/g, "");
+                  const phoneWithoutPlus = phoneNumber.replace(/[^\d]/g, "");
+
+                  // Try to find lead by phone number
+                  const existingLead =
+                    (await this.leadService.findLeadByPhone(normalizedPhone)) ||
+                    (await this.leadService.findLeadByPhone(
+                      phoneWithoutPlus
+                    )) ||
+                    (await this.leadService.findLeadByPhone(
+                      `+${phoneWithoutPlus}`
+                    ));
+
+                  if (existingLead) {
+                    leadId = existingLead.id;
+                    console.log(
+                      `📱 Found lead ${leadId} for application received template to ${phoneNumber}`
+                    );
+                  }
+                }
+              } catch (leadLookupError) {
+                console.warn(
+                  `⚠️ Error finding lead for application received template: ${leadLookupError.message}`
+                );
+              }
+            }
+
+            // Create or get conversation for application received template
+            const conversationId =
+              await this.conversationService.createOrGetConversation(
+                phoneNumber,
+                leadId,
+                metadata?.contactName || null
+              );
+
+            // Define the application confirmation message content that should be stored
+            const applicationConfirmationContent = `Hello 👋
+Thank you for applying to IUEA! 🎓
+We've received your application and we're excited to have you take this big step toward your academic journey with us. ✅
+Our admissions team is currently reviewing your application, and we'll be in touch shortly with the next steps. In the meantime, if you have any questions or need assistance, let me know how I can support you. 😊
+Welcome to the IUEA family! 🌍✨`;
+
+            // Store the application confirmation message in our database (this represents what the user sees)
+            const messageDoc = {
+              messageId: messageId,
+              conversationId: conversationId,
+              from: process.env.WHATSAPP_PHONE_NUMBER_ID,
+              to: phoneNumber,
+              content: applicationConfirmationContent,
+              messageType: "template",
+              templateName: templateName,
+              templateLanguage: templateLanguage,
+              senderType: "outgoing",
+              direction: "outgoing",
+              timestamp: new Date(),
+              status: "sent",
+              metadata: metadata || {},
+              createdAt: new Date(),
+            };
+
+            // Add to messages collection
+            const messageRef = await this.db
+              .collection("messages")
+              .add(messageDoc);
+
+            // Update conversation with latest message
+            await this.db
+              .collection("conversations")
+              .doc(conversationId)
+              .update({
+                lastMessage: "Hello 👋 Thank you for applying to IUEA! 🎓",
+                lastMessageTime: new Date(),
+                lastMessageFrom: "business",
+                updatedAt: new Date(),
+              });
+
+            console.log(
+              `💾 Application received template message ${messageId} saved to conversation ${conversationId} with confirmation content`
+            );
+
+            return {
+              success: true,
+              messageId,
+              conversationId,
+              savedMessageId: messageRef.id,
+              isApplicationReceived: true,
+            };
+          } catch (error) {
+            console.error(
+              `❌ Error storing application received template message: ${error.message}`
+            );
+            // Return success since the WhatsApp API call worked, but note the storage error
+            return {
+              success: true,
+              messageId,
+              isApplicationReceived: true,
               error: `Message sent but not saved: ${error.message}`,
             };
           }

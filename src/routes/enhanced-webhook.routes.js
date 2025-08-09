@@ -190,6 +190,7 @@ router.post("/wordpress", validateWebhookSource, async (req, res) => {
       (
         formData.phone ??
         formData["Phone"] ??
+        formData["Phone Number"] ?? // Handle "Phone Number" label
         formData["Phone "] ?? // Handle WordPress trailing space
         formData.Phone ??
         ""
