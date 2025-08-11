@@ -5,6 +5,7 @@
 
 const express = require("express");
 const ApplicationService = require("../services/applicationService");
+const applicationEmailService = require("../services/applicationEmailService");
 const { APPLICATION_STATUSES } = require("../models/application.model");
 
 const router = express.Router();
@@ -26,14 +27,16 @@ const ensureApplicationService = (req, res, next) => {
 const initializeApplicationService = (
   firestore,
   leadService,
-  whatsappMessageService
+  whatsappMessageService,
+  storageService
 ) => {
   applicationService = new ApplicationService(
     firestore,
     leadService,
-    whatsappMessageService
+    whatsappMessageService,
+    storageService
   );
-  console.log("✅ Application service initialized");
+  console.log("✅ Application service initialized with Firebase Storage");
 };
 
 /**
@@ -260,13 +263,315 @@ router.get("/stats", ensureApplicationService, async (req, res) => {
 });
 
 /**
+ * Get application document by email and document type
+ * GET /api/applications/email/:email/document/:documentType
+ */
+router.get(
+  "/email/:email/document/:documentType",
+  ensureApplicationService,
+  async (req, res) => {
+    try {
+      const { email, documentType } = req.params;
+      console.log(
+        `🔍 REQUEST: GET /applications/email/${email}/document/${documentType}`
+      );
+
+      // Validate document type
+      if (
+        ![
+          "academicDocuments",
+          "identificationDocument",
+          "passportPhoto",
+          "idDocument", // Alternative name for identificationDocument
+        ].includes(documentType)
+      ) {
+        console.error(`❌ Invalid document type: ${documentType}`);
+        return res.status(400).json({
+          success: false,
+          error: "Invalid document type",
+          message:
+            "Document type must be 'academicDocuments', 'identificationDocument', 'idDocument', or 'passportPhoto'",
+        });
+      }
+
+      // Use the service method to get the document
+      const documentResult =
+        await applicationService.getApplicationDocumentByEmail(
+          decodeURIComponent(email),
+          documentType
+        );
+
+      console.log(`✅ Document found for ${documentType} - email: ${email}`);
+
+      // Return the document data
+      return res.json({
+        success: true,
+        url: documentResult.data,
+        documentType: documentResult.documentType,
+        applicationId: documentResult.applicationId,
+        applicantName: documentResult.name,
+        applicantEmail: documentResult.email,
+      });
+    } catch (error) {
+      console.error("❌ Error getting document by email:", error);
+
+      if (error.message.includes("No applications found")) {
+        return res.status(404).json({
+          success: false,
+          error: "Application not found",
+          message: error.message,
+        });
+      }
+
+      if (error.message.includes("No") && error.message.includes("found")) {
+        return res.status(404).json({
+          success: false,
+          error: "Document not found",
+          message: error.message,
+        });
+      }
+
+      res.status(500).json({
+        success: false,
+        error: error.message,
+      });
+    }
+  }
+);
+
+/**
+ * Update application by email
+ * PUT /api/applications/email/:email
+ */
+router.put("/email/:email", ensureApplicationService, async (req, res) => {
+  try {
+    const { email } = req.params;
+    let applicationData = req.body;
+
+    console.log(`🔍 PUT /applications/email/${email} - Received request`);
+
+    if (!applicationData || Object.keys(applicationData).length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: "Application data is required",
+      });
+    }
+
+    // Handle file uploads if available
+    const files = {};
+    if (req.files) {
+      console.log("Files received in update request:", Object.keys(req.files));
+
+      // Process each uploaded file
+      for (const fieldName in req.files) {
+        const file = req.files[fieldName];
+        console.log(
+          `Processing file upload for field: ${fieldName}`,
+          file.name
+        );
+
+        try {
+          // Upload file to Firebase Storage using the document upload method
+          const documentType =
+            fieldName === "passportPhoto"
+              ? "passportPhoto"
+              : fieldName === "academicDocuments"
+              ? "academicDocuments"
+              : fieldName === "idDocument"
+              ? "identificationDocument"
+              : fieldName;
+
+          // Upload to Firebase Storage and get public URL
+          const publicUrl = await applicationService.uploadApplicationDocument(
+            "temp", // We don't need applicationId for this operation
+            documentType,
+            file
+          );
+
+          console.log(
+            `File uploaded successfully to Firebase Storage. Field: ${fieldName}, URL: ${publicUrl}`
+          );
+
+          // Add the public URL to application data
+          files[fieldName] = publicUrl;
+        } catch (fileError) {
+          console.error(`Error uploading file for ${fieldName}:`, fileError);
+          return res.status(500).json({
+            success: false,
+            error: `File upload failed for ${fieldName}: ${fileError.message}`,
+          });
+        }
+      }
+
+      // Merge file data with application data
+      applicationData = { ...applicationData, ...files };
+    }
+
+    // Check for base64 document data in the request body
+    const documentFields = [
+      "passportPhoto",
+      "academicDocuments",
+      "idDocument",
+      "identificationDocument",
+    ];
+    for (const field of documentFields) {
+      if (
+        applicationData[field] &&
+        typeof applicationData[field] === "string" &&
+        applicationData[field].startsWith("data:")
+      ) {
+        console.log(`Found base64 data for ${field} in request body`);
+        // Data is already in base64 format, no need to process further
+        files[field] = applicationData[field];
+      }
+    }
+
+    // Add updatedBy field only if user info is available
+    if (req.user) {
+      applicationData.updatedBy = {
+        uid: req.user.uid,
+        email: req.user.email,
+        name: req.user.displayName || req.user.email,
+        role: req.user.role,
+      };
+    }
+
+    console.log(`🔄 Updating application for email: ${email}`);
+
+    // Get the existing application before update to detect status changes
+    let existingApplication = null;
+    try {
+      const existingApps = await applicationService.getApplicationsByEmail(
+        email
+      );
+      if (existingApps && existingApps.length > 0) {
+        existingApplication = existingApps[0];
+      }
+    } catch (err) {
+      console.log(
+        "Could not retrieve existing application for status comparison"
+      );
+    }
+
+    // Use the service method to update application by email
+    const updatedApplication =
+      await applicationService.updateApplicationByEmail(email, applicationData);
+
+    // Check if status changed and send email notification
+    if (
+      existingApplication &&
+      updatedApplication &&
+      existingApplication.status !== updatedApplication.status
+    ) {
+      try {
+        console.log(
+          `📧 Status changed from ${existingApplication.status} to ${updatedApplication.status} - sending email notification`
+        );
+
+        // Map internal statuses to user-friendly status names
+        const statusMapping = {
+          QUALIFIED: "approved",
+          APPROVED: "approved",
+          REJECTED: "rejected",
+          IN_REVIEW: "pending",
+          PENDING: "pending",
+          INTERVIEW_SCHEDULED: "interview_scheduled",
+          DOCUMENTS_REQUIRED: "documents_required",
+          ON_HOLD: "on_hold",
+        };
+
+        const emailStatus =
+          statusMapping[updatedApplication.status] ||
+          updatedApplication.status.toLowerCase();
+
+        await applicationEmailService.sendStatusChangeNotification({
+          applicantEmail: updatedApplication.email,
+          applicantName: updatedApplication.name,
+          courseName: updatedApplication.preferredProgram || "Your Application",
+          status: emailStatus,
+          additionalInfo:
+            updatedApplication.statusNote ||
+            "Your application status has been updated.",
+        });
+
+        console.log(
+          `✅ Status change email sent successfully to ${updatedApplication.email}`
+        );
+      } catch (emailError) {
+        console.error("❌ Failed to send status change email:", emailError);
+        // Don't fail the application update if email fails
+      }
+    }
+
+    console.log(`✅ Application updated successfully for email: ${email}`);
+
+    res.json({
+      success: true,
+      data: updatedApplication,
+      message: "Application updated successfully",
+    });
+  } catch (error) {
+    console.error("❌ Error updating application by email:", error);
+
+    // Check for specific Firestore errors and provide more helpful messages
+    if (error.code === "invalid-argument") {
+      console.error("Invalid data format in the update:", error);
+      return res.status(400).json({
+        success: false,
+        error: "Invalid data format in the update request",
+        message: error.message,
+      });
+    }
+
+    if (error.message.includes("No applications found")) {
+      return res.status(404).json({
+        success: false,
+        error: "Application not found",
+        message: error.message,
+      });
+    }
+
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
+/**
  * Get application by email
  * GET /api/applications/email/:email
  */
 router.get("/email/:email", ensureApplicationService, async (req, res) => {
   try {
     const { email } = req.params;
-    const applications = await applicationService.getApplicationsByEmail(email);
+    console.log(`🔍 API: Getting applications for email: ${email}`);
+    console.log(`🔍 Decoded email: ${decodeURIComponent(email)}`);
+
+    const applications = await applicationService.getApplicationsByEmail(
+      decodeURIComponent(email)
+    );
+
+    console.log(
+      `📊 Found ${
+        applications ? applications.length : 0
+      } applications for email: ${decodeURIComponent(email)}`
+    );
+
+    if (applications && applications.length > 0) {
+      console.log(
+        `✅ Returning applications:`,
+        applications.map((app) => ({
+          id: app.id,
+          name: app.name,
+          email: app.email,
+        }))
+      );
+    } else {
+      console.log(
+        `❌ No applications found for email: ${decodeURIComponent(email)}`
+      );
+    }
 
     res.json({
       success: true,
@@ -630,6 +935,44 @@ router.put("/:id/status", ensureApplicationService, async (req, res) => {
       updatedBy
     );
 
+    // Send email notification for status change
+    try {
+      if (application && application.email && application.name) {
+        console.log(
+          `📧 Sending status change email to ${application.email} for status: ${status}`
+        );
+
+        // Map internal statuses to user-friendly status names
+        const statusMapping = {
+          QUALIFIED: "approved",
+          APPROVED: "approved",
+          REJECTED: "rejected",
+          IN_REVIEW: "pending",
+          PENDING: "pending",
+          INTERVIEW_SCHEDULED: "interview_scheduled",
+          DOCUMENTS_REQUIRED: "documents_required",
+          ON_HOLD: "on_hold",
+        };
+
+        const emailStatus = statusMapping[status] || status.toLowerCase();
+
+        await applicationEmailService.sendStatusChangeNotification({
+          applicantEmail: application.email,
+          applicantName: application.name,
+          courseName: application.preferredProgram || "Your Application",
+          status: emailStatus,
+          additionalInfo: notes,
+        });
+
+        console.log(
+          `✅ Status change email sent successfully to ${application.email}`
+        );
+      }
+    } catch (emailError) {
+      console.error("❌ Failed to send status change email:", emailError);
+      // Don't fail the status update if email fails
+    }
+
     res.json({
       success: true,
       data: application,
@@ -666,7 +1009,7 @@ router.put("/:id", ensureApplicationService, async (req, res) => {
         );
 
         try {
-          // Upload file as base64 string using the new document upload method
+          // Upload file to Firebase Storage using the new document upload method
           const documentType =
             fieldName === "passportPhoto"
               ? "passportPhoto"
@@ -676,19 +1019,19 @@ router.put("/:id", ensureApplicationService, async (req, res) => {
               ? "identificationDocument"
               : fieldName;
 
-          // Convert the file to base64 and store directly
-          const base64Data = await applicationService.uploadApplicationDocument(
+          // Upload to Firebase Storage and get public URL
+          const publicUrl = await applicationService.uploadApplicationDocument(
             id,
             documentType,
             file
           );
 
           console.log(
-            `File uploaded successfully as base64. Field: ${fieldName}`
+            `File uploaded successfully to Firebase Storage. Field: ${fieldName}, URL: ${publicUrl}`
           );
 
-          // Add the base64 data to application data
-          files[fieldName] = base64Data;
+          // Add the public URL to application data
+          files[fieldName] = publicUrl;
         } catch (fileError) {
           console.error(`Error uploading file for ${fieldName}:`, fileError);
           return res.status(500).json({

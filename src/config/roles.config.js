@@ -4,12 +4,14 @@
  */
 
 const LEAD_STAGES = {
-  NEW_CONTACT: "new_contact",
-  CONTACTED: "contacted",
-  QUALIFIED: "qualified",
-  APPLIED: "applied",
-  ADMITTED: "admitted",
-  ENROLLED: "enrolled",
+  INTERESTED: "INTERESTED",
+  APPLIED: "APPLIED",
+  IN_REVIEW: "IN_REVIEW",
+  QUALIFIED: "QUALIFIED",
+  ADMITTED: "ADMITTED",
+  ENROLLED: "ENROLLED",
+  DEFERRED: "DEFERRED",
+  EXPIRED: "EXPIRED",
 };
 
 const PERMISSIONS = {
@@ -39,8 +41,8 @@ const ROLES = {
     description: "Full system access including user management",
     permissions: Object.values(PERMISSIONS),
     leadStageAccess: {
-      from: LEAD_STAGES.NEW_CONTACT,
-      to: LEAD_STAGES.ENROLLED,
+      from: LEAD_STAGES.INTERESTED,
+      to: LEAD_STAGES.EXPIRED,
     },
   },
 
@@ -49,15 +51,15 @@ const ROLES = {
     description: "Administrative access to most features",
     permissions: Object.values(PERMISSIONS),
     leadStageAccess: {
-      from: LEAD_STAGES.NEW_CONTACT,
-      to: LEAD_STAGES.ENROLLED,
+      from: LEAD_STAGES.INTERESTED,
+      to: LEAD_STAGES.EXPIRED,
     },
   },
 
   admissionAdmin: {
     name: "Admission Admin",
     description:
-      "Administrative access to admission features (Applied to Enrolled stages)",
+      "Administrative access to admission features (Applied to the very end)",
     permissions: [
       PERMISSIONS.CHAT_CONFIG,
       PERMISSIONS.DATA_CENTER,
@@ -72,13 +74,13 @@ const ROLES = {
     ],
     leadStageAccess: {
       from: LEAD_STAGES.APPLIED,
-      to: LEAD_STAGES.ENROLLED,
+      to: LEAD_STAGES.EXPIRED,
     },
   },
 
   marketingAgent: {
     name: "Marketing Agent",
-    description: "Access to marketing and lead generation features",
+    description: "Access to marketing features (Interested to Admitted)",
     permissions: [
       PERMISSIONS.CHAT_CONFIG,
       PERMISSIONS.DATA_CENTER,
@@ -86,14 +88,14 @@ const ROLES = {
       PERMISSIONS.VIEW_MARKETING_LEADS,
     ],
     leadStageAccess: {
-      from: LEAD_STAGES.NEW_CONTACT,
-      to: LEAD_STAGES.APPLIED,
+      from: LEAD_STAGES.INTERESTED,
+      to: LEAD_STAGES.ADMITTED,
     },
   },
 
   admissionAgent: {
     name: "Admission Agent",
-    description: "Access to admissions and enrollment features",
+    description: "Access to admissions features (Applied to the very end)",
     permissions: [
       PERMISSIONS.CHAT_CONFIG,
       PERMISSIONS.DATA_CENTER,
@@ -102,7 +104,7 @@ const ROLES = {
     ],
     leadStageAccess: {
       from: LEAD_STAGES.APPLIED,
-      to: LEAD_STAGES.ENROLLED,
+      to: LEAD_STAGES.EXPIRED,
     },
   },
 };
@@ -127,20 +129,16 @@ const canViewLeadStage = (role, stage) => {
 
   // Map database status values to our LEAD_STAGES
   const statusToStageMap = {
-    NO_LEAD: LEAD_STAGES.NEW_CONTACT, // Conversations not linked to leads
-    INQUIRY: LEAD_STAGES.NEW_CONTACT,
-    CONTACTED: LEAD_STAGES.CONTACTED,
-    PRE_QUALIFIED: LEAD_STAGES.QUALIFIED,
-    QUALIFIED: LEAD_STAGES.QUALIFIED,
+    NO_LEAD: LEAD_STAGES.INTERESTED, // Conversations not linked to leads
+    INQUIRY: LEAD_STAGES.INTERESTED,
+    INTERESTED: LEAD_STAGES.INTERESTED,
     APPLIED: LEAD_STAGES.APPLIED,
+    IN_REVIEW: LEAD_STAGES.IN_REVIEW,
+    QUALIFIED: LEAD_STAGES.QUALIFIED,
     ADMITTED: LEAD_STAGES.ADMITTED,
     ENROLLED: LEAD_STAGES.ENROLLED,
-    REJECTED: LEAD_STAGES.NEW_CONTACT,
-    NURTURE: LEAD_STAGES.CONTACTED,
-    FOLLOW_UP: LEAD_STAGES.QUALIFIED,
-    REVIEW: LEAD_STAGES.APPLIED,
-    PENDING_DOCS: LEAD_STAGES.APPLIED,
-    SUCCESS: LEAD_STAGES.ENROLLED,
+    DEFERRED: LEAD_STAGES.DEFERRED,
+    EXPIRED: LEAD_STAGES.EXPIRED,
   };
 
   // Convert the stage if it's a database status value

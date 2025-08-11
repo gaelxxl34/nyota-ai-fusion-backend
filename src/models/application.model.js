@@ -4,20 +4,15 @@
  */
 
 // Application Status Constants
+// Application Status Constants
 const APPLICATION_STATUSES = {
-  SUBMITTED: "SUBMITTED",
-  UNDER_REVIEW: "UNDER_REVIEW",
-  DOCUMENTS_REQUIRED: "DOCUMENTS_REQUIRED",
-  DOCUMENTS_RECEIVED: "DOCUMENTS_RECEIVED",
-  INTERVIEW_SCHEDULED: "INTERVIEW_SCHEDULED",
-  INTERVIEW_COMPLETED: "INTERVIEW_COMPLETED",
-  CONDITIONALLY_ACCEPTED: "CONDITIONALLY_ACCEPTED",
-  ACCEPTED: "ACCEPTED",
-  REJECTED: "REJECTED",
-  WAITLISTED: "WAITLISTED",
+  INTERESTED: "INTERESTED",
+  APPLIED: "APPLIED",
+  IN_REVIEW: "IN_REVIEW",
+  QUALIFIED: "QUALIFIED",
+  ADMITTED: "ADMITTED",
   ENROLLED: "ENROLLED",
   DEFERRED: "DEFERRED",
-  WITHDRAWN: "WITHDRAWN",
   EXPIRED: "EXPIRED",
 };
 
@@ -89,17 +84,28 @@ class ApplicationModel {
       sponsorEmail: applicationData.sponsorEmail || null,
 
       // Application Meta
-      status: APPLICATION_STATUSES.SUBMITTED,
+      status: APPLICATION_STATUSES.APPLIED,
       applicationNumber: this.generateApplicationNumber(),
       submittedAt: now,
       createdAt: now,
       updatedAt: now,
 
-      // Application stage - defaults to "new"
-      stage: applicationData.stage || "new",
+      // Timeline tracking for all changes
+      timeline: [
+        {
+          date: now,
+          action: "APPLICATION_SUBMITTED",
+          status: APPLICATION_STATUSES.APPLIED,
+          notes: "Application submitted",
+          updatedBy: applicationData.submittedBy || null,
+        },
+      ],
 
-      // Simple status note instead of timeline
+      // Simple status note for compatibility
       statusNote: "Application submitted",
+
+      // Track who last updated the application
+      lastUpdatedBy: applicationData.submittedBy || null,
 
       // Additional Fields
       notes: "",
@@ -206,16 +212,56 @@ class ApplicationModel {
   }
 
   /**
-   * Update application status
+   * Update application status and add timeline entry
    */
   static updateStatus(application, newStatus, notes = "", updatedBy = null) {
     const now = new Date();
+
+    // Create new timeline entry
+    const timelineEntry = {
+      date: now,
+      action: "STATUS_UPDATED",
+      status: newStatus,
+      notes: notes || `Status changed to ${newStatus}`,
+      updatedBy: updatedBy,
+      previousStatus: application.status,
+    };
+
+    // Get existing timeline or create new one
+    const currentTimeline = application.timeline || [];
 
     return {
       ...application,
       status: newStatus,
       updatedAt: now,
       lastUpdatedBy: updatedBy || application.lastUpdatedBy,
+      statusNote: notes || `Status updated to ${newStatus}`,
+      timeline: [...currentTimeline, timelineEntry],
+    };
+  }
+
+  /**
+   * Add general update entry to timeline
+   */
+  static addTimelineEntry(application, action, notes = "", updatedBy = null) {
+    const now = new Date();
+
+    const timelineEntry = {
+      date: now,
+      action: action,
+      status: application.status,
+      notes: notes,
+      updatedBy: updatedBy,
+    };
+
+    // Get existing timeline or create new one
+    const currentTimeline = application.timeline || [];
+
+    return {
+      ...application,
+      updatedAt: now,
+      lastUpdatedBy: updatedBy || application.lastUpdatedBy,
+      timeline: [...currentTimeline, timelineEntry],
     };
   }
 }

@@ -320,23 +320,22 @@ router.get("/stats", async (req, res) => {
     // Count leads by status with proper mapping
     const leadsByStatus = {};
     const leadStageMapping = {
-      INQUIRY: "new_contact",
-      CONTACTED: "contacted",
-      PRE_QUALIFIED: "qualified",
-      QUALIFIED: "qualified",
+      INTERESTED: "interested",
       APPLIED: "applied",
+      IN_REVIEW: "in_review",
+      QUALIFIED: "qualified",
       ADMITTED: "admitted",
       ENROLLED: "enrolled",
-      REJECTED: "rejected",
-      NURTURE: "nurture",
+      DEFERRED: "deferred",
+      EXPIRED: "expired",
     };
 
     // Initialize all stages
     Object.values(LEAD_STAGES).forEach((stage) => {
       leadsByStatus[stage] = 0;
     });
-    leadsByStatus["rejected"] = 0;
-    leadsByStatus["nurture"] = 0;
+    leadsByStatus["deferred"] = 0;
+    leadsByStatus["expired"] = 0;
 
     leadsSnapshot.docs.forEach((doc) => {
       const status = doc.data().status || "unknown";

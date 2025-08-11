@@ -12,83 +12,206 @@ const {
 const { LEAD_STATUSES } = require("../config/lead.constants");
 
 class ApplicationService {
-  constructor(
-    firestore,
-    leadService,
-    whatsappMessageService,
-    storageService = null
-  ) {
+  constructor(firestore, leadService, whatsappMessageService, storageService) {
     this.db = firestore;
     this.leadService = leadService;
     this.whatsappService = whatsappMessageService;
     this.collection = "applications";
     this.storageService = storageService;
     this.storageBasePath = "applications"; // Base path for application files in storage
+
+    if (!this.storageService) {
+      throw new Error("StorageService is required for ApplicationService");
+    }
   }
 
   /**
-   * Upload a file for an application document
-   * @param {string|Object} file - File path or buffer or base64 string
-   * @param {string} path - Storage path
-   * @returns {Promise<string>} - Download URL
+   * Delete old document from Firebase Storage when updating
+   * This ensures we don't accumulate old files and waste storage space
+   * @param {string} applicationId - Application ID
+   * @param {string} documentType - Document type (passportPhoto, academicDocuments, identificationDocument)
    */
-  async uploadFile(file, path) {
-    // Handle base64 data URLs
-    if (typeof file === "string" && file.startsWith("data:")) {
-      console.log("Detected base64 file, storing directly as base64");
-      // Return the base64 string directly instead of uploading to storage
-      return file;
-    }
+  async deleteOldDocument(applicationId, documentType) {
+    try {
+      // Get current application data to find existing document URL
+      const application = await this.getApplicationById(applicationId);
 
-    // Handle file path (from express-fileupload)
-    if (typeof file === "string") {
-      // This is either a file path or it's already a URL/string reference
-      // If it starts with http or https, it's already a URL
-      if (file.startsWith("http://") || file.startsWith("https://")) {
-        return file;
+      if (!application) {
+        console.log(
+          `⚠️ Application ${applicationId} not found, skipping old document deletion`
+        );
+        return;
       }
 
-      try {
-        const fs = require("fs");
-        const fileData = fs.readFileSync(file);
-        // Convert to base64
-        const base64Data = `data:application/octet-stream;base64,${fileData.toString(
-          "base64"
-        )}`;
-        return base64Data;
-      } catch (error) {
-        console.error("Error reading file:", error);
-        throw error;
+      const existingUrl = application[documentType];
+
+      if (!existingUrl || existingUrl === "" || existingUrl === null) {
+        console.log(
+          `ℹ️ No existing ${documentType} found for application ${applicationId}`
+        );
+        return;
+      }
+
+      // Skip base64 data (legacy data that doesn't need storage cleanup)
+      if (typeof existingUrl === "string" && existingUrl.startsWith("data:")) {
+        console.log(
+          `ℹ️ Existing ${documentType} is base64 data, no storage cleanup needed`
+        );
+        return;
+      }
+
+      // Handle Firebase Storage URLs
+      if (
+        typeof existingUrl === "string" &&
+        (existingUrl.includes("storage.googleapis.com") ||
+          existingUrl.includes("firebasestorage.googleapis.com"))
+      ) {
+        try {
+          // Extract storage path from different possible Firebase Storage URL formats
+          let storagePath = null;
+
+          // Format 1: https://storage.googleapis.com/{bucket}/{path}
+          if (existingUrl.includes("storage.googleapis.com")) {
+            const urlParts = existingUrl.split("storage.googleapis.com/")[1];
+            if (urlParts) {
+              // Remove bucket name to get the file path
+              storagePath = urlParts.split("/").slice(1).join("/");
+            }
+          }
+          // Format 2: https://firebasestorage.googleapis.com/v0/b/{bucket}/o/{path}?alt=media&token={token}
+          else if (existingUrl.includes("firebasestorage.googleapis.com")) {
+            const urlParts = existingUrl.split("/o/")[1]?.split("?")[0];
+            if (urlParts) {
+              storagePath = decodeURIComponent(urlParts);
+            }
+          }
+
+          if (!storagePath) {
+            console.warn(
+              `⚠️ Could not parse storage path from URL: ${existingUrl}`
+            );
+            return;
+          }
+
+          console.log(
+            `🗑️ Deleting old ${documentType} from path: ${storagePath}`
+          );
+
+          // Delete the old file from Firebase Storage
+          const bucket = this.storageService.bucket;
+          const oldFileRef = bucket.file(storagePath);
+          await oldFileRef.delete();
+          console.log(`✅ Successfully deleted old ${documentType}`);
+        } catch (parseError) {
+          console.warn(
+            `⚠️ Error parsing or deleting ${documentType} from storage:`,
+            parseError
+          );
+          return;
+        }
+      }
+
+      console.log(
+        `✅ Old ${documentType} cleanup completed for application ${applicationId}`
+      );
+    } catch (error) {
+      // Don't throw error if old file deletion fails - proceed with new upload
+      if (error && error.code === 404) {
+        console.log(
+          `ℹ️ Old ${documentType} file not found in storage (may have been deleted already)`
+        );
+      } else {
+        console.warn(`⚠️ Failed to delete old ${documentType}:`, error);
       }
     }
-
-    // Handle file buffer
-    if (Buffer.isBuffer(file)) {
-      // Convert to base64
-      const base64Data = `data:application/octet-stream;base64,${file.toString(
-        "base64"
-      )}`;
-      return base64Data;
-    }
-
-    // Handle file object (e.g., from multer)
-    if (file && file.buffer) {
-      // Convert to base64
-      const base64Data = `data:${
-        file.mimetype || "application/octet-stream"
-      };base64,${file.buffer.toString("base64")}`;
-      return base64Data;
-    }
-
-    throw new Error("Unsupported file format");
   }
 
   /**
-   * Upload application document - Stores document as base64 string
+   * Upload a file to Firebase Storage and get public URL
+   * @param {string|Object} file - File path or buffer or base64 string
+   * @param {string} storagePath - Storage path
+   * @returns {Promise<string>} - Public download URL
+   */
+  async uploadFile(file, storagePath) {
+    try {
+      // Handle base64 data URLs - upload to Firebase Storage
+      if (typeof file === "string" && file.startsWith("data:")) {
+        console.log("Converting base64 file to Firebase Storage");
+
+        // Extract MIME type from data URL
+        const mimeType = file.split(";")[0].split(":")[1];
+
+        // Upload base64 to Firebase Storage
+        const publicUrl = await this.storageService.uploadBase64File(
+          file,
+          storagePath,
+          mimeType
+        );
+        return publicUrl;
+      }
+
+      // Handle already uploaded URLs
+      if (typeof file === "string") {
+        // If it's already a URL, return it
+        if (file.startsWith("http://") || file.startsWith("https://")) {
+          return file;
+        }
+
+        // Handle file path - read and upload to Firebase Storage
+        try {
+          const fs = require("fs");
+          const path = require("path");
+          const fileData = fs.readFileSync(file);
+          const mimeType = this._getMimeTypeFromFileName(path.basename(file));
+
+          // Upload to Firebase Storage
+          const publicUrl = await this.storageService.storeFile(
+            fileData,
+            storagePath,
+            mimeType
+          );
+          return publicUrl;
+        } catch (error) {
+          console.error("Error reading file:", error);
+          throw error;
+        }
+      }
+
+      // Handle file buffer
+      if (Buffer.isBuffer(file)) {
+        const publicUrl = await this.storageService.storeFile(
+          file,
+          storagePath,
+          "application/octet-stream"
+        );
+        return publicUrl;
+      }
+
+      // Handle file object (e.g., from multer)
+      if (file && file.buffer) {
+        const mimeType = file.mimetype || "application/octet-stream";
+        const publicUrl = await this.storageService.storeFile(
+          file.buffer,
+          storagePath,
+          mimeType
+        );
+        return publicUrl;
+      }
+
+      throw new Error("Unsupported file format");
+    } catch (error) {
+      console.error("Error uploading file to Firebase Storage:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Upload application document to Firebase Storage and get public URL
+   * Automatically deletes previous document to save storage space
    * @param {string} applicationId - Application ID
    * @param {string} documentType - Document type (passportPhoto, academicDocuments, identificationDocument)
    * @param {string|Object} fileData - File data (base64 string or file object)
-   * @returns {Promise<string>} - Base64 string of the document
+   * @returns {Promise<string>} - Public download URL from Firebase Storage
    */
   async uploadApplicationDocument(applicationId, documentType, fileData) {
     // Check if documentType is valid
@@ -107,37 +230,141 @@ class ApplicationService {
       );
     }
 
-    // For direct base64 data, just return it
-    if (typeof fileData === "string" && fileData.startsWith("data:")) {
-      console.log(`Using provided base64 data for ${documentType}`);
-      return fileData;
+    console.log(
+      `📤 Uploading ${documentType} to Firebase Storage for application ${applicationId}...`
+    );
+
+    // 1. Delete old document first to save storage space
+    await this.deleteOldDocument(applicationId, documentType);
+
+    // 2. Validate file data
+    if (!fileData) {
+      throw new Error("No file data provided for document upload");
     }
 
-    // Handle file objects
-    if (fileData && (fileData.buffer || fileData.tempFilePath)) {
-      const filePath = fileData.tempFilePath || null;
+    // File validation removed - allowing files of any size
 
-      if (filePath) {
-        // Read the file and convert to base64
-        const fs = require("fs");
-        const fileBuffer = fs.readFileSync(filePath);
-        const mimeType =
-          fileData.mimetype || this._getMimeTypeFromFileName(fileData.name);
-        const base64Data = `data:${mimeType};base64,${fileBuffer.toString(
-          "base64"
-        )}`;
-        return base64Data;
-      } else if (fileData.buffer) {
-        // Convert buffer to base64
-        const mimeType = fileData.mimetype || "application/octet-stream";
-        const base64Data = `data:${mimeType};base64,${fileData.buffer.toString(
-          "base64"
-        )}`;
-        return base64Data;
+    // Check file type for base64 data
+    if (typeof fileData === "string" && fileData.startsWith("data:")) {
+      const mimeType = fileData.split(";")[0].split(":")[1];
+      const allowedTypes = {
+        passportPhoto: ["image/jpeg", "image/jpg", "image/png"],
+        academicDocuments: [
+          "application/pdf",
+          "image/jpeg",
+          "image/jpg",
+          "image/png",
+        ],
+        identificationDocument: [
+          "application/pdf",
+          "image/jpeg",
+          "image/jpg",
+          "image/png",
+        ],
+        idDocument: ["application/pdf", "image/jpeg", "image/jpg", "image/png"],
+      };
+
+      if (!allowedTypes[documentType].includes(mimeType)) {
+        throw new Error(
+          `Invalid file type for ${documentType}. Allowed: ${allowedTypes[
+            documentType
+          ].join(", ")}`
+        );
       }
     }
 
-    throw new Error("Invalid file data provided for document upload");
+    // 3. Generate unique filename and storage path
+    const timestamp = Date.now();
+    const fileExtension = this._getFileExtension(fileData);
+    const fileName = `${documentType}_${applicationId}_${timestamp}.${fileExtension}`;
+    const storagePath = `${this.storageBasePath}/${applicationId}/documents/${fileName}`;
+
+    console.log(`📁 Storage path: ${storagePath}`);
+
+    // 4. Upload to Firebase Storage
+    try {
+      const publicUrl = await this.uploadFile(fileData, storagePath);
+      console.log(
+        `✅ ${documentType} uploaded successfully to Firebase Storage: ${publicUrl}`
+      );
+      return publicUrl;
+    } catch (error) {
+      console.error(
+        `❌ Error uploading ${documentType} to Firebase Storage:`,
+        error
+      );
+      throw error;
+    }
+  }
+
+  /**
+   * Delete all documents for an application (useful when deleting entire application)
+   * @param {string} applicationId - Application ID
+   * @returns {Promise<Object>} - Cleanup result with success status and count
+   */
+  async deleteAllApplicationDocuments(applicationId) {
+    const documentTypes = [
+      "passportPhoto",
+      "academicDocuments",
+      "identificationDocument",
+    ];
+    let deletedCount = 0;
+
+    console.log(
+      `🗑️ Cleaning up all documents for application ${applicationId}`
+    );
+
+    for (const docType of documentTypes) {
+      try {
+        await this.deleteOldDocument(applicationId, docType);
+        deletedCount++;
+      } catch (error) {
+        console.warn(
+          `⚠️ Failed to delete ${docType} for application ${applicationId}:`,
+          error
+        );
+      }
+    }
+
+    console.log(
+      `✅ Cleaned up ${deletedCount}/${documentTypes.length} document types for application ${applicationId}`
+    );
+
+    return {
+      success: deletedCount > 0,
+      deletedCount,
+    };
+  }
+
+  /**
+   * Get file extension from file data
+   * @private
+   * @param {string|Object} fileData - File data
+   * @returns {string} - File extension
+   */
+  _getFileExtension(fileData) {
+    // For base64 data, extract from MIME type
+    if (typeof fileData === "string" && fileData.startsWith("data:")) {
+      const mimeType = fileData.split(";")[0].split(":")[1];
+      const extensionMap = {
+        "image/jpeg": "jpg",
+        "image/jpg": "jpg",
+        "image/png": "png",
+        "image/gif": "gif",
+        "application/pdf": "pdf",
+        "application/msword": "doc",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+          "docx",
+      };
+      return extensionMap[mimeType] || "unknown";
+    }
+
+    // For file objects
+    if (fileData && fileData.name) {
+      return fileData.name.split(".").pop().toLowerCase();
+    }
+
+    return "unknown";
   }
 
   /**
@@ -587,23 +814,44 @@ IUEA Admissions Team`;
    */
   async getApplicationsByEmail(email) {
     try {
+      console.log(
+        `🔍 ApplicationService: Getting applications for email: ${email}`
+      );
+      console.log(
+        `🔍 ApplicationService: Email toLowerCase: ${email.toLowerCase()}`
+      );
+
       const snapshot = await this.db
         .collection(this.collection)
         .where("email", "==", email.toLowerCase())
         .orderBy("submittedAt", "desc")
         .get();
 
+      console.log(
+        `📊 ApplicationService: Query returned ${snapshot.size} documents`
+      );
+
       const applications = [];
       snapshot.forEach((doc) => {
+        const data = doc.data();
+        console.log(
+          `📋 ApplicationService: Found application ${doc.id} with email ${data.email}`
+        );
         applications.push({
           id: doc.id,
-          ...doc.data(),
+          ...data,
         });
       });
 
+      console.log(
+        `✅ ApplicationService: Returning ${applications.length} applications`
+      );
       return applications;
     } catch (error) {
-      console.error("❌ Error getting applications by email:", error);
+      console.error(
+        "❌ ApplicationService: Error getting applications by email:",
+        error
+      );
       throw error;
     }
   }
@@ -630,6 +878,368 @@ IUEA Admissions Team`;
       return applications;
     } catch (error) {
       console.error("❌ Error getting applications by phone:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Update application by email and synchronize with corresponding lead
+   */
+  async updateApplicationByEmail(email, updateData) {
+    try {
+      console.log(
+        `🔍 ApplicationService: Updating application for email: ${email}`
+      );
+      console.log(
+        `🔍 ApplicationService: Update data keys:`,
+        Object.keys(updateData)
+      );
+      console.log(
+        `🔍 ApplicationService: Update data values:`,
+        Object.keys(updateData).map(
+          (key) => `${key}: ${typeof updateData[key]} = ${updateData[key]}`
+        )
+      );
+
+      // First, get the applications by email to find the most recent one
+      const applications = await this.getApplicationsByEmail(email);
+
+      if (applications.length === 0) {
+        throw new Error("No applications found for the provided email");
+      }
+
+      // Use the most recent application (first in the sorted list)
+      const latestApplication = applications[0];
+
+      // Prepare update data - only include defined values to avoid Firestore errors
+      const applicationUpdate = {};
+
+      // Add fields only if they are defined and not undefined
+      if (updateData.name !== undefined && updateData.name !== null) {
+        applicationUpdate.name = updateData.name;
+      }
+      if (updateData.email !== undefined && updateData.email !== null) {
+        applicationUpdate.email = updateData.email;
+      }
+      if (
+        updateData.phoneNumber !== undefined &&
+        updateData.phoneNumber !== null
+      ) {
+        applicationUpdate.phoneNumber = updateData.phoneNumber;
+      }
+      if (
+        updateData.countryOfBirth !== undefined &&
+        updateData.countryOfBirth !== null
+      ) {
+        applicationUpdate.countryOfBirth = updateData.countryOfBirth;
+      }
+      if (updateData.gender !== undefined && updateData.gender !== null) {
+        applicationUpdate.gender = updateData.gender;
+      }
+      if (updateData.postalAddress !== undefined) {
+        applicationUpdate.postalAddress = updateData.postalAddress || null;
+      }
+      if (
+        updateData.preferredProgram !== undefined &&
+        updateData.preferredProgram !== null
+      ) {
+        applicationUpdate.preferredProgram = updateData.preferredProgram;
+      }
+      if (
+        updateData.modeOfStudy !== undefined &&
+        updateData.modeOfStudy !== null
+      ) {
+        applicationUpdate.modeOfStudy = updateData.modeOfStudy;
+      }
+      if (
+        updateData.preferredIntake !== undefined &&
+        updateData.preferredIntake !== null
+      ) {
+        applicationUpdate.preferredIntake = updateData.preferredIntake;
+      }
+
+      // Handle optional fields - only set if explicitly provided
+      if (updateData.sponsorTelephone !== undefined) {
+        applicationUpdate.sponsorTelephone =
+          updateData.sponsorTelephone || null;
+      }
+      if (updateData.sponsorEmail !== undefined) {
+        applicationUpdate.sponsorEmail = updateData.sponsorEmail || null;
+      }
+      if (updateData.howDidYouHear !== undefined) {
+        applicationUpdate.howDidYouHear = updateData.howDidYouHear || null;
+      }
+      if (updateData.additionalNotes !== undefined) {
+        applicationUpdate.additionalNotes = updateData.additionalNotes || null;
+      }
+
+      // Always update timestamp
+      applicationUpdate.updatedAt = new Date().toISOString();
+
+      // Handle status update and other management fields
+      if (updateData.status) {
+        applicationUpdate.status = updateData.status;
+      }
+      if (updateData.statusNote) {
+        applicationUpdate.statusNote = updateData.statusNote;
+      }
+      if (updateData.notes) {
+        applicationUpdate.notes = updateData.notes;
+      }
+
+      // Handle document updates if provided - upload to Firebase Storage first
+      if (
+        updateData.passportPhoto &&
+        updateData.passportPhoto !== latestApplication.passportPhoto
+      ) {
+        console.log("📤 Uploading new passport photo to Firebase Storage...");
+        applicationUpdate.passportPhoto = await this.uploadApplicationDocument(
+          latestApplication.id,
+          "passportPhoto",
+          updateData.passportPhoto
+        );
+      }
+      if (
+        updateData.academicDocuments &&
+        updateData.academicDocuments !== latestApplication.academicDocuments
+      ) {
+        console.log(
+          "📤 Uploading new academic documents to Firebase Storage..."
+        );
+        applicationUpdate.academicDocuments =
+          await this.uploadApplicationDocument(
+            latestApplication.id,
+            "academicDocuments",
+            updateData.academicDocuments
+          );
+      }
+      if (
+        updateData.identificationDocument &&
+        updateData.identificationDocument !==
+          latestApplication.identificationDocument
+      ) {
+        console.log(
+          "📤 Uploading new identification document to Firebase Storage..."
+        );
+        applicationUpdate.identificationDocument =
+          await this.uploadApplicationDocument(
+            latestApplication.id,
+            "identificationDocument",
+            updateData.identificationDocument
+          );
+      }
+
+      // Handle timeline tracking for updates
+      let hasStatusChange = false;
+      let hasGeneralUpdate = false;
+
+      if (updateData.status && updateData.status !== latestApplication.status) {
+        hasStatusChange = true;
+        console.log(
+          `📝 Status change detected: ${latestApplication.status} → ${updateData.status}`
+        );
+      }
+
+      // Check if other important fields have changed
+      const importantFields = [
+        "name",
+        "email",
+        "phoneNumber",
+        "preferredProgram",
+        "modeOfStudy",
+      ];
+      for (const field of importantFields) {
+        if (
+          updateData[field] &&
+          updateData[field] !== latestApplication[field]
+        ) {
+          hasGeneralUpdate = true;
+          break;
+        }
+      }
+
+      // Add timeline entry based on what changed
+      const currentTimeline = latestApplication.timeline || [];
+      const now = new Date();
+
+      if (hasStatusChange) {
+        // Status change timeline entry
+        const statusTimelineEntry = {
+          date: now,
+          action: "STATUS_UPDATED",
+          status: updateData.status,
+          notes:
+            updateData.statusNote ||
+            `Status changed from ${latestApplication.status} to ${updateData.status}`,
+          updatedBy: updateData.updatedBy || null,
+          previousStatus: latestApplication.status,
+        };
+        applicationUpdate.timeline = [...currentTimeline, statusTimelineEntry];
+        applicationUpdate.lastUpdatedBy = updateData.updatedBy || null;
+      } else if (hasGeneralUpdate) {
+        // General update timeline entry
+        const updateTimelineEntry = {
+          date: now,
+          action: "APPLICATION_UPDATED",
+          status: latestApplication.status,
+          notes: "Application information updated",
+          updatedBy: updateData.updatedBy || null,
+        };
+        applicationUpdate.timeline = [...currentTimeline, updateTimelineEntry];
+        applicationUpdate.lastUpdatedBy = updateData.updatedBy || null;
+      }
+
+      // Debug: Log the final update object
+      console.log(
+        `🔍 Final applicationUpdate object:`,
+        JSON.stringify(applicationUpdate, null, 2)
+      );
+      console.log(`🔍 ApplicationUpdate keys:`, Object.keys(applicationUpdate));
+      console.log(
+        `🔍 Checking for undefined values:`,
+        Object.keys(applicationUpdate).filter(
+          (key) => applicationUpdate[key] === undefined
+        )
+      );
+
+      // Update the application document
+      await this.db
+        .collection(this.collection)
+        .doc(latestApplication.id)
+        .update(applicationUpdate);
+
+      console.log(
+        `✅ ApplicationService: Successfully updated application ${latestApplication.id} for email: ${email}`
+      );
+
+      // Synchronize lead if status was updated and leadId exists
+      if (updateData.status && latestApplication.leadId) {
+        try {
+          console.log(
+            `🔄 Synchronizing lead ${latestApplication.leadId} status to match application status: ${updateData.status}`
+          );
+
+          // Also sync shared fields like name, email, phone, program
+          const leadUpdateData = {
+            status: updateData.status,
+          };
+
+          // Sync shared fields
+          if (updateData.name) {
+            leadUpdateData.name = updateData.name;
+          }
+          if (updateData.email) {
+            leadUpdateData.email = updateData.email;
+          }
+          if (updateData.phoneNumber) {
+            leadUpdateData.phone = updateData.phoneNumber;
+            leadUpdateData.whatsappNumber = updateData.phoneNumber;
+          }
+          if (updateData.preferredProgram) {
+            leadUpdateData.program = {
+              code: updateData.preferredProgram,
+              name: this._getProgramName(updateData.preferredProgram),
+            };
+          }
+
+          // Update lead status and shared fields
+          await this.leadService.updateLeadStatus(
+            latestApplication.leadId,
+            updateData.status,
+            updateData.statusNote ||
+              `Application status updated to ${updateData.status}`,
+            "APPLICATION_SERVICE"
+          );
+
+          // Update additional lead fields if any changed
+          if (Object.keys(leadUpdateData).length > 1) {
+            // More than just status
+            await this.leadService.updateLead(
+              latestApplication.leadId,
+              leadUpdateData
+            );
+          }
+
+          console.log(
+            `✅ Lead ${latestApplication.leadId} synchronized with application ${latestApplication.id}`
+          );
+        } catch (leadError) {
+          console.error(
+            `⚠️ Failed to synchronize lead for application ${latestApplication.id}:`,
+            leadError
+          );
+          // Don't throw error here as application update was successful
+        }
+      }
+
+      // Return the updated application
+      return {
+        id: latestApplication.id,
+        ...latestApplication,
+        ...applicationUpdate,
+      };
+    } catch (error) {
+      console.error(
+        "❌ ApplicationService: Error updating application by email:",
+        error
+      );
+      throw error;
+    }
+  }
+
+  /**
+   * Get application document by email and document type
+   */
+  async getApplicationDocumentByEmail(email, documentType) {
+    try {
+      console.log(
+        `🔍 ApplicationService: Getting ${documentType} document for email: ${email}`
+      );
+
+      // First, get the applications by email
+      const applications = await this.getApplicationsByEmail(email);
+
+      if (applications.length === 0) {
+        throw new Error("No applications found for the provided email");
+      }
+
+      // Use the most recent application (first in the sorted list)
+      const latestApplication = applications[0];
+
+      // Map document types to application fields
+      const documentFields = {
+        passportPhoto: "passportPhoto",
+        academicDocuments: "academicDocuments",
+        identificationDocument: "identificationDocument",
+        idDocument: "identificationDocument", // Alternative name
+      };
+
+      const fieldName = documentFields[documentType];
+      if (!fieldName) {
+        throw new Error(`Invalid document type: ${documentType}`);
+      }
+
+      const documentData = latestApplication[fieldName];
+      if (!documentData) {
+        throw new Error(`No ${documentType} found for this application`);
+      }
+
+      console.log(
+        `✅ ApplicationService: Found ${documentType} document for email: ${email}`
+      );
+
+      return {
+        documentType,
+        data: documentData,
+        applicationId: latestApplication.id,
+        email: latestApplication.email,
+        name: latestApplication.name,
+      };
+    } catch (error) {
+      console.error(
+        `❌ ApplicationService: Error getting ${documentType} document by email:`,
+        error
+      );
       throw error;
     }
   }
@@ -680,7 +1290,7 @@ IUEA Admissions Team`;
   }
 
   /**
-   * Update application status
+   * Update application status and synchronize with corresponding lead
    */
   async updateApplicationStatus(
     applicationId,
@@ -701,6 +1311,7 @@ IUEA Admissions Team`;
         updatedBy
       );
 
+      // Update application in database
       await this.db
         .collection(this.collection)
         .doc(applicationId)
@@ -709,6 +1320,38 @@ IUEA Admissions Team`;
       console.log(
         `✅ Application ${applicationId} status updated to ${newStatus}`
       );
+
+      // Synchronize lead status if leadId exists
+      if (application.leadId) {
+        try {
+          console.log(
+            `🔄 Synchronizing lead ${application.leadId} status to match application status: ${newStatus}`
+          );
+
+          // Update the corresponding lead status to match the application status
+          await this.leadService.updateLeadStatus(
+            application.leadId,
+            newStatus,
+            notes || `Application status updated to ${newStatus}`,
+            updatedBy || "APPLICATION_SERVICE"
+          );
+
+          console.log(
+            `✅ Lead ${application.leadId} status synchronized with application ${applicationId}`
+          );
+        } catch (leadError) {
+          console.error(
+            `⚠️ Failed to synchronize lead status for application ${applicationId}:`,
+            leadError
+          );
+          // Don't throw error here as application update was successful
+          // We just log the warning that lead sync failed
+        }
+      } else {
+        console.log(
+          `⚠️ No leadId found for application ${applicationId}, skipping lead status synchronization`
+        );
+      }
 
       return {
         id: applicationId,

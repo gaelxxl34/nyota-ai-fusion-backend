@@ -14,62 +14,44 @@ const DEPRECATED_QUALIFICATION_RULES = {
   PRE_QUALIFIED_INTERACTION_THRESHOLD: 3,
   QUALIFYING_INTERACTION_TYPES: ["WHATSAPP", "EMAIL", "PHONE", "MEETING"],
   ELIGIBLE_STATUSES_FOR_AUTO_QUALIFICATION: [
-    LEAD_STATUSES.INQUIRY,
-    LEAD_STATUSES.CONTACTED,
-    LEAD_STATUSES.NURTURE,
+    LEAD_STATUSES.INTERESTED,
+    LEAD_STATUSES.APPLIED,
+    LEAD_STATUSES.IN_REVIEW,
   ],
 };
 
-// Status transition rules - simple array of allowed next statuses
-// Allow more flexible transitions while maintaining logical flow
+// Status transition rules - Updated for new streamlined funnel
+// INTERESTED → APPLIED → IN_REVIEW → QUALIFIED → ADMITTED → ENROLLED
 const STATUS_TRANSITIONS = {
-  // Keep INQUIRY transitions for backwards compatibility
-  [LEAD_STATUSES.INQUIRY]: [
-    LEAD_STATUSES.CONTACTED,
-    LEAD_STATUSES.PRE_QUALIFIED,
+  [LEAD_STATUSES.INTERESTED]: [
     LEAD_STATUSES.APPLIED,
-    LEAD_STATUSES.NURTURE,
-    LEAD_STATUSES.REJECTED,
-    LEAD_STATUSES.ADMITTED, // Allow direct admission for special cases
-  ],
-  [LEAD_STATUSES.CONTACTED]: [
-    LEAD_STATUSES.PRE_QUALIFIED,
-    LEAD_STATUSES.APPLIED,
-    LEAD_STATUSES.QUALIFIED,
-    LEAD_STATUSES.NURTURE,
-    LEAD_STATUSES.REJECTED,
-    LEAD_STATUSES.ADMITTED, // Allow direct admission for special cases
-  ],
-  [LEAD_STATUSES.PRE_QUALIFIED]: [
-    LEAD_STATUSES.APPLIED,
-    LEAD_STATUSES.QUALIFIED,
-    LEAD_STATUSES.NURTURE,
-    LEAD_STATUSES.REJECTED,
-    LEAD_STATUSES.ADMITTED, // Allow direct admission
-    LEAD_STATUSES.ENROLLED, // Allow direct enrollment for special cases
+    LEAD_STATUSES.IN_REVIEW, // Allow direct review for special cases
+    LEAD_STATUSES.QUALIFIED, // Allow direct qualification for special cases
   ],
   [LEAD_STATUSES.APPLIED]: [
+    LEAD_STATUSES.IN_REVIEW,
+    LEAD_STATUSES.QUALIFIED, // Allow direct qualification for special cases
+  ],
+  [LEAD_STATUSES.IN_REVIEW]: [
     LEAD_STATUSES.QUALIFIED,
-    LEAD_STATUSES.ADMITTED,
-    LEAD_STATUSES.REJECTED,
-    LEAD_STATUSES.ENROLLED, // Allow direct enrollment for special cases
+    LEAD_STATUSES.ADMITTED, // Allow direct admission for special cases
+    LEAD_STATUSES.APPLIED, // Allow back to applied if needed
   ],
   [LEAD_STATUSES.QUALIFIED]: [
     LEAD_STATUSES.ADMITTED,
-    LEAD_STATUSES.ENROLLED,
-    LEAD_STATUSES.REJECTED,
+    LEAD_STATUSES.ENROLLED, // Allow direct enrollment for special cases
   ],
-  [LEAD_STATUSES.ADMITTED]: [LEAD_STATUSES.ENROLLED, LEAD_STATUSES.REJECTED],
+  [LEAD_STATUSES.ADMITTED]: [LEAD_STATUSES.ENROLLED],
   // Terminal statuses
   [LEAD_STATUSES.ENROLLED]: [], // Final success state
-  [LEAD_STATUSES.REJECTED]: [], // Final rejection state
-  [LEAD_STATUSES.NURTURE]: [
-    LEAD_STATUSES.PRE_QUALIFIED,
-    LEAD_STATUSES.APPLIED,
-    LEAD_STATUSES.QUALIFIED,
-    LEAD_STATUSES.REJECTED,
-    LEAD_STATUSES.ADMITTED, // Allow direct admission from nurture
-  ], // Can re-engage
+  [LEAD_STATUSES.DEFERRED]: [
+    LEAD_STATUSES.APPLIED, // Can reapply
+    LEAD_STATUSES.IN_REVIEW, // Can go back to review
+  ],
+  [LEAD_STATUSES.EXPIRED]: [
+    LEAD_STATUSES.INTERESTED, // Can restart the process
+    LEAD_STATUSES.APPLIED, // Can reapply
+  ],
 };
 
 /**
@@ -81,8 +63,8 @@ class LeadModel {
    * Ensures status field and timeline are synchronized
    */
   static createLead(contactInfo, source = null) {
-    // Determine the initial status (use provided status or default to CONTACTED)
-    const initialStatus = contactInfo.status || LEAD_STATUSES.CONTACTED;
+    // Determine the initial status (use provided status or default to INTERESTED)
+    const initialStatus = contactInfo.status || LEAD_STATUSES.INTERESTED;
 
     // Create the initial timeline entry with reliable date object
     const now = new Date();
@@ -191,7 +173,7 @@ class LeadModel {
         !Array.isArray(leadData.timeline) ||
         leadData.timeline.length === 0
       ) {
-        return leadData?.status || LEAD_STATUSES.CONTACTED;
+        return leadData?.status || LEAD_STATUSES.INTERESTED;
       }
 
       // Create a copy of the timeline to avoid mutating the original
@@ -224,11 +206,11 @@ class LeadModel {
       }
 
       return (
-        latestStatusEntry?.status || leadData.status || LEAD_STATUSES.CONTACTED
+        latestStatusEntry?.status || leadData.status || LEAD_STATUSES.INTERESTED
       );
     } catch (error) {
       console.error("❌ Error getting current status from timeline:", error);
-      return leadData?.status || LEAD_STATUSES.CONTACTED;
+      return leadData?.status || LEAD_STATUSES.INTERESTED;
     }
   }
 

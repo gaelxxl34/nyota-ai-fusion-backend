@@ -21,6 +21,57 @@ router.get("/test", (req, res) => {
 });
 
 /**
+ * @route   GET /api/analytics/funnel-stats
+ * @desc    Get lead funnel statistics for the new streamlined funnel
+ * @access  Private - Requires authentication
+ * @query   timeRange - 'daily', 'weekly', or 'monthly'
+ */
+router.get(
+  "/funnel-stats",
+  authenticateUser,
+  requirePermission(PERMISSIONS.ANALYTICS),
+  async (req, res) => {
+    try {
+      console.log("=== ANALYTICS FUNNEL STATS ENDPOINT HIT ===");
+      const { timeRange = "daily" } = req.query;
+
+      // Extract organizationId and role from user object
+      const organizationId =
+        req.user?.organizationId || req.user?.orgId || "iuea";
+      const userRole = req.user?.role || req.user?.jobRole;
+
+      console.log("Funnel stats request:", {
+        timeRange,
+        organizationId,
+        userRole,
+        user: req.user?.email,
+      });
+
+      logger.info(
+        `Fetching funnel stats for org: ${organizationId}, timeRange: ${timeRange}, role: ${userRole}`
+      );
+
+      const funnelStats = await analyticsService.getFunnelStats(
+        timeRange,
+        userRole
+      );
+
+      res.json({
+        success: true,
+        data: funnelStats,
+      });
+    } catch (error) {
+      logger.error("Error fetching funnel stats:", error);
+      res.status(500).json({
+        success: false,
+        message: "Failed to fetch funnel stats",
+        error: error.message,
+      });
+    }
+  }
+);
+
+/**
  * @route   GET /api/analytics/overview
  * @desc    Get analytics overview with status counts and trends
  * @access  Private - Requires authentication
@@ -269,6 +320,54 @@ router.get(
       res.status(500).json({
         success: false,
         message: "Failed to export analytics data",
+        error: error.message,
+      });
+    }
+  }
+);
+
+/**
+ * @route   GET /api/analytics/admission-dashboard
+ * @desc    Get comprehensive analytics for admission admin dashboard
+ * @access  Private - Admission Admin only
+ * @query   timeRange - 'daily', 'weekly', or 'monthly'
+ */
+router.get(
+  "/admission-dashboard",
+  authenticateUser,
+  requirePermission(PERMISSIONS.ANALYTICS),
+  async (req, res) => {
+    try {
+      console.log("=== ADMISSION DASHBOARD ANALYTICS ENDPOINT HIT ===");
+      const { timeRange = "weekly" } = req.query;
+      const userRole = req.user?.role || req.user?.jobRole;
+
+      // Verify user is admission admin
+      if (userRole !== "admissionAdmin") {
+        return res.status(403).json({
+          success: false,
+          message: "Access denied. Admission Admin role required.",
+        });
+      }
+
+      logger.info(
+        `Fetching admission dashboard analytics for timeRange: ${timeRange}, userRole: ${userRole}`
+      );
+
+      const dashboardData = await analyticsService.getAdmissionDashboardData(
+        timeRange,
+        userRole
+      );
+
+      res.json({
+        success: true,
+        data: dashboardData,
+      });
+    } catch (error) {
+      logger.error("Error fetching admission dashboard data:", error);
+      res.status(500).json({
+        success: false,
+        message: "Failed to fetch admission dashboard data",
         error: error.message,
       });
     }

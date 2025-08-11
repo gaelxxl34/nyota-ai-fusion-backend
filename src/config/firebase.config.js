@@ -37,6 +37,7 @@ const initializeFirebase = () => {
         firebaseApp = admin.initializeApp({
           credential: admin.credential.cert(serviceAccount),
           projectId: serviceAccount.project_id,
+          storageBucket: `${serviceAccount.project_id}.appspot.com`,
         });
       } catch (parseError) {
         console.error(
@@ -70,6 +71,7 @@ const initializeFirebase = () => {
           clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
           privateKey,
         }),
+        storageBucket: `${process.env.FIREBASE_PROJECT_ID}.appspot.com`,
       });
     }
 

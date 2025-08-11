@@ -6,17 +6,14 @@
 // Lead Status Constants - Aligned with conversion funnel
 const LEAD_STATUSES = {
   // Main funnel stages
-  INQUIRY: "INQUIRY", // Initial inquiry/lead capture
-  CONTACTED: "CONTACTED", // First contact made
-  PRE_QUALIFIED: "PRE_QUALIFIED", // Interested/Pre-qualified
+  INTERESTED: "INTERESTED", // Initial inquiry/lead capture
   APPLIED: "APPLIED", // Application submitted
+  IN_REVIEW: "IN_REVIEW", // Application being reviewed
   QUALIFIED: "QUALIFIED", // Meets all requirements
   ADMITTED: "ADMITTED", // Officially admitted
   ENROLLED: "ENROLLED", // Successfully enrolled
-
-  // Additional statuses for lead management
-  NURTURE: "NURTURE", // In nurturing process
-  REJECTED: "REJECTED", // Application rejected
+  DEFERRED: "DEFERRED", // Application deferred
+  EXPIRED: "EXPIRED", // Application expired
 };
 
 // Lead Source Constants
@@ -36,6 +33,8 @@ const LEAD_SOURCES = {
   MANUAL: "MANUAL",
   SOCIAL_MEDIA: "SOCIAL_MEDIA",
   EVENT: "EVENT",
+  STUDENT_PORTAL: "STUDENT_PORTAL",
+  APPLICANT_PORTAL: "APPLICANT_PORTAL",
   OTHER: "OTHER",
 };
 

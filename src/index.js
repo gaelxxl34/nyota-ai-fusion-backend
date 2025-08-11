@@ -73,15 +73,15 @@ function startServer() {
   // File upload middleware
   app.use(
     fileUpload({
-      limits: { fileSize: 50 * 1024 * 1024 }, // 50MB limit
+      limits: { fileSize: 500 * 1024 * 1024 }, // 500MB limit
       useTempFiles: true,
       tempFileDir: "/tmp/",
       debug: process.env.NODE_ENV === "development",
     })
   );
   // Ensure JSON and URL-encoded middleware are configured correctly for webhooks
-  app.use(express.json({ limit: "50mb", strict: false })); // Use strict:false to accept malformed JSON
-  app.use(express.urlencoded({ extended: true, limit: "50mb" }));
+  app.use(express.json({ limit: "500mb", strict: false })); // Use strict:false to accept malformed JSON
+  app.use(express.urlencoded({ extended: true, limit: "500mb" }));
 
   // Production logging middleware - only log in development
   if (process.env.NODE_ENV === "development") {
@@ -178,6 +178,7 @@ function startServer() {
     const LeadService = require("./services/leadService");
     const WhatsAppMessageService = require("./services/whatsappMessageService"); // Now returns the class, not an instance
     const ConversationService = require("./services/conversationService");
+    const StorageService = require("./services/storageService");
 
     // Initialize services
     const db = getFirestore();
@@ -188,8 +189,14 @@ function startServer() {
       leadService,
       conversationService
     );
+    const storageService = new StorageService();
 
-    initializeApplicationService(db, leadService, whatsappMessageService);
+    initializeApplicationService(
+      db,
+      leadService,
+      whatsappMessageService,
+      storageService
+    );
 
     app.use("/api/applications", applicationRoutes);
     console.log("✅ Application management routes loaded");
