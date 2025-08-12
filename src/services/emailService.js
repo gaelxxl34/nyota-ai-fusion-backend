@@ -9,72 +9,180 @@ class EmailService {
 
   initializeTransporter() {
     try {
-      this.transporter = nodemailer.createTransport({
+      // Primary configuration with extended timeouts for production
+      const primaryConfig = {
         service: "gmail",
         host: "smtp.gmail.com",
         port: 587,
         secure: false, // true for 465, false for other ports
         auth: {
-          user: process.env.EMAIL_USER, // your iuea.ac.ug email
-          pass: process.env.EMAIL_APP_PASSWORD, // App password from Google
+          user: process.env.EMAIL_USER,
+          pass: process.env.EMAIL_APP_PASSWORD,
         },
         tls: {
           rejectUnauthorized: false,
         },
+        // Extended timeouts for production environments
+        connectionTimeout: 60000, // 60 seconds
+        socketTimeout: 60000, // 60 seconds
+        greetingTimeout: 30000, // 30 seconds
+        // Connection pool settings
+        pool: true,
+        maxConnections: 5,
+        maxMessages: 100,
+        // Retry settings
+        retry: {
+          attempts: 3,
+          delay: 3000,
+        },
+      };
+
+      // Fallback configuration using port 465 (SSL)
+      this.fallbackConfig = {
+        service: "gmail",
+        host: "smtp.gmail.com",
+        port: 465,
+        secure: true, // true for 465, false for other ports
+        auth: {
+          user: process.env.EMAIL_USER,
+          pass: process.env.EMAIL_APP_PASSWORD,
+        },
+        tls: {
+          rejectUnauthorized: false,
+        },
+        connectionTimeout: 60000,
+        socketTimeout: 60000,
+        greetingTimeout: 30000,
+        pool: true,
+        maxConnections: 5,
+        maxMessages: 100,
+      };
+
+      this.transporter = nodemailer.createTransport(primaryConfig);
+
+      // Verify connection configuration with timeout
+      const verifyPromise = new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          reject(new Error("Connection verification timeout"));
+        }, 30000); // 30 second timeout
+
+        this.transporter.verify((error, success) => {
+          clearTimeout(timeout);
+          if (error) {
+            reject(error);
+          } else {
+            resolve(success);
+          }
+        });
       });
 
-      // Verify connection configuration
-      this.transporter.verify((error, success) => {
-        if (error) {
-          logger.error("Email service connection failed:", error);
-        } else {
-          logger.info("Email service ready to send messages");
-        }
-      });
+      verifyPromise
+        .then(() => {
+          logger.info("Email service ready to send messages (Primary config)");
+        })
+        .catch((error) => {
+          logger.error(
+            "Primary email service connection failed, will use fallback:",
+            error
+          );
+          // Don't immediately switch to fallback, let individual sends handle it
+        });
     } catch (error) {
       logger.error("Failed to initialize email transporter:", error);
     }
   }
 
   async sendEmail(emailOptions) {
-    try {
-      const {
-        to,
-        subject,
-        text,
-        html,
-        attachments = [],
-        cc,
-        bcc,
-      } = emailOptions;
+    const maxRetries = 3;
+    let lastError;
 
-      const mailOptions = {
-        from: {
-          name: "IUEA Nyota AI System",
-          address: process.env.EMAIL_USER,
-        },
-        to,
-        subject,
-        text,
-        html,
-        attachments,
-        cc,
-        bcc,
-      };
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        const {
+          to,
+          subject,
+          text,
+          html,
+          attachments = [],
+          cc,
+          bcc,
+        } = emailOptions;
 
-      const result = await this.transporter.sendMail(mailOptions);
-      logger.info(`Email sent successfully to ${to}`, {
-        messageId: result.messageId,
-      });
-      return {
-        success: true,
-        messageId: result.messageId,
-        response: result.response,
-      };
-    } catch (error) {
-      logger.error("Failed to send email:", error);
-      throw new Error(`Email sending failed: ${error.message}`);
+        const mailOptions = {
+          from: {
+            name: "IUEA Nyota AI System",
+            address: process.env.EMAIL_USER,
+          },
+          to,
+          subject,
+          text,
+          html,
+          attachments,
+          cc,
+          bcc,
+        };
+
+        logger.info(
+          `Attempting to send email (attempt ${attempt}/${maxRetries}) to ${to}`
+        );
+
+        // Add timeout to the send operation
+        const sendPromise = this.transporter.sendMail(mailOptions);
+        const timeoutPromise = new Promise((_, reject) => {
+          setTimeout(
+            () => reject(new Error("Email send operation timeout")),
+            45000
+          ); // 45 second timeout
+        });
+
+        const result = await Promise.race([sendPromise, timeoutPromise]);
+
+        logger.info(`Email sent successfully to ${to} on attempt ${attempt}`, {
+          messageId: result.messageId,
+        });
+
+        return {
+          success: true,
+          messageId: result.messageId,
+          response: result.response,
+        };
+      } catch (error) {
+        lastError = error;
+        logger.error(`Email send attempt ${attempt} failed:`, error);
+
+        // If this is a connection timeout or connection error, try fallback config
+        if (
+          (error.code === "ETIMEDOUT" ||
+            error.code === "ECONNECTION" ||
+            error.message.includes("timeout")) &&
+          attempt === 2
+        ) {
+          logger.info("Switching to fallback email configuration (port 465)");
+          try {
+            this.transporter = nodemailer.createTransport(this.fallbackConfig);
+          } catch (fallbackError) {
+            logger.error(
+              "Failed to switch to fallback configuration:",
+              fallbackError
+            );
+          }
+        }
+
+        // If this is the last attempt, throw the error
+        if (attempt === maxRetries) {
+          break;
+        }
+
+        // Wait before retrying (exponential backoff)
+        const delay = Math.pow(2, attempt) * 1000; // 2s, 4s, 8s
+        logger.info(`Waiting ${delay}ms before retry...`);
+        await new Promise((resolve) => setTimeout(resolve, delay));
+      }
     }
+
+    throw new Error(
+      `Email sending failed after ${maxRetries} attempts: ${lastError.message}`
+    );
   }
 
   // Predefined email templates for common notifications
