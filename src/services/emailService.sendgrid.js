@@ -132,7 +132,7 @@ class SendGridEmailService {
               <p style="margin: 10px 0 0 0;">Log in to your account and start exploring the AI-powered features designed to support your academic success.</p>
             </div>
             <div style="text-align: center; margin: 30px 0;">
-              <a href="https://applicant.iuea.ac.ug/" style="background-color: #7a0000; color: white; padding: 15px 30px; text-decoration: none; border-radius: 5px; font-size: 16px; font-weight: bold; display: inline-block;">Access Student Portal</a>
+              <a href="https://applicant.iuea.ac.ug/" style="background-color: #7a0000; color: white; padding: 15px 30px; text-decoration: none; border-radius: 5px; font-size: 16px; font-weight: bold; display: inline-block;">Access Application Portal</a>
             </div>
             <p style="font-size: 16px;">If you have any questions or need assistance, feel free to reach out to our support team at <a href="mailto:info@iuea.ac.ug" style="color: #7a0000;">info@iuea.ac.ug</a>.</p>
             <br>
@@ -157,7 +157,7 @@ You can now access the system and explore its features to enhance your education
 What's Next?
 Log in to your account and start exploring the AI-powered features designed to support your academic success.
 
-You can access your student portal at: https://applicant.iuea.ac.ug/
+You can access your application portal at: https://applicant.iuea.ac.ug/
 
 If you have any questions or need assistance, feel free to reach out to our support team at info@iuea.ac.ug.
 
@@ -204,8 +204,8 @@ International University of East Africa`,
             <p style="font-size: 16px;">If you didn't request this password reset, please ignore this email and your password will remain unchanged.</p>
             <div style="text-align: center; margin: 30px 0; padding: 20px; background-color: #f8f9fa; border-left: 4px solid #7a0000; border-radius: 5px;">
               <p style="margin: 0; font-size: 16px; font-weight: bold; color: #7a0000;">Need to access your portal?</p>
-              <p style="margin: 10px 0;">Visit our student portal at:</p>
-              <a href="https://applicant.iuea.ac.ug/" style="background-color: #7a0000; color: white; padding: 12px 25px; text-decoration: none; border-radius: 5px; font-size: 16px; font-weight: bold; display: inline-block;">Student Portal</a>
+              <p style="margin: 10px 0;">Visit our application portal at:</p>
+              <a href="https://applicant.iuea.ac.ug/" style="background-color: #7a0000; color: white; padding: 12px 25px; text-decoration: none; border-radius: 5px; font-size: 16px; font-weight: bold; display: inline-block;">Application Portal</a>
             </div>
             <p style="font-size: 16px;">For any assistance, contact us at <a href="mailto:info@iuea.ac.ug" style="color: #7a0000;">info@iuea.ac.ug</a>.</p>
             <br>
@@ -231,7 +231,7 @@ Security Notice: This link will expire in 1 hour for security reasons.
 
 If you didn't request this password reset, please ignore this email and your password will remain unchanged.
 
-You can access your student portal at: https://applicant.iuea.ac.ug/
+You can access your application portal at: https://applicant.iuea.ac.ug/
 
 For any assistance, contact us at info@iuea.ac.ug.
 
@@ -294,8 +294,8 @@ International University of East Africa`,
             }
             <div style="text-align: center; margin: 30px 0; padding: 20px; background-color: #f8f9fa; border-left: 4px solid #7a0000; border-radius: 5px;">
               <p style="margin: 0; font-size: 16px; font-weight: bold; color: #7a0000;">Track Your Application</p>
-              <p style="margin: 10px 0;">Check your application status and updates in our student portal:</p>
-              <a href="https://applicant.iuea.ac.ug/" style="background-color: #7a0000; color: white; padding: 15px 30px; text-decoration: none; border-radius: 5px; font-size: 16px; font-weight: bold; display: inline-block;">Student Portal</a>
+              <p style="margin: 10px 0;">Check your application status and updates in our application portal:</p>
+              <a href="https://applicant.iuea.ac.ug/" style="background-color: #7a0000; color: white; padding: 15px 30px; text-decoration: none; border-radius: 5px; font-size: 16px; font-weight: bold; display: inline-block;">Application Portal</a>
             </div>
             <p style="font-size: 16px;">If you have any questions about your application status, please don't hesitate to contact our admissions office at <a href="mailto:info@iuea.ac.ug" style="color: #7a0000;">info@iuea.ac.ug</a> or call us at +256 414 373 747.</p>
             <br>
@@ -312,7 +312,7 @@ International University of East Africa`,
           : ""
       }If you have any questions about your application status, please don't hesitate to contact our admissions office.
 
-You can also track your application status at our student portal: https://applicant.iuea.ac.ug/
+You can also track your application status at our application portal: https://applicant.iuea.ac.ug/
 
 Best regards,\nIUEA Admissions Team`,
     };
