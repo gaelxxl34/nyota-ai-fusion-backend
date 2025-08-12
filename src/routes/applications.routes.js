@@ -127,6 +127,127 @@ router.post("/submit-manual", ensureApplicationService, async (req, res) => {
       });
     }
 
+    // Handle file uploads if available
+    const files = {};
+    if (req.files) {
+      console.log(
+        "Files received in manual submission:",
+        Object.keys(req.files)
+      );
+
+      // Process each uploaded file
+      for (const fieldName in req.files) {
+        const file = req.files[fieldName];
+        console.log(
+          `Processing file upload for field: ${fieldName}`,
+          file.name
+        );
+
+        try {
+          // Upload file to Firebase Storage using the document upload method
+          const documentType =
+            fieldName === "passportPhoto"
+              ? "passportPhoto"
+              : fieldName === "academicDocuments"
+              ? "academicDocuments"
+              : fieldName === "idDocument" ||
+                fieldName === "identificationDocuments"
+              ? "identificationDocument"
+              : fieldName;
+
+          // Generate a temporary ID for the application (will be replaced with real ID after creation)
+          const tempId = `temp_${Date.now()}_${Math.random()
+            .toString(36)
+            .substr(2, 9)}`;
+
+          // Upload to Firebase Storage and get public URL
+          const publicUrl = await applicationService.uploadApplicationDocument(
+            tempId,
+            documentType,
+            file
+          );
+
+          console.log(
+            `File uploaded successfully to Firebase Storage. Field: ${fieldName}, URL: ${publicUrl}`
+          );
+
+          // Add the public URL to application data
+          files[fieldName] = publicUrl;
+        } catch (fileError) {
+          console.error(`Error uploading file for ${fieldName}:`, fileError);
+          return res.status(500).json({
+            success: false,
+            error: `File upload failed for ${fieldName}: ${fileError.message}`,
+          });
+        }
+      }
+
+      // Merge file data with application data
+      Object.assign(applicationData, files);
+    }
+
+    // Check for base64 document data in the request body and convert them to Firebase Storage URLs
+    const documentFields = [
+      "passportPhoto",
+      "academicDocuments",
+      "idDocument",
+      "identificationDocuments",
+      "identificationDocument",
+    ];
+    for (const field of documentFields) {
+      if (
+        applicationData[field] &&
+        typeof applicationData[field] === "string" &&
+        applicationData[field].startsWith("data:")
+      ) {
+        console.log(
+          `Found base64 data for ${field}, uploading to Firebase Storage...`
+        );
+        try {
+          // Convert base64 to file-like object and upload to Firebase Storage
+          const base64Data = applicationData[field];
+          const tempId = `temp_${Date.now()}_${Math.random()
+            .toString(36)
+            .substr(2, 9)}`;
+
+          // Create a temporary file object from base64
+          const base64Parts = base64Data.split(",");
+          const mimeType = base64Parts[0].match(/:(.*?);/)[1];
+          const base64Content = base64Parts[1];
+          const buffer = Buffer.from(base64Content, "base64");
+
+          const tempFile = {
+            data: buffer,
+            name: `${field}_${Date.now()}.${mimeType.split("/")[1]}`,
+            mimetype: mimeType,
+            size: buffer.length,
+          };
+
+          const documentType =
+            field === "identificationDocuments" || field === "idDocument"
+              ? "identificationDocument"
+              : field;
+
+          const publicUrl = await applicationService.uploadApplicationDocument(
+            tempId,
+            documentType,
+            tempFile
+          );
+
+          console.log(
+            `Base64 ${field} uploaded to Firebase Storage: ${publicUrl}`
+          );
+          applicationData[field] = publicUrl;
+        } catch (uploadError) {
+          console.error(`Error uploading base64 ${field}:`, uploadError);
+          return res.status(500).json({
+            success: false,
+            error: `Failed to upload ${field}: ${uploadError.message}`,
+          });
+        }
+      }
+    }
+
     // If submittedBy is included in the request, use it
     // Otherwise, try to use the authenticated user info from the middleware
     const submitterInfo =

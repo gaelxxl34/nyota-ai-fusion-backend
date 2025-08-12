@@ -25,6 +25,18 @@ class ApplicationEmailService {
       } = applicationData;
 
       const statusMessages = {
+        applied: {
+          subject: "Application Received - Thank You for Applying!",
+          message:
+            "Thank you for applying! Your application has been received and is being processed.",
+          style: "background-color: #007bff; color: white;",
+        },
+        APPLIED: {
+          subject: "Application Received - Thank You for Applying!",
+          message:
+            "Thank you for applying! Your application has been received and is being processed.",
+          style: "background-color: #007bff; color: white;",
+        },
         IN_REVIEW: {
           subject: "Application Received - Under Review",
           message:

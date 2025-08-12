@@ -1662,11 +1662,42 @@ IUEA Admissions Team`;
         ...applicationDoc,
       };
 
-      // 6. No WhatsApp message for manual applications
+      // 6. Send email notification for manual application
+      try {
+        const applicationEmailService = require("./applicationEmailService");
+
+        console.log(
+          `📧 Sending email notification for manual application to ${applicationData.email}`
+        );
+
+        await applicationEmailService.sendStatusChangeNotification({
+          applicantEmail: applicationData.email,
+          applicantName: applicationData.name,
+          courseName:
+            this._getProgramName(applicationData.preferredProgram) ||
+            "Your Application",
+          status: "applied",
+          additionalInfo:
+            "Thank you for applying! Your application has been received and is being processed. You will receive updates on your application status via email.",
+        });
+
+        console.log(
+          `✅ Email notification sent successfully to ${applicationData.email}`
+        );
+      } catch (emailError) {
+        console.error(
+          "❌ Failed to send email notification for manual application:",
+          emailError
+        );
+        // Don't fail the application submission if email fails
+      }
+
+      // 7. No WhatsApp message for manual applications
       return {
         application: savedApplication,
         lead,
         whatsappResult: { skipped: true, reason: "Manual application" },
+        emailSent: true,
       };
     } catch (error) {
       console.error("❌ Error submitting manual application:", error);
