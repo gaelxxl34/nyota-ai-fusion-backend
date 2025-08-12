@@ -48,7 +48,12 @@ class SendGridEmailService {
       console.log(`📧 SendGrid: From: noreply@iuea.app`);
 
       if (!this.isInitialized || !this.sgMail) {
-        throw new Error("SendGrid is not properly initialized");
+        return {
+          success: false,
+          error: "SendGrid is not properly initialized",
+          provider: "sendgrid",
+          skipped: true,
+        };
       }
 
       const msg = {
@@ -71,14 +76,31 @@ class SendGridEmailService {
         `📧 SendGrid: Message ID: ${result[0]?.headers?.["x-message-id"]}`
       );
 
-      return result;
+      // Return standardized response
+      return {
+        success: true,
+        messageId: result[0]?.headers?.["x-message-id"],
+        provider: "sendgrid",
+        statusCode: result[0]?.statusCode,
+        skipped: false,
+        rawResult: result,
+      };
     } catch (error) {
       console.error("❌ SendGrid email error:", error.message);
       if (error.response) {
         console.error("❌ SendGrid error response:", error.response.body);
         console.error("❌ SendGrid error status:", error.response.status);
       }
-      throw error;
+
+      // Return standardized error response
+      return {
+        success: false,
+        error: error.message,
+        provider: "sendgrid",
+        skipped: false,
+        statusCode: error.response?.status,
+        rawError: error,
+      };
     }
   }
 
@@ -109,6 +131,9 @@ class SendGridEmailService {
               <p style="margin: 0; font-size: 16px; font-weight: bold; color: #7a0000;">What's Next?</p>
               <p style="margin: 10px 0 0 0;">Log in to your account and start exploring the AI-powered features designed to support your academic success.</p>
             </div>
+            <div style="text-align: center; margin: 30px 0;">
+              <a href="https://applicant.iuea.ac.ug/" style="background-color: #7a0000; color: white; padding: 15px 30px; text-decoration: none; border-radius: 5px; font-size: 16px; font-weight: bold; display: inline-block;">Access Student Portal</a>
+            </div>
             <p style="font-size: 16px;">If you have any questions or need assistance, feel free to reach out to our support team at <a href="mailto:info@iuea.ac.ug" style="color: #7a0000;">info@iuea.ac.ug</a>.</p>
             <br>
             <p style="font-size: 16px;">Best regards,<br>
@@ -131,6 +156,8 @@ You can now access the system and explore its features to enhance your education
 
 What's Next?
 Log in to your account and start exploring the AI-powered features designed to support your academic success.
+
+You can access your student portal at: https://applicant.iuea.ac.ug/
 
 If you have any questions or need assistance, feel free to reach out to our support team at info@iuea.ac.ug.
 
@@ -175,6 +202,11 @@ International University of East Africa`,
               <p style="margin: 0; font-size: 14px; color: #856404;"><strong>Security Notice:</strong> This link will expire in 1 hour for security reasons.</p>
             </div>
             <p style="font-size: 16px;">If you didn't request this password reset, please ignore this email and your password will remain unchanged.</p>
+            <div style="text-align: center; margin: 30px 0; padding: 20px; background-color: #f8f9fa; border-left: 4px solid #7a0000; border-radius: 5px;">
+              <p style="margin: 0; font-size: 16px; font-weight: bold; color: #7a0000;">Need to access your portal?</p>
+              <p style="margin: 10px 0;">Visit our student portal at:</p>
+              <a href="https://applicant.iuea.ac.ug/" style="background-color: #7a0000; color: white; padding: 12px 25px; text-decoration: none; border-radius: 5px; font-size: 16px; font-weight: bold; display: inline-block;">Student Portal</a>
+            </div>
             <p style="font-size: 16px;">For any assistance, contact us at <a href="mailto:info@iuea.ac.ug" style="color: #7a0000;">info@iuea.ac.ug</a>.</p>
             <br>
             <p style="font-size: 16px;">Best regards,<br>
@@ -198,6 +230,8 @@ Click this link to reset your password: ${resetUrl}
 Security Notice: This link will expire in 1 hour for security reasons.
 
 If you didn't request this password reset, please ignore this email and your password will remain unchanged.
+
+You can access your student portal at: https://applicant.iuea.ac.ug/
 
 For any assistance, contact us at info@iuea.ac.ug.
 
@@ -258,6 +292,11 @@ International University of East Africa`,
                 ? '<div style="margin: 30px 0; padding: 20px; background-color: #d4edda; border-left: 4px solid #28a745; border-radius: 5px;"><p style="margin: 0; font-size: 16px; color: #155724;">Next Steps: Please check your email regularly for enrollment instructions and required documentation.</p></div>'
                 : ""
             }
+            <div style="text-align: center; margin: 30px 0; padding: 20px; background-color: #f8f9fa; border-left: 4px solid #7a0000; border-radius: 5px;">
+              <p style="margin: 0; font-size: 16px; font-weight: bold; color: #7a0000;">Track Your Application</p>
+              <p style="margin: 10px 0;">Check your application status and updates in our student portal:</p>
+              <a href="https://applicant.iuea.ac.ug/" style="background-color: #7a0000; color: white; padding: 15px 30px; text-decoration: none; border-radius: 5px; font-size: 16px; font-weight: bold; display: inline-block;">Student Portal</a>
+            </div>
             <p style="font-size: 16px;">If you have any questions about your application status, please don't hesitate to contact our admissions office at <a href="mailto:info@iuea.ac.ug" style="color: #7a0000;">info@iuea.ac.ug</a> or call us at +256 414 373 747.</p>
             <br>
             <p style="font-size: 16px;">Best regards,<br>
@@ -271,7 +310,11 @@ International University of East Africa`,
         applicationStatus.toLowerCase() === "approved"
           ? "Next Steps: Please check your email regularly for enrollment instructions and required documentation.\n\n"
           : ""
-      }If you have any questions about your application status, please don't hesitate to contact our admissions office.\n\nBest regards,\nIUEA Admissions Team`,
+      }If you have any questions about your application status, please don't hesitate to contact our admissions office.
+
+You can also track your application status at our student portal: https://applicant.iuea.ac.ug/
+
+Best regards,\nIUEA Admissions Team`,
     };
 
     return await this.sendEmail(emailOptions);

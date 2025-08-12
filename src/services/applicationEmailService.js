@@ -98,7 +98,12 @@ class ApplicationEmailService {
             `;
 
       // Add status-specific content
-      if (status === "QUALIFIED" || status === "APPROVED") {
+      if (
+        status === "QUALIFIED" ||
+        status === "APPROVED" ||
+        status === "ADMITTED" ||
+        status === "ENROLLED"
+      ) {
         htmlContent += `
                         <div style="background-color: #d4edda; border: 1px solid #c3e6cb; padding: 15px; border-radius: 5px; margin: 15px 0;">
                             <h4 style="color: #155724; margin-top: 0;">Next Steps:</h4>
@@ -106,6 +111,7 @@ class ApplicationEmailService {
                                 <li>You will receive admission documents within 3-5 business days</li>
                                 <li>Payment instructions will be provided separately</li>
                                 <li>Please check your email regularly for further communication</li>
+                                <li>Access your student portal for updates and documents</li>
                             </ul>
                         </div>
                 `;
@@ -134,6 +140,12 @@ class ApplicationEmailService {
       htmlContent += `
                     </div>
 
+                    <div style="text-align: center; margin: 30px 0; padding: 20px; background-color: #007bff; border-radius: 8px;">
+                        <h4 style="color: white; margin-top: 0;">🎓 Student Portal Access</h4>
+                        <p style="color: white; margin-bottom: 15px;">Track your application status, upload documents, and access important updates</p>
+                        <a href="https://applicant.iuea.ac.ug/" style="background-color: white; color: #007bff; padding: 15px 30px; text-decoration: none; border-radius: 5px; font-size: 16px; font-weight: bold; display: inline-block;">Access Student Portal</a>
+                    </div>
+
                     <div style="background-color: #f8f9fa; padding: 20px; border-radius: 8px; margin-top: 30px;">
                         <h4 style="color: #333; margin-top: 0;">Need Help?</h4>
                         <p style="color: #666; margin-bottom: 10px;">
@@ -143,6 +155,7 @@ class ApplicationEmailService {
                             <li>Email: admissions@iuea.ac.ug</li>
                             <li>Phone: +256 414 373 747</li>
                             <li>Website: www.iuea.ac.ug</li>
+                            <li>Student Portal: <a href="https://applicant.iuea.ac.ug/" style="color: #007bff;">https://applicant.iuea.ac.ug/</a></li>
                         </ul>
                     </div>
 
@@ -170,13 +183,19 @@ STATUS: ${status.toUpperCase()}
 ${statusInfo.message}
             `;
 
-      if (status === "QUALIFIED" || status === "APPROVED") {
+      if (
+        status === "QUALIFIED" ||
+        status === "APPROVED" ||
+        status === "ADMITTED" ||
+        status === "ENROLLED"
+      ) {
         textContent += `
 
 Next Steps:
 - You will receive admission documents within 3-5 business days
 - Payment instructions will be provided separately
 - Please check your email regularly for further communication
+- Access your student portal for updates and documents
                 `;
       }
 
@@ -190,11 +209,15 @@ ${additionalInfo}
 
       textContent += `
 
+Student Portal:
+Track your application status and access important updates at: https://applicant.iuea.ac.ug/
+
 Need Help?
 If you have any questions about your application, please contact us:
 - Email: admissions@iuea.ac.ug
 - Phone: +256 414 373 747
 - Website: www.iuea.ac.ug
+- Student Portal: https://applicant.iuea.ac.ug/
 
 Best regards,
 IUEA Admissions Team
@@ -211,13 +234,16 @@ International University of East Africa
       const result = await emailService.sendEmail(emailOptions);
 
       if (result.success) {
-        logger.info(`Application status email sent successfully`, {
-          applicantEmail,
-          status,
-          courseName,
-          messageId: result.messageId,
-          provider: result.provider,
-        });
+        logger.info(
+          `✅ Status change email sent successfully to ${applicantEmail}`,
+          {
+            applicantEmail,
+            status,
+            courseName,
+            messageId: result.messageId,
+            provider: result.provider,
+          }
+        );
       } else if (result.skipped) {
         logger.warn(
           `Email service not available, status notification skipped`,
@@ -301,6 +327,10 @@ International University of East Africa
         subject: `Payment Reminder - ${courseName}`,
         html: `
                 <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+                    <div style="text-align: center; margin-bottom: 30px;">
+                        <h1 style="color: #333; margin-bottom: 10px;">IUEA - International University of East Africa</h1>
+                        <p style="color: #666; margin: 0;">Payment Reminder</p>
+                    </div>
                     <h2 style="color: #333;">Payment Reminder</h2>
                     <p>Dear ${applicantName},</p>
                     <p>This is a friendly reminder that your payment for <strong>${courseName}</strong> is due.</p>
@@ -317,6 +347,13 @@ International University of East Africa
                         : ""
                     }
                     <p>Please ensure payment is made by the due date to secure your admission.</p>
+                    
+                    <div style="text-align: center; margin: 30px 0; padding: 20px; background-color: #007bff; border-radius: 8px;">
+                        <h4 style="color: white; margin-top: 0;">💳 Make Payment Online</h4>
+                        <p style="color: white; margin-bottom: 15px;">Access your student portal to view payment options and track your payment status</p>
+                        <a href="https://applicant.iuea.ac.ug/" style="background-color: white; color: #007bff; padding: 15px 30px; text-decoration: none; border-radius: 5px; font-size: 16px; font-weight: bold; display: inline-block;">Student Portal</a>
+                    </div>
+                    
                     <br>
                     <p>Best regards,<br>IUEA Finance Department</p>
                 </div>
@@ -325,18 +362,21 @@ International University of East Africa
           paymentInstructions
             ? `Payment Instructions: ${paymentInstructions}\n\n`
             : ""
-        }Please ensure payment is made by the due date to secure your admission.\n\nBest regards,\nIUEA Finance Department`,
+        }Please ensure payment is made by the due date to secure your admission.\n\nFor payment options and to track your payment status, visit our student portal: https://applicant.iuea.ac.ug/\n\nBest regards,\nIUEA Finance Department`,
       };
 
       const result = await emailService.sendEmail(emailOptions);
 
       if (result.success) {
-        logger.info(`Payment reminder email sent successfully`, {
-          applicantEmail,
-          courseName,
-          messageId: result.messageId,
-          provider: result.provider,
-        });
+        logger.info(
+          `✅ Payment reminder email sent successfully to ${applicantEmail}`,
+          {
+            applicantEmail,
+            courseName,
+            messageId: result.messageId,
+            provider: result.provider,
+          }
+        );
       } else if (result.skipped) {
         logger.warn(`Email service not available, payment reminder skipped`, {
           applicantEmail,
