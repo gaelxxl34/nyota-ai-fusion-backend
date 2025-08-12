@@ -1,27 +1,63 @@
-const sgMail = require("@sendgrid/mail");
 const logger = require("../utils/logger");
 
 class SendGridEmailService {
   constructor() {
+    this.sgMail = null;
+    this.isInitialized = false;
     this.initializeSendGrid();
   }
 
   initializeSendGrid() {
     try {
-      if (!process.env.SENDGRID_API_KEY) {
-        throw new Error("SendGrid API key not found in environment variables");
+      // Try to require SendGrid - make it optional
+      try {
+        this.sgMail = require("@sendgrid/mail");
+      } catch (requireError) {
+        logger.warn(
+          "SendGrid package not found. Email functionality will be disabled.",
+          {
+            error: requireError.message,
+            code: requireError.code,
+          }
+        );
+        this.isInitialized = false;
+        return;
       }
 
-      sgMail.setApiKey(process.env.SENDGRID_API_KEY);
+      if (!process.env.SENDGRID_API_KEY) {
+        logger.warn(
+          "SendGrid API key not found in environment variables. Email functionality will be disabled."
+        );
+        this.isInitialized = false;
+        return;
+      }
+
+      this.sgMail.setApiKey(process.env.SENDGRID_API_KEY);
+      this.isInitialized = true;
       logger.info("SendGrid email service initialized successfully");
     } catch (error) {
       logger.error("Failed to initialize SendGrid:", error);
-      throw error;
+      this.isInitialized = false;
     }
   }
 
   async sendEmail(emailOptions) {
     try {
+      // Check if SendGrid is properly initialized
+      if (!this.isInitialized || !this.sgMail) {
+        logger.warn("SendGrid not initialized. Email will not be sent.", {
+          to: emailOptions.to,
+          subject: emailOptions.subject,
+        });
+
+        return {
+          success: false,
+          error: "SendGrid not initialized",
+          provider: "sendgrid",
+          skipped: true,
+        };
+      }
+
       const {
         to,
         subject,
@@ -63,7 +99,7 @@ class SendGridEmailService {
 
       logger.info(`Sending email via SendGrid to ${to}`);
 
-      const result = await sgMail.send(msg);
+      const result = await this.sgMail.send(msg);
 
       logger.info(`Email sent successfully via SendGrid to ${to}`, {
         messageId: result[0].headers["x-message-id"],
@@ -89,7 +125,11 @@ class SendGridEmailService {
         logger.error("SendGrid API Response:", error.response.body);
       }
 
-      throw new Error(`SendGrid email sending failed: ${error.message}`);
+      return {
+        success: false,
+        error: `SendGrid email sending failed: ${error.message}`,
+        provider: "sendgrid",
+      };
     }
   }
 
@@ -376,6 +416,16 @@ International University of East Africa`,
   // Method to verify SendGrid configuration
   async verifyConfiguration() {
     try {
+      if (!this.isInitialized || !this.sgMail) {
+        logger.warn("SendGrid not initialized. Cannot verify configuration.");
+        return {
+          success: false,
+          error:
+            "SendGrid not initialized - package missing or API key not provided",
+          initialized: false,
+        };
+      }
+
       // Send a test email to verify configuration
       const testResult = await this.sendEmail({
         to: process.env.EMAIL_USER,
@@ -384,11 +434,23 @@ International University of East Africa`,
         html: "<p>This is a test email to verify SendGrid configuration.</p>",
       });
 
-      logger.info("SendGrid configuration verified successfully");
-      return { success: true, result: testResult };
+      if (testResult.success) {
+        logger.info("SendGrid configuration verified successfully");
+        return { success: true, result: testResult, initialized: true };
+      } else {
+        logger.warn(
+          "SendGrid configuration verification failed:",
+          testResult.error
+        );
+        return { success: false, error: testResult.error, initialized: true };
+      }
     } catch (error) {
       logger.error("SendGrid configuration verification failed:", error);
-      return { success: false, error: error.message };
+      return {
+        success: false,
+        error: error.message,
+        initialized: this.isInitialized,
+      };
     }
   }
 }
