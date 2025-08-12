@@ -244,17 +244,44 @@ International University of East Africa
 
       const result = await emailService.sendEmail(emailOptions);
 
-      logger.info(`Application status email sent successfully`, {
-        applicantEmail,
-        status,
-        courseName,
-        messageId: result.messageId,
-      });
+      if (result.success) {
+        logger.info(`Application status email sent successfully`, {
+          applicantEmail,
+          status,
+          courseName,
+          messageId: result.messageId,
+          provider: result.provider,
+        });
+      } else if (result.skipped) {
+        logger.warn(
+          `Email service not available, status notification skipped`,
+          {
+            applicantEmail,
+            status,
+            courseName,
+            reason: result.error,
+          }
+        );
+      } else {
+        logger.error(`Failed to send application status email`, {
+          applicantEmail,
+          status,
+          courseName,
+          error: result.error,
+          provider: result.provider,
+        });
+      }
 
       return result;
     } catch (error) {
       logger.error("Failed to send application status email:", error);
-      throw new Error(`Failed to send status notification: ${error.message}`);
+      // Return a failed result instead of throwing to allow graceful degradation
+      return {
+        success: false,
+        error: error.message,
+        provider: "unknown",
+        skipped: false,
+      };
     }
   }
 
@@ -293,19 +320,20 @@ International University of East Africa
    * @param {Object} paymentData - Payment information
    */
   async sendPaymentReminder(paymentData) {
-    const {
-      applicantEmail,
-      applicantName,
-      courseName,
-      amountDue,
-      dueDate,
-      paymentInstructions,
-    } = paymentData;
+    try {
+      const {
+        applicantEmail,
+        applicantName,
+        courseName,
+        amountDue,
+        dueDate,
+        paymentInstructions,
+      } = paymentData;
 
-    const emailOptions = {
-      to: applicantEmail,
-      subject: `Payment Reminder - ${courseName}`,
-      html: `
+      const emailOptions = {
+        to: applicantEmail,
+        subject: `Payment Reminder - ${courseName}`,
+        html: `
                 <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
                     <h2 style="color: #333;">Payment Reminder</h2>
                     <p>Dear ${applicantName},</p>
@@ -327,14 +355,48 @@ International University of East Africa
                     <p>Best regards,<br>IUEA Finance Department</p>
                 </div>
             `,
-      text: `Payment Reminder\n\nDear ${applicantName},\n\nThis is a friendly reminder that your payment for ${courseName} is due.\n\nAmount Due: ${amountDue}\nDue Date: ${dueDate}\n\n${
-        paymentInstructions
-          ? `Payment Instructions: ${paymentInstructions}\n\n`
-          : ""
-      }Please ensure payment is made by the due date to secure your admission.\n\nBest regards,\nIUEA Finance Department`,
-    };
+        text: `Payment Reminder\n\nDear ${applicantName},\n\nThis is a friendly reminder that your payment for ${courseName} is due.\n\nAmount Due: ${amountDue}\nDue Date: ${dueDate}\n\n${
+          paymentInstructions
+            ? `Payment Instructions: ${paymentInstructions}\n\n`
+            : ""
+        }Please ensure payment is made by the due date to secure your admission.\n\nBest regards,\nIUEA Finance Department`,
+      };
 
-    return await emailService.sendEmail(emailOptions);
+      const result = await emailService.sendEmail(emailOptions);
+
+      if (result.success) {
+        logger.info(`Payment reminder email sent successfully`, {
+          applicantEmail,
+          courseName,
+          messageId: result.messageId,
+          provider: result.provider,
+        });
+      } else if (result.skipped) {
+        logger.warn(`Email service not available, payment reminder skipped`, {
+          applicantEmail,
+          courseName,
+          reason: result.error,
+        });
+      } else {
+        logger.error(`Failed to send payment reminder email`, {
+          applicantEmail,
+          courseName,
+          error: result.error,
+          provider: result.provider,
+        });
+      }
+
+      return result;
+    } catch (error) {
+      logger.error("Failed to send payment reminder email:", error);
+      // Return a failed result instead of throwing to allow graceful degradation
+      return {
+        success: false,
+        error: error.message,
+        provider: "unknown",
+        skipped: false,
+      };
+    }
   }
 }
 

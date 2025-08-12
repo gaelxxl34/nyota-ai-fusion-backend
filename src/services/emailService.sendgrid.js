@@ -71,11 +71,11 @@ class SendGridEmailService {
       const msg = {
         to: to,
         from: {
-          email: "gongoriko10@gmail.com",
+          email: "noreply@iuea.app",
           name: "IUEA Admissions Office",
         },
         replyTo: {
-          email: "gongoriko10@gmail.com",
+          email: "info@iuea.ac.ug",
           name: "IUEA Admissions Office",
         },
         subject: subject,

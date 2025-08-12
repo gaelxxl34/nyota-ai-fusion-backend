@@ -237,8 +237,34 @@ function startServer() {
   }
 
   // Health check endpoint
-  app.get("/health", (req, res) => {
-    res.json({ status: "ok", timestamp: new Date().toISOString() });
+  app.get("/health", async (req, res) => {
+    try {
+      const emailService = require("./services/emailService");
+      const emailStatus = {
+        available: emailService.isInitialized || false,
+        provider: emailService.isInitialized ? "sendgrid" : "none",
+      };
+
+      res.json({
+        status: "ok",
+        timestamp: new Date().toISOString(),
+        services: {
+          email: emailStatus,
+        },
+      });
+    } catch (error) {
+      res.json({
+        status: "ok",
+        timestamp: new Date().toISOString(),
+        services: {
+          email: {
+            available: false,
+            provider: "none",
+            error: error.message,
+          },
+        },
+      });
+    }
   });
 
   // Start server
