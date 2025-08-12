@@ -25,7 +25,7 @@ class ApplicationEmailService {
       } = applicationData;
 
       const statusMessages = {
-        pending: {
+        in_review: {
           subject: "Application Received - Under Review",
           message:
             "Your application has been received and is currently under review.",
@@ -41,11 +41,6 @@ class ApplicationEmailService {
           message:
             "We regret to inform you that your application was not successful at this time.",
           style: "background-color: #dc3545; color: white;",
-        },
-        interview_scheduled: {
-          subject: "Interview Scheduled - Next Steps",
-          message: "Your application has progressed to the interview stage.",
-          style: "background-color: #17a2b8; color: white;",
         },
         documents_required: {
           subject: "Additional Documents Required",

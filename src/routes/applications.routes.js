@@ -468,14 +468,12 @@ router.put("/email/:email", ensureApplicationService, async (req, res) => {
           `📧 Status changed from ${existingApplication.status} to ${updatedApplication.status} - sending email notification`
         );
 
-        // Map internal statuses to user-friendly status names
+        // Map internal statuses to email service status names
         const statusMapping = {
           QUALIFIED: "approved",
           APPROVED: "approved",
           REJECTED: "rejected",
-          IN_REVIEW: "pending",
-          PENDING: "pending",
-          INTERVIEW_SCHEDULED: "interview_scheduled",
+          IN_REVIEW: "in_review",
           DOCUMENTS_REQUIRED: "documents_required",
           ON_HOLD: "on_hold",
         };
@@ -942,12 +940,12 @@ router.put("/:id/status", ensureApplicationService, async (req, res) => {
           `📧 Sending status change email to ${application.email} for status: ${status}`
         );
 
-        // Map internal statuses to user-friendly status names
+        // Map internal statuses to email service status names
         const statusMapping = {
           QUALIFIED: "approved",
           APPROVED: "approved",
           REJECTED: "rejected",
-          IN_REVIEW: "pending",
+          IN_REVIEW: "in_review",
           PENDING: "pending",
           INTERVIEW_SCHEDULED: "interview_scheduled",
           DOCUMENTS_REQUIRED: "documents_required",
