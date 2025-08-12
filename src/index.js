@@ -228,6 +228,12 @@ function startServer() {
   // Team routes
   app.use("/api/team", require("./routes/team.routes"));
 
+  // Test email routes (development only)
+  if (process.env.NODE_ENV === "development") {
+    app.use("/api/test-email", require("./routes/test-email.routes"));
+    console.log("✅ Test email routes loaded (development mode)");
+  }
+
   // WhatsApp routes
   try {
     const whatsappRoutes = require("./routes/whatsapp.routes");

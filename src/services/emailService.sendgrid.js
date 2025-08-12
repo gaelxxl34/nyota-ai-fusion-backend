@@ -35,52 +35,16 @@ class SendGridEmailService {
       const msg = {
         to: to,
         from: {
-          email: "noreply@iuea.app",
+          email: "gongoriko10@gmail.com",
           name: "IUEA Admissions Office",
         },
         replyTo: {
-          email: "info@iuea.ac.ug",
-          name: "IUEA Support Team",
+          email: "gongoriko10@gmail.com",
+          name: "IUEA Admissions Office",
         },
         subject: subject,
         text: text,
         html: html,
-        // Anti-spam configurations
-        trackingSettings: {
-          clickTracking: {
-            enable: true,
-            enableText: false,
-          },
-          openTracking: {
-            enable: true,
-          },
-          subscriptionTracking: {
-            enable: false,
-          },
-          ganalytics: {
-            enable: false,
-          },
-        },
-        mailSettings: {
-          sandboxMode: {
-            enable: false,
-          },
-          bypassListManagement: {
-            enable: false,
-          },
-          footerSettings: {
-            enable: true,
-            text: "\n\nInternational University of East Africa\nGgaba Street, Kansanga, Kampala, Uganda\nPhone: +256 414 373 747 | Email: info@iuea.ac.ug",
-            html: "<br><br><div style='font-size: 12px; color: #666; text-align: center; border-top: 1px solid #eee; padding-top: 15px; margin-top: 30px;'><strong>International University of East Africa</strong><br>Ggaba Street, Kansanga, Kampala, Uganda<br>Phone: +256 414 373 747 | Email: info@iuea.ac.ug<br><a href='mailto:info@iuea.ac.ug?subject=Unsubscribe' style='color: #999; font-size: 11px;'>Unsubscribe</a></div>",
-          },
-        },
-        // Add custom headers for better deliverability
-        headers: {
-          "List-Unsubscribe": "<mailto:info@iuea.ac.ug?subject=Unsubscribe>",
-          "X-Entity-ID": "IUEA-EDU-UG",
-          "X-Priority": "3",
-          "X-MSMail-Priority": "Normal",
-        },
       };
 
       // Add optional fields if provided
@@ -407,6 +371,25 @@ International University of East Africa`,
     }
 
     return await this.sendEmail(emailOptions);
+  }
+
+  // Method to verify SendGrid configuration
+  async verifyConfiguration() {
+    try {
+      // Send a test email to verify configuration
+      const testResult = await this.sendEmail({
+        to: process.env.EMAIL_USER,
+        subject: "SendGrid Configuration Test",
+        text: "This is a test email to verify SendGrid configuration.",
+        html: "<p>This is a test email to verify SendGrid configuration.</p>",
+      });
+
+      logger.info("SendGrid configuration verified successfully");
+      return { success: true, result: testResult };
+    } catch (error) {
+      logger.error("SendGrid configuration verification failed:", error);
+      return { success: false, error: error.message };
+    }
   }
 }
 
