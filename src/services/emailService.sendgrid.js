@@ -41,95 +41,44 @@ class SendGridEmailService {
     }
   }
 
-  async sendEmail(emailOptions) {
+  async sendEmail({ to, subject, html, text }) {
     try {
-      // Check if SendGrid is properly initialized
-      if (!this.isInitialized || !this.sgMail) {
-        logger.warn("SendGrid not initialized. Email will not be sent.", {
-          to: emailOptions.to,
-          subject: emailOptions.subject,
-        });
+      console.log(`📧 SendGrid: Preparing to send email to: ${to}`);
+      console.log(`📧 SendGrid: Subject: ${subject}`);
+      console.log(`📧 SendGrid: From: noreply@iuea.app`);
 
-        return {
-          success: false,
-          error: "SendGrid not initialized",
-          provider: "sendgrid",
-          skipped: true,
-        };
+      if (!this.isInitialized || !this.sgMail) {
+        throw new Error("SendGrid is not properly initialized");
       }
 
-      const {
-        to,
-        subject,
-        text,
-        html,
-        attachments = [],
-        cc,
-        bcc,
-      } = emailOptions;
-
       const msg = {
-        to: to,
+        to,
         from: {
           email: "noreply@iuea.app",
           name: "IUEA Admissions Office",
         },
-        replyTo: {
-          email: "info@iuea.ac.ug",
-          name: "IUEA Admissions Office",
-        },
-        subject: subject,
-        text: text,
-        html: html,
+        subject,
+        text: text || "",
+        html: html || text || "",
       };
 
-      // Add optional fields if provided
-      if (cc) msg.cc = cc;
-      if (bcc) msg.bcc = bcc;
-
-      // Handle attachments if provided
-      if (attachments && attachments.length > 0) {
-        msg.attachments = attachments.map((attachment) => ({
-          content: attachment.content,
-          filename: attachment.filename,
-          type: attachment.contentType || "application/octet-stream",
-          disposition: "attachment",
-        }));
-      }
-
-      logger.info(`Sending email via SendGrid to ${to}`);
-
+      console.log(`📧 SendGrid: Sending email with message ID...`);
       const result = await this.sgMail.send(msg);
 
-      logger.info(`Email sent successfully via SendGrid to ${to}`, {
-        messageId: result[0].headers["x-message-id"],
-        statusCode: result[0].statusCode,
-      });
+      console.log("✅ SendGrid: Email sent successfully");
+      console.log(`📧 SendGrid: Response status: ${result[0]?.statusCode}`);
+      console.log(
+        `📧 SendGrid: Message ID: ${result[0]?.headers?.["x-message-id"]}`
+      );
 
-      return {
-        success: true,
-        messageId: result[0].headers["x-message-id"],
-        response: result[0].statusCode,
-        provider: "sendgrid",
-      };
+      return result;
     } catch (error) {
-      logger.error("SendGrid email sending failed:", {
-        error: error.message,
-        code: error.code,
-        to: emailOptions.to,
-        subject: emailOptions.subject,
-      });
-
-      // If SendGrid fails, log the error details
+      console.error("❌ SendGrid email error:", error.message);
       if (error.response) {
-        logger.error("SendGrid API Response:", error.response.body);
+        console.error("❌ SendGrid error response:", error.response.body);
+        console.error("❌ SendGrid error status:", error.response.status);
       }
-
-      return {
-        success: false,
-        error: `SendGrid email sending failed: ${error.message}`,
-        provider: "sendgrid",
-      };
+      throw error;
     }
   }
 
