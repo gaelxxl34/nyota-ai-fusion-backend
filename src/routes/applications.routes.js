@@ -127,12 +127,28 @@ router.post("/submit-manual", ensureApplicationService, async (req, res) => {
       });
     }
 
+    // Validate required fields for manual application
+    if (!applicationData.email) {
+      return res.status(400).json({
+        success: false,
+        error: "Email is required for manual application submission",
+      });
+    }
+
     // Handle file uploads if available
     const files = {};
+    let applicationId = null; // Will be set once we generate the proper ID
+
     if (req.files) {
       console.log(
         "Files received in manual submission:",
         Object.keys(req.files)
+      );
+
+      // Generate application ID early to ensure consistent folder structure
+      applicationId = applicationService.generateApplicationId();
+      console.log(
+        `📋 Generated application ID for file uploads: ${applicationId}`
       );
 
       // Process each uploaded file
@@ -155,16 +171,20 @@ router.post("/submit-manual", ensureApplicationService, async (req, res) => {
               ? "identificationDocument"
               : fieldName;
 
-          // Generate a temporary ID for the application (will be replaced with real ID after creation)
-          const tempId = `temp_${Date.now()}_${Math.random()
-            .toString(36)
-            .substr(2, 9)}`;
+          // Validate that we have a proper email before uploading
+          if (!applicationData.email) {
+            return res.status(400).json({
+              success: false,
+              error: `Email is required for file upload. Cannot upload ${fieldName} without applicant email.`,
+            });
+          }
 
-          // Upload to Firebase Storage and get public URL
+          // Upload to Firebase Storage with the proper application ID
           const publicUrl = await applicationService.uploadApplicationDocument(
-            tempId,
+            applicationId,
             documentType,
-            file
+            file,
+            applicationData.email
           );
 
           console.log(
@@ -204,11 +224,24 @@ router.post("/submit-manual", ensureApplicationService, async (req, res) => {
           `Found base64 data for ${field}, uploading to Firebase Storage...`
         );
         try {
+          // Validate that we have a proper email before uploading
+          if (!applicationData.email) {
+            return res.status(400).json({
+              success: false,
+              error: `Email is required for file upload. Cannot upload ${field} without applicant email.`,
+            });
+          }
+
+          // Use the same application ID if already generated, otherwise generate one
+          if (!applicationId) {
+            applicationId = applicationService.generateApplicationId();
+            console.log(
+              `📋 Generated application ID for base64 uploads: ${applicationId}`
+            );
+          }
+
           // Convert base64 to file-like object and upload to Firebase Storage
           const base64Data = applicationData[field];
-          const tempId = `temp_${Date.now()}_${Math.random()
-            .toString(36)
-            .substr(2, 9)}`;
 
           // Create a temporary file object from base64
           const base64Parts = base64Data.split(",");
@@ -229,9 +262,10 @@ router.post("/submit-manual", ensureApplicationService, async (req, res) => {
               : field;
 
           const publicUrl = await applicationService.uploadApplicationDocument(
-            tempId,
+            applicationId,
             documentType,
-            tempFile
+            tempFile,
+            applicationData.email
           );
 
           console.log(
@@ -288,7 +322,8 @@ router.post("/submit-manual", ensureApplicationService, async (req, res) => {
 
     // Use the dedicated manual application submission method
     const result = await applicationService.submitManualApplication(
-      dataWithSubmitter
+      dataWithSubmitter,
+      applicationId // Pass the pre-generated ID if files were uploaded
     );
 
     res.status(201).json({

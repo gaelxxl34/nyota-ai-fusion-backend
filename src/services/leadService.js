@@ -94,7 +94,7 @@ class LeadService {
       return {
         id: docId,
         ...data,
-        status: data.status || "CONTACTED",
+        status: data.status || "INTERESTED",
       };
     }
   }
@@ -182,7 +182,7 @@ class LeadService {
         fullLeadData.timeline.push({
           date: new Date(),
           action: "CREATED",
-          status: fullLeadData.status || LEAD_STATUSES.CONTACTED,
+          status: fullLeadData.status || LEAD_STATUSES.INTERESTED,
           notes: `Lead created from ${source || "unknown source"}`,
         });
       }
@@ -1045,8 +1045,8 @@ class LeadService {
         }
       }
 
-      // If this is a human interaction from certain channels and lead is in INQUIRY status,
-      // update the status to CONTACTED so it appears in the Contacted tab
+      // If this is a human interaction from certain channels and lead is in INTERESTED status,
+      // we can leave it as INTERESTED since user has already shown interest
       const isContactChannel = [
         "WHATSAPP",
         "EMAIL",
@@ -1056,26 +1056,8 @@ class LeadService {
       const isIncomingHumanInteraction =
         interaction.direction === "incoming" && !interaction.automated;
 
-      if (
-        isContactChannel &&
-        isIncomingHumanInteraction &&
-        lead.status === LEAD_STATUSES.INQUIRY
-      ) {
-        // Update status to CONTACTED
-        const updatedLead = LeadModel.updateStatus(
-          lead,
-          LEAD_STATUSES.CONTACTED,
-          `Auto-updated to Contacted based on ${interaction.channel} interaction`,
-          "SYSTEM"
-        );
-
-        // Use the updated lead data for the database update
-        updateData.status = LEAD_STATUSES.CONTACTED;
-        updateData.timeline = updatedLead.timeline;
-        console.log(
-          `📞 Lead ${leadId} status updated to CONTACTED based on ${interaction.channel} interaction`
-        );
-      }
+      // No automatic status changes - let users manually progress leads through the funnel
+      // INTERESTED → APPLIED → IN_REVIEW → QUALIFIED → ADMITTED → ENROLLED
 
       await this.db.collection(this.collection).doc(leadId).update(updateData);
 
@@ -1208,7 +1190,7 @@ class LeadService {
    */
   _getAutoQualificationConfig() {
     return {
-      targetStatus: "CONTACTED", // Default status
+      targetStatus: "INTERESTED", // Default status for new leads
       systemUser: "SYSTEM",
       generateNotes: () => "Auto-qualification is disabled",
     };

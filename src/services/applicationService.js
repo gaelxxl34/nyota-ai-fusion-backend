@@ -98,9 +98,7 @@ class ApplicationService {
           );
 
           // Delete the old file from Firebase Storage
-          const bucket = this.storageService.bucket;
-          const oldFileRef = bucket.file(storagePath);
-          await oldFileRef.delete();
+          await this.storageService.deleteFile(storagePath);
           console.log(`✅ Successfully deleted old ${documentType}`);
         } catch (parseError) {
           console.warn(
@@ -132,75 +130,137 @@ class ApplicationService {
    * @param {string} storagePath - Storage path
    * @returns {Promise<string>} - Public download URL
    */
+  /**
+   * Upload a file directly to Firebase Storage (like student portal)
+   * @param {Object} file - File object from express-fileupload
+   * @param {string} storagePath - Firebase Storage path
+   * @returns {Promise<string>} - Public download URL
+   */
   async uploadFile(file, storagePath) {
     try {
-      // Handle base64 data URLs - upload to Firebase Storage
-      if (typeof file === "string" && file.startsWith("data:")) {
-        console.log("Converting base64 file to Firebase Storage");
+      console.log("📤 Uploading file directly to Firebase Storage...", {
+        storagePath,
+        hasFile: !!file,
+        fileSize: file?.size,
+        fileName: file?.name,
+        mimeType: file?.mimetype,
+        fileType: typeof file,
+        isBuffer: Buffer.isBuffer(file),
+        hasNumericKeys:
+          file &&
+          typeof file === "object" &&
+          Object.keys(file).every((key) => !isNaN(key)),
+      });
 
-        // Extract MIME type from data URL
-        const mimeType = file.split(";")[0].split(":")[1];
-
-        // Upload base64 to Firebase Storage
-        const publicUrl = await this.storageService.uploadBase64File(
-          file,
+      // Handle file object from express-fileupload
+      if (file && file.data && file.data.length > 0) {
+        // Direct upload using storageService with file buffer
+        const mimeType = file.mimetype || "application/octet-stream";
+        const publicUrl = await this.storageService.storeFile(
+          file.data, // Buffer from express-fileupload
           storagePath,
           mimeType
         );
+        console.log(`✅ File uploaded successfully: ${publicUrl}`);
         return publicUrl;
       }
 
-      // Handle already uploaded URLs
-      if (typeof file === "string") {
-        // If it's already a URL, return it
-        if (file.startsWith("http://") || file.startsWith("https://")) {
-          return file;
-        }
+      // Handle file object with temp file path
+      if (file && file.tempFilePath) {
+        console.log(`📁 Reading file from temp path: ${file.tempFilePath}`);
+        const fs = require("fs");
+        const fileData = fs.readFileSync(file.tempFilePath);
+        const mimeType =
+          file.mimetype || this._getMimeTypeFromFileName(file.name);
 
-        // Handle file path - read and upload to Firebase Storage
+        const publicUrl = await this.storageService.storeFile(
+          fileData,
+          storagePath,
+          mimeType
+        );
+
+        // Clean up temp file
         try {
-          const fs = require("fs");
-          const path = require("path");
-          const fileData = fs.readFileSync(file);
-          const mimeType = this._getMimeTypeFromFileName(path.basename(file));
-
-          // Upload to Firebase Storage
-          const publicUrl = await this.storageService.storeFile(
-            fileData,
-            storagePath,
-            mimeType
+          fs.unlinkSync(file.tempFilePath);
+          console.log(`🗑️ Cleaned up temp file: ${file.tempFilePath}`);
+        } catch (cleanupError) {
+          console.warn(
+            `⚠️ Failed to cleanup temp file: ${cleanupError.message}`
           );
-          return publicUrl;
-        } catch (error) {
-          console.error("Error reading file:", error);
-          throw error;
         }
+
+        console.log(`✅ File uploaded successfully: ${publicUrl}`);
+        return publicUrl;
       }
 
-      // Handle file buffer
+      // Handle direct buffer
       if (Buffer.isBuffer(file)) {
         const publicUrl = await this.storageService.storeFile(
           file,
           storagePath,
           "application/octet-stream"
         );
+        console.log(`✅ Buffer uploaded successfully: ${publicUrl}`);
         return publicUrl;
       }
 
-      // Handle file object (e.g., from multer)
-      if (file && file.buffer) {
-        const mimeType = file.mimetype || "application/octet-stream";
+      // Handle buffer-like object with numeric keys (from frontend)
+      if (
+        file &&
+        typeof file === "object" &&
+        !file.data &&
+        !file.tempFilePath &&
+        Object.keys(file).length > 0 &&
+        Object.keys(file).every((key) => !isNaN(key) && key !== "length")
+      ) {
+        console.log("🔄 Converting numeric-keyed object to buffer...");
+        // Convert object with numeric keys to Buffer
+        const keys = Object.keys(file)
+          .map(Number)
+          .sort((a, b) => a - b);
+        const bufferArray = keys.map((key) => file[key]);
+        const buffer = Buffer.from(bufferArray);
+
         const publicUrl = await this.storageService.storeFile(
-          file.buffer,
+          buffer,
+          storagePath,
+          "application/octet-stream"
+        );
+        console.log(`✅ Converted object uploaded successfully: ${publicUrl}`);
+        return publicUrl;
+      }
+
+      // Handle base64 data strings
+      if (typeof file === "string" && file.startsWith("data:")) {
+        console.log("🔄 Converting base64 data to buffer...");
+        const [header, data] = file.split(",");
+        const mimeType = header.split(":")[1].split(";")[0];
+        const buffer = Buffer.from(data, "base64");
+
+        const publicUrl = await this.storageService.storeFile(
+          buffer,
           storagePath,
           mimeType
         );
+        console.log(`✅ Base64 data uploaded successfully: ${publicUrl}`);
         return publicUrl;
       }
 
-      throw new Error("Unsupported file format");
+      console.error("❌ Unsupported file format. File object:", {
+        hasData: !!file?.data,
+        hasTempFilePath: !!file?.tempFilePath,
+        hasName: !!file?.name,
+        hasSize: !!file?.size,
+        isBuffer: Buffer.isBuffer(file),
+        type: typeof file,
+        keys: file ? Object.keys(file).slice(0, 10) : [], // Only show first 10 keys
+        totalKeys: file ? Object.keys(file).length : 0,
+      });
+      throw new Error(
+        "Unsupported file format - expected express-fileupload file object, Buffer, or base64 string"
+      );
     } catch (error) {
-      console.error("Error uploading file to Firebase Storage:", error);
+      console.error("❌ Error uploading file to Firebase Storage:", error);
       throw error;
     }
   }
@@ -213,7 +273,29 @@ class ApplicationService {
    * @param {string|Object} fileData - File data (base64 string or file object)
    * @returns {Promise<string>} - Public download URL from Firebase Storage
    */
-  async uploadApplicationDocument(applicationId, documentType, fileData) {
+  /**
+   * Generate a unique application ID
+   * @returns {string} - Unique application ID
+   */
+  generateApplicationId() {
+    return `app_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  }
+
+  /**
+   * Upload a single document to Firebase Storage and return its public URL
+   * Following student portal pattern with proper file naming
+   * @param {string} applicationId - Application ID for organizing files
+   * @param {string} documentType - Type of document (passportPhoto, academicDocuments, identificationDocument)
+   * @param {Object} fileData - File object from express-fileupload
+   * @param {string} userEmail - User email for file naming (optional)
+   * @returns {Promise<string>} - Public URL of uploaded document
+   */
+  async uploadApplicationDocument(
+    applicationId,
+    documentType,
+    fileData,
+    userEmail = "webadmin_iuea_ac_ug"
+  ) {
     // Check if documentType is valid
     const validDocumentTypes = [
       "passportPhoto",
@@ -234,7 +316,7 @@ class ApplicationService {
       `📤 Uploading ${documentType} to Firebase Storage for application ${applicationId}...`
     );
 
-    // 1. Delete old document first to save storage space
+    // 1. Delete old document first to save storage space (like student portal)
     await this.deleteOldDocument(applicationId, documentType);
 
     // 2. Validate file data
@@ -242,44 +324,77 @@ class ApplicationService {
       throw new Error("No file data provided for document upload");
     }
 
-    // File validation removed - allowing files of any size
+    // File size validation (max 10MB like student portal)
+    const maxSize = 10 * 1024 * 1024; // 10MB
+    if (fileData.size && fileData.size > maxSize) {
+      throw new Error(
+        `File size must be less than 10MB. Current size: ${Math.round(
+          fileData.size / (1024 * 1024)
+        )}MB`
+      );
+    }
 
-    // Check file type for base64 data
-    if (typeof fileData === "string" && fileData.startsWith("data:")) {
-      const mimeType = fileData.split(";")[0].split(":")[1];
-      const allowedTypes = {
-        passportPhoto: ["image/jpeg", "image/jpg", "image/png"],
-        academicDocuments: [
-          "application/pdf",
-          "image/jpeg",
-          "image/jpg",
-          "image/png",
-        ],
-        identificationDocument: [
-          "application/pdf",
-          "image/jpeg",
-          "image/jpg",
-          "image/png",
-        ],
-        idDocument: ["application/pdf", "image/jpeg", "image/jpg", "image/png"],
-      };
+    // File type validation
+    const allowedTypes = {
+      passportPhoto: ["image/jpeg", "image/jpg", "image/png"],
+      academicDocuments: [
+        "application/pdf",
+        "image/jpeg",
+        "image/jpg",
+        "image/png",
+      ],
+      identificationDocument: [
+        "application/pdf",
+        "image/jpeg",
+        "image/jpg",
+        "image/png",
+      ],
+      idDocument: ["application/pdf", "image/jpeg", "image/jpg", "image/png"],
+    };
 
+    // Check file type
+    if (fileData && fileData.mimetype) {
+      const mimeType = fileData.mimetype;
       if (!allowedTypes[documentType].includes(mimeType)) {
         throw new Error(
           `Invalid file type for ${documentType}. Allowed: ${allowedTypes[
             documentType
-          ].join(", ")}`
+          ].join(", ")}. Received: ${mimeType}`
+        );
+      }
+    }
+    // Check file type by file extension if no MIME type available
+    else if (fileData && fileData.name) {
+      const extension = fileData.name.split(".").pop().toLowerCase();
+      const extensionMimeMap = {
+        jpg: "image/jpeg",
+        jpeg: "image/jpeg",
+        png: "image/png",
+        pdf: "application/pdf",
+      };
+      const inferredMimeType = extensionMimeMap[extension];
+      if (
+        inferredMimeType &&
+        !allowedTypes[documentType].includes(inferredMimeType)
+      ) {
+        throw new Error(
+          `Invalid file type for ${documentType}. Allowed: ${allowedTypes[
+            documentType
+          ].join(", ")}. File extension: .${extension}`
         );
       }
     }
 
-    // 3. Generate unique filename and storage path
+    // 3. Generate filename following student portal pattern
+    // Example: academicDocuments_app_1754992394106_oo61a43dg_webadmin_iuea_ac_ug_1754992397058.pdf
     const timestamp = Date.now();
     const fileExtension = this._getFileExtension(fileData);
-    const fileName = `${documentType}_${applicationId}_${timestamp}.${fileExtension}`;
+    const sanitizedEmail = userEmail.replace(/[^a-zA-Z0-9]/g, "_");
+    const fileName = `${documentType}_${applicationId}_${sanitizedEmail}_${timestamp}.${fileExtension}`;
     const storagePath = `${this.storageBasePath}/${applicationId}/documents/${fileName}`;
 
     console.log(`📁 Storage path: ${storagePath}`);
+    console.log(`📄 Generated filename: ${fileName}`);
 
     // 4. Upload to Firebase Storage
     try {
@@ -440,6 +555,9 @@ class ApplicationService {
         applicationDoc.statusNote = `Application submitted through online form by ${applicationDoc.submittedBy.name} (${applicationData.submittedBy.role})`;
 
         // We have submittedBy field already, no need for additional metadata
+      } else {
+        // Ensure submittedBy is explicitly set to null when no submission context is available
+        applicationDoc.submittedBy = null;
       }
 
       // 3. Save application to database first
@@ -996,7 +1114,8 @@ IUEA Admissions Team`;
         applicationUpdate.passportPhoto = await this.uploadApplicationDocument(
           latestApplication.id,
           "passportPhoto",
-          updateData.passportPhoto
+          updateData.passportPhoto,
+          latestApplication.email
         );
       }
       if (
@@ -1010,7 +1129,8 @@ IUEA Admissions Team`;
           await this.uploadApplicationDocument(
             latestApplication.id,
             "academicDocuments",
-            updateData.academicDocuments
+            updateData.academicDocuments,
+            latestApplication.email
           );
       }
       if (
@@ -1025,8 +1145,38 @@ IUEA Admissions Team`;
           await this.uploadApplicationDocument(
             latestApplication.id,
             "identificationDocument",
-            updateData.identificationDocument
+            updateData.identificationDocument,
+            latestApplication.email
           );
+      }
+
+      // Parse updatedBy field if it's a JSON string
+      let parsedUpdatedBy = null;
+      if (updateData.updatedBy) {
+        try {
+          // If it's a string, try to parse it as JSON
+          if (typeof updateData.updatedBy === "string") {
+            parsedUpdatedBy = JSON.parse(updateData.updatedBy);
+          } else if (typeof updateData.updatedBy === "object") {
+            // If it's already an object, use it directly
+            parsedUpdatedBy = updateData.updatedBy;
+          }
+
+          // Ensure parsedUpdatedBy has the correct structure
+          if (parsedUpdatedBy && typeof parsedUpdatedBy === "object") {
+            // Clean structure to match student portal format
+            parsedUpdatedBy = {
+              email: parsedUpdatedBy.email || null,
+              name:
+                parsedUpdatedBy.name || parsedUpdatedBy.email || "Unknown User",
+              role: parsedUpdatedBy.role || null,
+              // Don't include uid to match student portal structure
+            };
+          }
+        } catch (parseError) {
+          console.warn("❌ Failed to parse updatedBy field:", parseError);
+          parsedUpdatedBy = null;
+        }
       }
 
       // Handle timeline tracking for updates
@@ -1071,11 +1221,11 @@ IUEA Admissions Team`;
           notes:
             updateData.statusNote ||
             `Status changed from ${latestApplication.status} to ${updateData.status}`,
-          updatedBy: updateData.updatedBy || null,
+          updatedBy: parsedUpdatedBy,
           previousStatus: latestApplication.status,
         };
         applicationUpdate.timeline = [...currentTimeline, statusTimelineEntry];
-        applicationUpdate.lastUpdatedBy = updateData.updatedBy || null;
+        applicationUpdate.lastUpdatedBy = parsedUpdatedBy;
       } else if (hasGeneralUpdate) {
         // General update timeline entry
         const updateTimelineEntry = {
@@ -1083,10 +1233,10 @@ IUEA Admissions Team`;
           action: "APPLICATION_UPDATED",
           status: latestApplication.status,
           notes: "Application information updated",
-          updatedBy: updateData.updatedBy || null,
+          updatedBy: parsedUpdatedBy,
         };
         applicationUpdate.timeline = [...currentTimeline, updateTimelineEntry];
-        applicationUpdate.lastUpdatedBy = updateData.updatedBy || null;
+        applicationUpdate.lastUpdatedBy = parsedUpdatedBy;
       }
 
       // Debug: Log the final update object
@@ -1304,11 +1454,43 @@ IUEA Admissions Team`;
         throw new Error("Application not found");
       }
 
+      // Parse updatedBy field if it's a JSON string
+      let parsedUpdatedBy = null;
+      if (updatedBy) {
+        try {
+          // If it's a string, try to parse it as JSON
+          if (typeof updatedBy === "string") {
+            parsedUpdatedBy = JSON.parse(updatedBy);
+          } else if (typeof updatedBy === "object") {
+            // If it's already an object, use it directly
+            parsedUpdatedBy = updatedBy;
+          }
+
+          // Ensure parsedUpdatedBy has the correct structure
+          if (parsedUpdatedBy && typeof parsedUpdatedBy === "object") {
+            // Clean structure to match student portal format
+            parsedUpdatedBy = {
+              email: parsedUpdatedBy.email || null,
+              name:
+                parsedUpdatedBy.name || parsedUpdatedBy.email || "Unknown User",
+              role: parsedUpdatedBy.role || null,
+              // Don't include uid to match student portal structure
+            };
+          }
+        } catch (parseError) {
+          console.warn(
+            "❌ Failed to parse updatedBy field in updateApplicationStatus:",
+            parseError
+          );
+          parsedUpdatedBy = null;
+        }
+      }
+
       const updatedApplication = ApplicationModel.updateStatus(
         application,
         newStatus,
         notes,
-        updatedBy
+        parsedUpdatedBy
       );
 
       // Update application in database
@@ -1467,7 +1649,7 @@ IUEA Admissions Team`;
    * This is a separate flow for applications submitted via the manual form
    * It creates a lead with APPLIED status without sending a WhatsApp message
    */
-  async submitManualApplication(applicationData) {
+  async submitManualApplication(applicationData, predefinedId = null) {
     try {
       console.log(
         `🖊️ Processing manual application for ${applicationData.name}...`
@@ -1516,6 +1698,8 @@ IUEA Admissions Team`;
 
         // We have submittedBy field already, no need for additional metadata
       } else {
+        // Ensure submittedBy is explicitly set to null when no submission context is available
+        applicationDoc.submittedBy = null;
         // Update notes to indicate it's a manual submission
         applicationDoc.statusNote = "Application submitted through manual form";
 
@@ -1642,7 +1826,7 @@ IUEA Admissions Team`;
         applicationDoc.leadId = lead.id;
       }
 
-      // 5. Save application to database
+      // 5. Save application to database with predefined ID if provided
       // Sanitize any arrays to make sure they're valid for Firestore
       this._sanitizeForFirestore(applicationDoc);
 
@@ -1651,14 +1835,28 @@ IUEA Admissions Team`;
         Object.keys(applicationDoc).join(", ")
       );
 
-      const docRef = await this.db
-        .collection(this.collection)
-        .add(applicationDoc);
+      let docRef;
+      let applicationId;
 
-      console.log(`✅ Manual application created with ID: ${docRef.id}`);
+      if (predefinedId) {
+        // Use the predefined ID (ensures file organization consistency)
+        applicationId = predefinedId;
+        docRef = this.db.collection(this.collection).doc(predefinedId);
+        await docRef.set(applicationDoc);
+        console.log(
+          `✅ Manual application created with predefined ID: ${applicationId}`
+        );
+      } else {
+        // Let Firestore generate the ID
+        docRef = await this.db.collection(this.collection).add(applicationDoc);
+        applicationId = docRef.id;
+        console.log(
+          `✅ Manual application created with auto-generated ID: ${applicationId}`
+        );
+      }
 
       const savedApplication = {
-        id: docRef.id,
+        id: applicationId,
         ...applicationDoc,
       };
 
