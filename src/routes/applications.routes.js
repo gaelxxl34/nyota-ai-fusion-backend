@@ -468,25 +468,11 @@ router.put("/email/:email", ensureApplicationService, async (req, res) => {
           `📧 Status changed from ${existingApplication.status} to ${updatedApplication.status} - sending email notification`
         );
 
-        // Map internal statuses to email service status names
-        const statusMapping = {
-          QUALIFIED: "approved",
-          APPROVED: "approved",
-          REJECTED: "rejected",
-          IN_REVIEW: "in_review",
-          DOCUMENTS_REQUIRED: "documents_required",
-          ON_HOLD: "on_hold",
-        };
-
-        const emailStatus =
-          statusMapping[updatedApplication.status] ||
-          updatedApplication.status.toLowerCase();
-
         await applicationEmailService.sendStatusChangeNotification({
           applicantEmail: updatedApplication.email,
           applicantName: updatedApplication.name,
           courseName: updatedApplication.preferredProgram || "Your Application",
-          status: emailStatus,
+          status: updatedApplication.status,
           additionalInfo:
             updatedApplication.statusNote ||
             "Your application status has been updated.",

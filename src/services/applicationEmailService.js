@@ -25,41 +25,47 @@ class ApplicationEmailService {
       } = applicationData;
 
       const statusMessages = {
-        in_review: {
+        IN_REVIEW: {
           subject: "Application Received - Under Review",
           message:
             "Your application has been received and is currently under review.",
           style: "background-color: #ffc107; color: #000;",
         },
-        approved: {
+        QUALIFIED: {
+          subject: "Congratulations! Application Qualified",
+          message: "Congratulations! Your application has been qualified.",
+          style: "background-color: #28a745; color: white;",
+        },
+        APPROVED: {
           subject: "Congratulations! Application Approved",
           message: "Congratulations! Your application has been approved.",
           style: "background-color: #28a745; color: white;",
         },
-        rejected: {
+        REJECTED: {
           subject: "Application Status Update",
           message:
             "We regret to inform you that your application was not successful at this time.",
           style: "background-color: #dc3545; color: white;",
         },
-        documents_required: {
+        DOCUMENTS_REQUIRED: {
           subject: "Additional Documents Required",
           message:
             "Additional documents are required to complete your application.",
           style: "background-color: #fd7e14; color: white;",
         },
-        on_hold: {
+        ON_HOLD: {
           subject: "Application On Hold",
           message: "Your application is currently on hold.",
           style: "background-color: #6c757d; color: white;",
         },
       };
 
-      const statusInfo = statusMessages[status.toLowerCase()] || {
-        subject: "Application Status Update",
-        message: `Your application status has been updated to: ${status}`,
-        style: "background-color: #007bff; color: white;",
-      };
+      const statusInfo = statusMessages[status] ||
+        statusMessages[status.toUpperCase()] || {
+          subject: "Application Status Update",
+          message: `Your application status has been updated to: ${status}`,
+          style: "background-color: #007bff; color: white;",
+        };
 
       // Build HTML email content
       let htmlContent = `
@@ -92,7 +98,7 @@ class ApplicationEmailService {
             `;
 
       // Add status-specific content
-      if (status.toLowerCase() === "approved") {
+      if (status === "QUALIFIED" || status === "APPROVED") {
         htmlContent += `
                         <div style="background-color: #d4edda; border: 1px solid #c3e6cb; padding: 15px; border-radius: 5px; margin: 15px 0;">
                             <h4 style="color: #155724; margin-top: 0;">Next Steps:</h4>
@@ -105,30 +111,7 @@ class ApplicationEmailService {
                 `;
       }
 
-      if (status.toLowerCase() === "interview_scheduled" && interviewDate) {
-        htmlContent += `
-                        <div style="background-color: #d1ecf1; border: 1px solid #bee5eb; padding: 15px; border-radius: 5px; margin: 15px 0;">
-                            <h4 style="color: #0c5460; margin-top: 0;">Interview Details:</h4>
-                            <ul style="color: #0c5460; margin-bottom: 0;">
-                                <li><strong>Date:</strong> ${interviewDate}</li>
-                                ${
-                                  interviewTime
-                                    ? `<li><strong>Time:</strong> ${interviewTime}</li>`
-                                    : ""
-                                }
-                                ${
-                                  interviewLocation
-                                    ? `<li><strong>Location:</strong> ${interviewLocation}</li>`
-                                    : ""
-                                }
-                                <li>Please arrive 15 minutes early</li>
-                                <li>Bring a valid ID and any requested documents</li>
-                            </ul>
-                        </div>
-                `;
-      }
-
-      if (status.toLowerCase() === "documents_required") {
+      if (status === "DOCUMENTS_REQUIRED") {
         htmlContent += `
                         <div style="background-color: #fff3cd; border: 1px solid #ffeaa7; padding: 15px; border-radius: 5px; margin: 15px 0;">
                             <h4 style="color: #856404; margin-top: 0;">Required Actions:</h4>
@@ -187,25 +170,13 @@ STATUS: ${status.toUpperCase()}
 ${statusInfo.message}
             `;
 
-      if (status.toLowerCase() === "approved") {
+      if (status === "QUALIFIED" || status === "APPROVED") {
         textContent += `
 
 Next Steps:
 - You will receive admission documents within 3-5 business days
 - Payment instructions will be provided separately
 - Please check your email regularly for further communication
-                `;
-      }
-
-      if (status.toLowerCase() === "interview_scheduled" && interviewDate) {
-        textContent += `
-
-Interview Details:
-- Date: ${interviewDate}
-${interviewTime ? `- Time: ${interviewTime}` : ""}
-${interviewLocation ? `- Location: ${interviewLocation}` : ""}
-- Please arrive 15 minutes early
-- Bring a valid ID and any requested documents
                 `;
       }
 
