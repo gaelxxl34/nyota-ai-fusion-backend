@@ -4,7 +4,7 @@ const { admin } = require("../config/firebase.config");
 const jwt = require("jsonwebtoken");
 const axios = require("axios");
 const { authenticateUser } = require("../middleware/auth.middleware");
-const nodemailer = require("nodemailer");
+const emailService = require("../services/emailService");
 
 // Debug middleware with better logging
 router.use((req, res, next) => {
