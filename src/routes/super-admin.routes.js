@@ -212,23 +212,224 @@ router.delete("/users/:userId", async (req, res) => {
       });
     }
 
-    // Delete from Firestore
+    const userData = userDoc.data();
+    const userEmail = userData.email;
+
+    console.log(
+      `🗑️ Starting comprehensive deletion of user ${userId} (${
+        userData.name || "Unknown"
+      } - ${userEmail})`
+    );
+
+    let cleanupResults = {
+      leads: 0,
+      applications: 0,
+      conversations: 0,
+      messages: 0,
+      storageFiles: 0,
+      errors: [],
+    };
+
+    // 1. Delete all leads submitted by this user
+    try {
+      console.log(`📋 Looking for leads submitted by user: ${userEmail}`);
+      const leadsQuery = await db
+        .collection("leads")
+        .where("submittedBy.email", "==", userEmail)
+        .get();
+
+      if (!leadsQuery.empty) {
+        // Use the comprehensive lead deletion service
+        const LeadService = require("../services/leadService");
+        const leadService = new LeadService(db);
+
+        for (const leadDoc of leadsQuery.docs) {
+          try {
+            const deleteResult = await leadService.deleteLead(leadDoc.id);
+            cleanupResults.leads += 1;
+            cleanupResults.conversations +=
+              deleteResult.cleanupResults?.conversations || 0;
+            cleanupResults.messages +=
+              deleteResult.cleanupResults?.messages || 0;
+            cleanupResults.applications +=
+              deleteResult.cleanupResults?.applications || 0;
+            cleanupResults.storageFiles +=
+              deleteResult.cleanupResults?.storageFiles || 0;
+
+            console.log(
+              `✅ Deleted lead ${leadDoc.id} with comprehensive cleanup`
+            );
+          } catch (leadDeleteError) {
+            console.error(
+              `❌ Failed to delete lead ${leadDoc.id}:`,
+              leadDeleteError
+            );
+            cleanupResults.errors.push(
+              `Lead deletion failed: ${leadDeleteError.message}`
+            );
+          }
+        }
+      }
+    } catch (leadsCleanupError) {
+      console.error("❌ Error during leads cleanup:", leadsCleanupError);
+      cleanupResults.errors.push(
+        `Leads cleanup failed: ${leadsCleanupError.message}`
+      );
+    }
+
+    // 2. Delete applications directly submitted by this user (not through leads)
+    try {
+      console.log(
+        `📋 Looking for applications submitted by user: ${userEmail}`
+      );
+      const applicationsQuery = await db
+        .collection("applications")
+        .where("submittedBy.email", "==", userEmail)
+        .get();
+
+      if (!applicationsQuery.empty) {
+        const ApplicationService = require("../services/applicationService");
+        const StorageService = require("../services/storageService");
+
+        // Create service instances for cleanup
+        const storageService = new StorageService();
+        const applicationService = new ApplicationService(
+          db,
+          null,
+          null,
+          storageService
+        );
+
+        for (const appDoc of applicationsQuery.docs) {
+          try {
+            // Clean up storage files for this application
+            const storageCleanupResult =
+              await applicationService.deleteAllApplicationDocuments(appDoc.id);
+            if (storageCleanupResult.success) {
+              cleanupResults.storageFiles += storageCleanupResult.deletedCount;
+            }
+
+            // Delete the application document
+            await appDoc.ref.delete();
+            cleanupResults.applications += 1;
+
+            console.log(
+              `✅ Deleted application ${appDoc.id} with storage cleanup`
+            );
+          } catch (appDeleteError) {
+            console.error(
+              `❌ Failed to delete application ${appDoc.id}:`,
+              appDeleteError
+            );
+            cleanupResults.errors.push(
+              `Application deletion failed: ${appDeleteError.message}`
+            );
+          }
+        }
+      }
+    } catch (applicationsCleanupError) {
+      console.error(
+        "❌ Error during applications cleanup:",
+        applicationsCleanupError
+      );
+      cleanupResults.errors.push(
+        `Applications cleanup failed: ${applicationsCleanupError.message}`
+      );
+    }
+
+    // 3. Delete user assignments from leads/applications
+    try {
+      console.log(`🔄 Removing user assignments for user: ${userId}`);
+
+      // Remove from leads where user is assigned
+      const assignedLeadsQuery = await db
+        .collection("leads")
+        .where("assignedTo", "==", userId)
+        .get();
+
+      if (!assignedLeadsQuery.empty) {
+        const batch = db.batch();
+        assignedLeadsQuery.docs.forEach((doc) => {
+          batch.update(doc.ref, {
+            assignedTo: null,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          });
+        });
+        await batch.commit();
+        console.log(
+          `✅ Removed user assignment from ${assignedLeadsQuery.size} leads`
+        );
+      }
+
+      // Remove from applications where user is assigned
+      const assignedAppsQuery = await db
+        .collection("applications")
+        .where("assignedTo", "==", userId)
+        .get();
+
+      if (!assignedAppsQuery.empty) {
+        const batch = db.batch();
+        assignedAppsQuery.docs.forEach((doc) => {
+          batch.update(doc.ref, {
+            assignedTo: null,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          });
+        });
+        await batch.commit();
+        console.log(
+          `✅ Removed user assignment from ${assignedAppsQuery.size} applications`
+        );
+      }
+    } catch (assignmentCleanupError) {
+      console.error(
+        "❌ Error during assignment cleanup:",
+        assignmentCleanupError
+      );
+      cleanupResults.errors.push(
+        `Assignment cleanup failed: ${assignmentCleanupError.message}`
+      );
+    }
+
+    // 4. Delete the user document from Firestore
     await userRef.delete();
 
-    // Delete from Firebase Auth
+    // 5. Delete from Firebase Auth
     try {
       await admin.auth().deleteUser(userId);
+      console.log(`✅ Deleted user from Firebase Auth: ${userId}`);
     } catch (authError) {
-      console.error("Error deleting user from Auth:", authError);
+      console.error("❌ Error deleting user from Auth:", authError);
+      cleanupResults.errors.push(`Auth deletion failed: ${authError.message}`);
       // Continue even if Auth deletion fails
+    }
+
+    // 6. Log comprehensive cleanup results
+    console.log(`✅ User ${userId} deleted successfully with cleanup results:`);
+    console.log(`   📋 Leads deleted: ${cleanupResults.leads}`);
+    console.log(`   📄 Applications deleted: ${cleanupResults.applications}`);
+    console.log(`   📞 Conversations deleted: ${cleanupResults.conversations}`);
+    console.log(`   💬 Messages deleted: ${cleanupResults.messages}`);
+    console.log(`   📁 Storage files deleted: ${cleanupResults.storageFiles}`);
+
+    if (cleanupResults.errors.length > 0) {
+      console.log(`   ⚠️ Cleanup errors: ${cleanupResults.errors.length}`);
+      cleanupResults.errors.forEach((error) => console.log(`     - ${error}`));
     }
 
     res.json({
       success: true,
-      message: "User deleted successfully",
+      message: "User and all associated data deleted successfully",
+      cleanupResults: {
+        leads: cleanupResults.leads,
+        applications: cleanupResults.applications,
+        conversations: cleanupResults.conversations,
+        messages: cleanupResults.messages,
+        storageFiles: cleanupResults.storageFiles,
+        errors: cleanupResults.errors.length,
+      },
     });
   } catch (error) {
-    console.error("Error deleting user:", error);
+    console.error("❌ Error deleting user:", error);
     res.status(500).json({
       success: false,
       message: "Failed to delete user",

@@ -206,14 +206,21 @@ class StorageService {
    */
   async deleteFile(storagePath) {
     try {
-      // Ensure user is authenticated
-      await this.ensureAuthenticated();
+      console.log(`🗑️ Attempting to delete file: ${storagePath}`);
 
-      // Create a reference to the file in Firebase Storage
-      const storageRef = ref(this.storage, storagePath);
+      // Use Admin SDK for delete operations (has full permissions)
+      const bucket = admin.storage().bucket();
+      const file = bucket.file(storagePath);
 
-      // Delete the file
-      await deleteObject(storageRef);
+      // Check if file exists first
+      const [exists] = await file.exists();
+      if (!exists) {
+        console.log(`ℹ️ File does not exist: ${storagePath}`);
+        return;
+      }
+
+      // Delete the file using Admin SDK
+      await file.delete();
 
       console.log(`✅ File deleted successfully: ${storagePath}`);
     } catch (error) {

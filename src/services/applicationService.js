@@ -86,6 +86,9 @@ class ApplicationService {
             }
           }
 
+          console.log(`🔍 Debug - Original URL: ${existingUrl}`);
+          console.log(`🔍 Debug - Parsed storage path: ${storagePath}`);
+
           if (!storagePath) {
             console.warn(
               `⚠️ Could not parse storage path from URL: ${existingUrl}`
