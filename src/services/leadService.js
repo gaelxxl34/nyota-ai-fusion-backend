@@ -597,6 +597,7 @@ class LeadService {
         conversations: 0,
         messages: 0,
         applications: 0,
+        storageFiles: 0,
         errors: [],
       };
 
@@ -699,10 +700,13 @@ class LeadService {
         }
       }
 
-      // 2. Delete related applications
+      // 2. Delete related applications and their Firebase Storage documents
       if (lead.email) {
         try {
           console.log(`📋 Looking for applications with email: ${lead.email}`);
+
+          // Initialize storage cleanup tracking
+          cleanupResults.storageFiles = 0;
 
           // Find applications by email
           const applicationsQuery = await this.db
@@ -718,6 +722,47 @@ class LeadService {
               !applicationData.leadId || applicationData.leadId === leadId;
 
             if (shouldDelete) {
+              // Clean up Firebase Storage documents for this application
+              try {
+                const ApplicationService = require("./applicationService");
+                const StorageService = require("./storageService");
+
+                // Create temporary instances for cleanup
+                const storageService = new StorageService();
+                const applicationService = new ApplicationService(
+                  this.db,
+                  this,
+                  null,
+                  storageService
+                );
+
+                console.log(
+                  `🗑️ Cleaning up storage documents for application ${applicationDoc.id}`
+                );
+
+                const storageCleanupResult =
+                  await applicationService.deleteAllApplicationDocuments(
+                    applicationDoc.id
+                  );
+
+                if (storageCleanupResult.success) {
+                  cleanupResults.storageFiles +=
+                    storageCleanupResult.deletedCount;
+                  console.log(
+                    `✅ Deleted ${storageCleanupResult.deletedCount} storage files for application ${applicationDoc.id}`
+                  );
+                }
+              } catch (storageCleanupError) {
+                console.warn(
+                  `⚠️ Failed to cleanup storage for application ${applicationDoc.id}:`,
+                  storageCleanupError.message
+                );
+                cleanupResults.errors.push(
+                  `Storage cleanup failed for application ${applicationDoc.id}: ${storageCleanupError.message}`
+                );
+              }
+
+              // Delete the application document
               await this.db
                 .collection("applications")
                 .doc(applicationDoc.id)
@@ -739,6 +784,46 @@ class LeadService {
               .get();
 
             for (const applicationDoc of applicationsByLeadQuery.docs) {
+              // Clean up Firebase Storage documents for this application
+              try {
+                const ApplicationService = require("./applicationService");
+                const StorageService = require("./storageService");
+
+                // Create temporary instances for cleanup
+                const storageService = new StorageService();
+                const applicationService = new ApplicationService(
+                  this.db,
+                  this,
+                  null,
+                  storageService
+                );
+
+                console.log(
+                  `🗑️ Cleaning up storage documents for application ${applicationDoc.id}`
+                );
+
+                const storageCleanupResult =
+                  await applicationService.deleteAllApplicationDocuments(
+                    applicationDoc.id
+                  );
+
+                if (storageCleanupResult.success) {
+                  cleanupResults.storageFiles +=
+                    storageCleanupResult.deletedCount;
+                  console.log(
+                    `✅ Deleted ${storageCleanupResult.deletedCount} storage files for application ${applicationDoc.id}`
+                  );
+                }
+              } catch (storageCleanupError) {
+                console.warn(
+                  `⚠️ Failed to cleanup storage for application ${applicationDoc.id}:`,
+                  storageCleanupError.message
+                );
+                cleanupResults.errors.push(
+                  `Storage cleanup failed for application ${applicationDoc.id}: ${storageCleanupError.message}`
+                );
+              }
+
               await this.db
                 .collection("applications")
                 .doc(applicationDoc.id)
@@ -812,6 +897,9 @@ class LeadService {
       );
       console.log(`   💬 Messages deleted: ${cleanupResults.messages}`);
       console.log(`   📋 Applications deleted: ${cleanupResults.applications}`);
+      console.log(
+        `   📁 Storage files deleted: ${cleanupResults.storageFiles || 0}`
+      );
 
       if (cleanupResults.errors.length > 0) {
         console.log(`   ⚠️ Cleanup errors: ${cleanupResults.errors.length}`);
@@ -831,6 +919,7 @@ class LeadService {
             conversations: cleanupResults.conversations,
             messages: cleanupResults.messages,
             applications: cleanupResults.applications,
+            storageFiles: cleanupResults.storageFiles || 0,
             errors: cleanupResults.errors.length,
           },
         },
