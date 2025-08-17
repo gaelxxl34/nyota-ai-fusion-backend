@@ -663,10 +663,6 @@ router.post("/application-form", validateWebhookSource, async (req, res) => {
             return "male";
           case "female":
             return "female";
-          case "other":
-            return "other";
-          case "prefer not to say":
-            return "prefer_not_to_say";
           default:
             return null;
         }
@@ -679,9 +675,9 @@ router.post("/application-form", validateWebhookSource, async (req, res) => {
           case "on-campus":
           case "on campus":
           case "oncampus":
-            return "on_campus";
+            return "On Campus";
           case "online":
-            return "online";
+            return "Online";
           default:
             return null;
         }
@@ -693,12 +689,12 @@ router.post("/application-form", validateWebhookSource, async (req, res) => {
         switch (normalized) {
           case "january":
           case "jan":
-            return "january";
+            return "January";
           case "may":
-            return "may";
+            return "May";
           case "august":
           case "aug":
-            return "august";
+            return "August";
           default:
             return null;
         }
@@ -708,51 +704,51 @@ router.post("/application-form", validateWebhookSource, async (req, res) => {
         if (!value || value.trim() === "") return null;
         const normalized = value.toLowerCase().trim();
 
-        // Map program names to expected values
+        // Map program names to full display names
         if (
           normalized.includes("bachelor") &&
           normalized.includes("information technology")
         ) {
-          return "bachelor_information_technology";
+          return "Bachelor of Information Technology";
         } else if (
           normalized.includes("bachelor") &&
           normalized.includes("business administration")
         ) {
-          return "bachelor_business_administration";
+          return "Bachelor of Business Administration";
         } else if (
           normalized.includes("bachelor") &&
           normalized.includes("commerce")
         ) {
-          return "bachelor_commerce";
+          return "Bachelor of Commerce";
         } else if (
           normalized.includes("master") &&
           normalized.includes("information technology")
         ) {
-          return "master_information_technology";
+          return "Master of Information Technology";
         } else if (
           normalized.includes("master") &&
           normalized.includes("business administration")
         ) {
-          return "master_business_administration";
+          return "Master of Business Administration";
         } else if (
           normalized.includes("diploma") &&
           normalized.includes("information technology")
         ) {
-          return "diploma_information_technology";
+          return "Diploma in Information Technology";
         } else if (
           normalized.includes("diploma") &&
           normalized.includes("business administration")
         ) {
-          return "diploma_business_administration";
+          return "Diploma in Business Administration";
         } else if (normalized.includes("certificate")) {
-          return "certificate_programs";
+          return "Certificate Programs";
         }
 
         // Default fallback - if no match found, use the first available program
         logger.warn(
-          `Unknown program "${value}", defaulting to bachelor_information_technology`
+          `Unknown program "${value}", defaulting to Bachelor of Information Technology`
         );
-        return "bachelor_information_technology";
+        return "Bachelor of Information Technology";
       };
 
       // Create application data with all fields mapped to expected format

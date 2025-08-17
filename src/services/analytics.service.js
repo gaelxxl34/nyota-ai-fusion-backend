@@ -1423,7 +1423,7 @@ class AnalyticsService {
           }
 
           // Study mode
-          if (application.modeOfStudy === "online") {
+          if (application.modeOfStudy === "Online") {
             programStats[program].studyModes.online++;
           } else {
             programStats[program].studyModes.onCampus++;

@@ -342,62 +342,6 @@ router.post("/submit-manual", ensureApplicationService, async (req, res) => {
 });
 
 /**
- * Get available application statuses and options
- * GET /api/applications/config
- */
-router.get("/config", (req, res) => {
-  res.json({
-    success: true,
-    data: {
-      statuses: Object.values(APPLICATION_STATUSES),
-      programs: [
-        {
-          value: "bachelor_information_technology",
-          label: "Bachelor of Information Technology (BIT)",
-        },
-        {
-          value: "bachelor_business_administration",
-          label: "Bachelor of Business Administration (BBA)",
-        },
-        { value: "bachelor_commerce", label: "Bachelor of Commerce (BCOM)" },
-        {
-          value: "master_information_technology",
-          label: "Master of Information Technology (MIT)",
-        },
-        {
-          value: "master_business_administration",
-          label: "Master of Business Administration (MBA)",
-        },
-        {
-          value: "diploma_information_technology",
-          label: "Diploma in Information Technology",
-        },
-        {
-          value: "diploma_business_administration",
-          label: "Diploma in Business Administration",
-        },
-        { value: "certificate_programs", label: "Certificate Programs" },
-      ],
-      intakes: [
-        { value: "january", label: "January" },
-        { value: "may", label: "May" },
-        { value: "august", label: "August" },
-      ],
-      studyModes: [
-        { value: "on_campus", label: "On Campus" },
-        { value: "online", label: "Online" },
-      ],
-      genders: [
-        { value: "male", label: "Male" },
-        { value: "female", label: "Female" },
-        { value: "other", label: "Other" },
-        { value: "prefer_not_to_say", label: "Prefer not to say" },
-      ],
-    },
-  });
-});
-
-/**
  * Get application statistics
  * GET /api/applications/stats
  */

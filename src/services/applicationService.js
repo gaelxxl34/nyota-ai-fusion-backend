@@ -708,7 +708,7 @@ class ApplicationService {
 
         lead = await this.leadService.createLead(
           contactInfo,
-          "APPLICATION_FORM", // source
+          applicationData.source || "APPLICATION_FORM", // Use application source or fallback to APPLICATION_FORM
           additionalData
         );
 
@@ -860,7 +860,7 @@ We're excited about your interest in joining our academic community. Here's what
 📚 **Program**: ${programName}
 📅 **Intake**: ${intakeName}
 💻 **Mode**: ${
-      applicationData.modeOfStudy === "on_campus" ? "On Campus" : "Online"
+      applicationData.modeOfStudy === "On Campus" ? "On Campus" : "Online"
     }
 
 **Next Steps:**
@@ -1513,6 +1513,22 @@ IUEA Admissions Team`;
             `🔄 Synchronizing lead ${application.leadId} status to match application status: ${newStatus}`
           );
 
+          // First check if the lead exists
+          const lead = await this.leadService.getLeadById(application.leadId);
+          if (!lead) {
+            console.error(
+              `❌ Lead ${application.leadId} not found when trying to sync status`
+            );
+            return {
+              id: applicationId,
+              ...updatedApplication,
+            };
+          }
+
+          console.log(
+            `🔍 Found lead for sync: ${application.leadId}, current status: ${lead.status}`
+          );
+
           // Update the corresponding lead status to match the application status
           await this.leadService.updateLeadStatus(
             application.leadId,
@@ -1529,6 +1545,10 @@ IUEA Admissions Team`;
             `⚠️ Failed to synchronize lead status for application ${applicationId}:`,
             leadError
           );
+          console.error(
+            `⚠️ Lead ID: ${application.leadId}, Error:`,
+            leadError.message
+          );
           // Don't throw error here as application update was successful
           // We just log the warning that lead sync failed
         }
@@ -1536,6 +1556,75 @@ IUEA Admissions Team`;
         console.log(
           `⚠️ No leadId found for application ${applicationId}, skipping lead status synchronization`
         );
+
+        // Let's try to find a lead by email or phone as a fallback
+        try {
+          console.log(
+            `🔍 Attempting to find lead by email/phone for application ${applicationId}`
+          );
+          console.log(
+            `🔍 Application email: ${application.email}, phone: ${application.phoneNumber}`
+          );
+
+          let foundLead = null;
+
+          // Try to find lead by email first
+          if (application.email) {
+            const leadsByEmail = await this.leadService.getLeadsByEmail(
+              application.email
+            );
+            if (leadsByEmail.length > 0) {
+              foundLead = leadsByEmail[0];
+              console.log(`🔍 Found lead by email: ${foundLead.id}`);
+            }
+          }
+
+          // If no lead found by email, try phone
+          if (!foundLead && application.phoneNumber) {
+            const leadsByPhone = await this.leadService.getLeadsByPhone(
+              application.phoneNumber
+            );
+            if (leadsByPhone.length > 0) {
+              foundLead = leadsByPhone[0];
+              console.log(`🔍 Found lead by phone: ${foundLead.id}`);
+            }
+          }
+
+          if (foundLead) {
+            console.log(
+              `🔄 Linking application ${applicationId} to lead ${foundLead.id} and syncing status`
+            );
+
+            // Update the application with the found leadId
+            await this.db
+              .collection(this.collection)
+              .doc(applicationId)
+              .update({
+                leadId: foundLead.id,
+              });
+
+            // Update the lead status
+            await this.leadService.updateLeadStatus(
+              foundLead.id,
+              newStatus,
+              notes || `Application status updated to ${newStatus}`,
+              updatedBy || "APPLICATION_SERVICE"
+            );
+
+            console.log(
+              `✅ Successfully linked and synchronized application ${applicationId} with lead ${foundLead.id}`
+            );
+          } else {
+            console.log(
+              `⚠️ No matching lead found for application ${applicationId}`
+            );
+          }
+        } catch (linkError) {
+          console.error(
+            `⚠️ Failed to find and link lead for application ${applicationId}:`,
+            linkError.message
+          );
+        }
       }
 
       return {
@@ -1596,18 +1685,24 @@ IUEA Admissions Team`;
   }
 
   /**
-   * Get a user-friendly program name from program code
+   * Get a user-friendly program name from program code or full name
    */
   _getProgramName(programCode) {
     if (!programCode) return "Program Not Selected";
 
-    // Expanded list with more program options
+    // If it's already a full name (contains spaces), return as is
+    if (programCode.includes(" ")) {
+      return programCode;
+    }
+
+    // Legacy support for abbreviated codes (backward compatibility)
     const programNames = {
       bachelor_information_technology: "Bachelor of Information Technology",
       bachelor_business_administration: "Bachelor of Business Administration",
       bachelor_commerce: "Bachelor of Commerce",
-      bachelor_software_engineering: "Bachelor of Software Engineering",
-      bachelor_computer_science: "Bachelor of Computer Science",
+      bachelor_software_engineering:
+        "Bachelor of Science in Software Engineering",
+      bachelor_computer_science: "Bachelor of Science in Computer Science",
       bachelor_accounting: "Bachelor of Accounting",
       bachelor_marketing: "Bachelor of Marketing",
       master_information_technology: "Master of Information Technology",
@@ -1667,7 +1762,12 @@ IUEA Admissions Team`;
       // 2. Create application document but mark it as manual
       const applicationDoc =
         ApplicationModel.createApplication(applicationData);
-      applicationDoc.source = "MANUAL_FORM";
+
+      // Only set source to MANUAL_FORM if no source is provided
+      // This allows imports to preserve their mapped source values
+      if (!applicationData.source) {
+        applicationDoc.source = "MANUAL_FORM";
+      }
 
       // Add formatted program name for better display
       if (applicationData.preferredProgram) {
@@ -1821,7 +1921,7 @@ IUEA Admissions Team`;
 
         lead = await this.leadService.createLead(
           contactInfo,
-          "MANUAL_FORM", // Clearly mark as manual form source
+          applicationData.source || "MANUAL_FORM", // Use application source or fallback to MANUAL_FORM
           additionalData
         );
 

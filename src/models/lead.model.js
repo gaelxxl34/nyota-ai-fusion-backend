@@ -31,6 +31,7 @@ const STATUS_TRANSITIONS = {
   [LEAD_STATUSES.APPLIED]: [
     LEAD_STATUSES.IN_REVIEW,
     LEAD_STATUSES.QUALIFIED, // Allow direct qualification for special cases
+    LEAD_STATUSES.ADMITTED, // Allow direct admission for bulk imports
   ],
   [LEAD_STATUSES.IN_REVIEW]: [
     LEAD_STATUSES.QUALIFIED,

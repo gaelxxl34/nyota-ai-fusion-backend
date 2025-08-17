@@ -62,6 +62,10 @@ class SendGridEmailService {
           email: "noreply@iuea.app",
           name: "IUEA Admissions Office",
         },
+        replyTo: {
+          email: process.env.EMAIL_REPLY_TO || "info@iuea.ac.ug",
+          name: "IUEA Admissions Office",
+        },
         subject,
         text: text || "",
         html: html || text || "",

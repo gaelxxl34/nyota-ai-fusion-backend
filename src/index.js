@@ -1,6 +1,7 @@
 require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
+const logger = require("./utils/logger");
 
 // Initialize Firebase
 async function initializeFirebase() {
@@ -19,11 +20,11 @@ async function initializeFirebase() {
       // Test Firestore connection without writing to database
       const db = getFirestore();
       await db.listCollections().then((collections) => {
-        console.log("✅ Firebase Firestore connection verified");
+        logger.info("Firebase Firestore connection verified");
       });
     }
   } catch (error) {
-    console.error("❌ Firebase initialization failed:", error);
+    logger.error("Firebase initialization failed", error);
     throw error;
   }
 }
@@ -34,21 +35,18 @@ initializeFirebase()
     startServer();
   })
   .catch((error) => {
-    console.error("Failed to initialize Firebase, exiting...", error);
+    logger.error("Failed to initialize Firebase, exiting...", error);
 
     // Check if the error is related to the serviceAccountKey.json file
     if (error.message && error.message.includes("serviceAccountKey.json")) {
-      console.error(
-        "ERROR: There appears to be an issue with your serviceAccountKey.json file."
-      );
-      console.error(
-        "Please verify that the file exists and contains valid credentials."
+      logger.error(
+        "There appears to be an issue with your serviceAccountKey.json file. Please verify that the file exists and contains valid credentials."
       );
     }
     // Check for network-related errors
     else if (error.code === "ENOTFOUND" || error.code === "ECONNREFUSED") {
-      console.error(
-        "ERROR: Network connectivity issue. Please check your internet connection."
+      logger.error(
+        "Network connectivity issue. Please check your internet connection."
       );
     }
 
@@ -86,7 +84,7 @@ function startServer() {
   // Production logging middleware - only log in development
   if (process.env.NODE_ENV === "development") {
     app.use((req, res, next) => {
-      console.log(`${req.method} ${req.path} - ${new Date().toISOString()}`);
+      logger.debug(`${req.method} ${req.path}`);
       next();
     });
   }
@@ -96,7 +94,7 @@ function startServer() {
 
   // Define error handler
   app.use((err, req, res, next) => {
-    console.error(err.stack);
+    logger.error("Server error", err);
     res.status(500).json({
       success: false,
       error:
@@ -114,18 +112,18 @@ function startServer() {
   try {
     const superAdminRoutes = require("./routes/super-admin.routes");
     app.use("/api/super-admin", superAdminRoutes);
-    console.log("✅ Super Admin routes loaded");
+    logger.info("Super Admin routes loaded");
   } catch (error) {
-    console.warn("❌ Super Admin routes not loaded:", error.message);
+    logger.warn("Super Admin routes not loaded:", error.message);
   }
 
   // Admin routes (Admin role)
   try {
     const adminRoutes = require("./routes/admin.routes");
     app.use("/api/admin", adminRoutes);
-    console.log("✅ Admin routes loaded");
+    logger.info("Admin routes loaded");
   } catch (error) {
-    console.warn("❌ Admin routes not loaded:", error.message);
+    logger.warn("Admin routes not loaded:", error.message);
   }
 
   // Enhanced webhook routes
@@ -139,17 +137,20 @@ function startServer() {
     // Add debug logging only in development
     if (process.env.NODE_ENV === "development") {
       enhancedWebhookRoutes.router.use((req, res, next) => {
-        console.log(`Webhook request received: ${req.method} ${req.path}`);
-        console.log(`Headers: ${JSON.stringify(req.headers)}`);
+        logger.webhook("Enhanced webhook request", {
+          method: req.method,
+          path: req.path,
+          headers: req.headers,
+        });
         next();
       });
     }
 
     app.use("/api/webhook", enhancedWebhookRoutes.router);
-    console.log("✅ Enhanced webhook routes loaded at /api/webhook");
+    logger.info("Enhanced webhook routes loaded at /api/webhook");
   } catch (error) {
-    console.warn("❌ Enhanced webhook routes not loaded:", error.message);
-    console.error(error); // Log the full error for debugging
+    logger.warn("Enhanced webhook routes not loaded:", error.message);
+    logger.error("Webhook routes error details", error); // Log the full error for debugging
   }
 
   // Lead management routes
@@ -162,9 +163,9 @@ function startServer() {
     leadRoutes.initLeadService(db);
 
     app.use("/api/leads", leadRoutes);
-    console.log("✅ Lead management routes loaded");
+    logger.info("Lead management routes loaded");
   } catch (error) {
-    console.warn("❌ Lead routes not loaded:", error.message);
+    logger.warn("Lead routes not loaded:", error.message);
   }
 
   // Application management routes
@@ -199,27 +200,27 @@ function startServer() {
     );
 
     app.use("/api/applications", applicationRoutes);
-    console.log("✅ Application management routes loaded");
+    logger.info("Application management routes loaded");
   } catch (error) {
-    console.warn("❌ Application routes not loaded:", error.message);
+    logger.warn("Application routes not loaded:", error.message);
   }
 
   // Analytics routes
   try {
     const analyticsRoutes = require("./routes/analytics.routes");
     app.use("/api/analytics", analyticsRoutes);
-    console.log("✅ Analytics routes loaded");
+    logger.info("Analytics routes loaded");
   } catch (error) {
-    console.warn("❌ Analytics routes not loaded:", error.message);
+    logger.warn("Analytics routes not loaded:", error.message);
   }
 
   // Knowledge Base routes
   try {
     const knowledgeBaseRoutes = require("./routes/knowledge-base.routes");
     app.use("/api/knowledge-base", knowledgeBaseRoutes);
-    console.log("✅ Knowledge Base routes loaded");
+    logger.info("Knowledge Base routes loaded");
   } catch (error) {
-    console.warn("❌ Knowledge Base routes not loaded:", error.message);
+    logger.warn("Knowledge Base routes not loaded:", error.message);
   }
 
   // Team routes have been moved to admin routes
@@ -233,7 +234,7 @@ function startServer() {
     const whatsappRoutes = require("./routes/whatsapp.routes");
     app.use("/api/whatsapp", whatsappRoutes);
   } catch (error) {
-    console.warn("WhatsApp routes not loaded:", error.message);
+    logger.warn("WhatsApp routes not loaded:", error.message);
   }
 
   // Health check endpoint
@@ -271,17 +272,17 @@ function startServer() {
   const port = process.env.BACKEND_PORT || process.env.PORT || 3000;
   const host = process.env.BACKEND_HOST || process.env.HOST || "0.0.0.0"; // Listen on all network interfaces
   app.listen(port, host, () => {
-    console.log(`Server running on ${host}:${port}`);
+    logger.info(`Server running on ${host}:${port}`);
 
     // Only show development URLs in development mode
     if (process.env.NODE_ENV === "development") {
       const localIP = process.env.LOCAL_IP || "localhost";
-      console.log(`🌐 Accessible from network at: http://${localIP}:${port}`);
-      console.log(
-        `📡 Webhook endpoint: http://${localIP}:${port}/api/webhook/receive`
+      logger.info(`Accessible from network at: http://${localIP}:${port}`);
+      logger.info(
+        `Webhook endpoint: http://${localIP}:${port}/api/webhook/receive`
       );
     }
 
-    console.log("⏱️ Application services initialized successfully");
+    logger.info("Application services initialized successfully");
   });
 }

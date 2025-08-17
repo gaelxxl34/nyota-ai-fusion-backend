@@ -1413,6 +1413,62 @@ class LeadService {
       throw error;
     }
   }
+
+  /**
+   * Get leads by email
+   */
+  async getLeadsByEmail(email) {
+    try {
+      console.log(`🔍 Searching for leads with email: ${email}`);
+
+      const snapshot = await this.db
+        .collection(this.collection)
+        .where("email", "==", email.toLowerCase())
+        .get();
+
+      const leads = [];
+      snapshot.forEach((doc) => {
+        leads.push({
+          id: doc.id,
+          ...doc.data(),
+        });
+      });
+
+      console.log(`🔍 Found ${leads.length} leads with email: ${email}`);
+      return leads;
+    } catch (error) {
+      console.error(`❌ Error fetching leads by email ${email}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get leads by phone number
+   */
+  async getLeadsByPhone(phone) {
+    try {
+      console.log(`🔍 Searching for leads with phone: ${phone}`);
+
+      const snapshot = await this.db
+        .collection(this.collection)
+        .where("phone", "==", phone)
+        .get();
+
+      const leads = [];
+      snapshot.forEach((doc) => {
+        leads.push({
+          id: doc.id,
+          ...doc.data(),
+        });
+      });
+
+      console.log(`🔍 Found ${leads.length} leads with phone: ${phone}`);
+      return leads;
+    } catch (error) {
+      console.error(`❌ Error fetching leads by phone ${phone}:`, error);
+      throw error;
+    }
+  }
 }
 
 module.exports = LeadService;

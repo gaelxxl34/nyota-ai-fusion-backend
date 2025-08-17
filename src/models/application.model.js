@@ -18,35 +18,33 @@ const APPLICATION_STATUSES = {
 
 // Study Mode Constants
 const STUDY_MODES = {
-  ON_CAMPUS: "on_campus",
-  ONLINE: "online",
+  ON_CAMPUS: "On Campus",
+  ONLINE: "Online",
 };
 
 // Intake Constants
 const INTAKE_PERIODS = {
-  JANUARY: "january",
-  MAY: "may",
-  AUGUST: "august",
+  JANUARY: "January",
+  MAY: "May",
+  AUGUST: "August",
 };
 
 // Program Constants
 const PROGRAMS = {
-  BACHELOR_IT: "bachelor_information_technology",
-  BACHELOR_BBA: "bachelor_business_administration",
-  BACHELOR_BCOM: "bachelor_commerce",
-  MASTER_MIT: "master_information_technology",
-  MASTER_MBA: "master_business_administration",
-  DIPLOMA_IT: "diploma_information_technology",
-  DIPLOMA_BA: "diploma_business_administration",
-  CERTIFICATE: "certificate_programs",
+  BACHELOR_IT: "Bachelor of Information Technology",
+  BACHELOR_BBA: "Bachelor of Business Administration",
+  BACHELOR_BCOM: "Bachelor of Commerce",
+  MASTER_MIT: "Master of Information Technology",
+  MASTER_MBA: "Master of Business Administration",
+  DIPLOMA_IT: "Diploma in Information Technology",
+  DIPLOMA_BA: "Diploma in Business Administration",
+  CERTIFICATE: "Certificate Programs",
 };
 
 // Gender Constants
 const GENDERS = {
   MALE: "male",
   FEMALE: "female",
-  OTHER: "other",
-  PREFER_NOT_TO_SAY: "prefer_not_to_say",
 };
 
 class ApplicationModel {
@@ -60,7 +58,7 @@ class ApplicationModel {
       // Personal Information
       name: applicationData.name,
       countryOfBirth: applicationData.countryOfBirth,
-      gender: applicationData.gender,
+      gender: applicationData.gender || null,
       email: applicationData.email.toLowerCase(),
       phoneNumber: applicationData.phoneNumber,
       passportPhoto: applicationData.passportPhoto || null,
@@ -82,6 +80,19 @@ class ApplicationModel {
       sponsor: applicationData.sponsor || null,
       sponsorTelephone: applicationData.sponsorTelephone || null,
       sponsorEmail: applicationData.sponsorEmail || null,
+
+      // Bio Data Fields (from import)
+      registrationNumber: applicationData.registrationNumber || null,
+      faculty: applicationData.faculty || null,
+      dateOfBirth: applicationData.dateOfBirth || null,
+      company: applicationData.company || null,
+      companyLocation: applicationData.companyLocation || null,
+      idType: applicationData.idType || null,
+      uaceLevel: applicationData.uaceLevel || null,
+      uaceLevelResults: applicationData.uaceLevelResults || null,
+      otherDocuments: applicationData.otherDocuments || null,
+      equating: applicationData.equating || null,
+      tags: applicationData.tags || null, // Field for tag updates
 
       // Application Meta
       status: APPLICATION_STATUSES.APPLIED,
@@ -135,7 +146,6 @@ class ApplicationModel {
     const requiredFields = [
       "name",
       "countryOfBirth",
-      "gender",
       "email",
       "phoneNumber",
       "modeOfStudy",
@@ -152,55 +162,51 @@ class ApplicationModel {
       }
     });
 
-    // Email validation
-    if (applicationData.email) {
-      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      if (!emailRegex.test(applicationData.email)) {
-        errors.push("Invalid email format");
-      }
-    }
+    // Email validation - removed for imports, just accept any email format
+    // if (applicationData.email) {
+    //   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    //   if (!emailRegex.test(applicationData.email)) {
+    //     errors.push("Invalid email format");
+    //   }
+    // }
 
-    // Sponsor email validation if provided
-    if (applicationData.sponsorEmail) {
-      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      if (!emailRegex.test(applicationData.sponsorEmail)) {
-        errors.push("Invalid sponsor email format");
-      }
-    }
+    // Sponsor email validation - removed for imports
+    // No validation needed, just accept the data as-is
 
-    // Phone validation
-    if (applicationData.phoneNumber) {
-      const phoneRegex = /^\+?[\d\s\-\(\)]{10,}$/;
-      if (!phoneRegex.test(applicationData.phoneNumber)) {
-        errors.push("Invalid phone number format");
-      }
-    }
+    // Phone validation - removed for imports
+    // if (applicationData.phoneNumber) {
+    //   const phoneRegex = /^\+?[\d\s\-\(\)]{10,}$/;
+    //   if (!phoneRegex.test(applicationData.phoneNumber)) {
+    //     errors.push("Invalid phone number format");
+    //   }
+    // }
 
-    // Sponsor phone validation if provided
-    if (applicationData.sponsorTelephone) {
-      const phoneRegex = /^\+?[\d\s\-\(\)]{10,}$/;
-      if (!phoneRegex.test(applicationData.sponsorTelephone)) {
-        errors.push("Invalid sponsor phone number format");
-      }
-    }
+    // Sponsor phone validation - removed for imports
+    // if (applicationData.sponsorTelephone) {
+    //   const phoneRegex = /^\+?[\d\s\-\(\)]{10,}$/;
+    //   if (!phoneRegex.test(applicationData.sponsorTelephone)) {
+    //     errors.push("Invalid sponsor phone number format");
+    //   }
+    // }
 
-    // Validate enum values
-    if (
-      applicationData.gender &&
-      !Object.values(GENDERS).includes(applicationData.gender)
-    ) {
-      errors.push("Invalid gender value");
-    }
+    // Validate enum values - removed for imports
+    // if (
+    //   applicationData.gender &&
+    //   !Object.values(GENDERS).includes(applicationData.gender)
+    // ) {
+    //   errors.push("Invalid gender value");
+    // }
 
     // Accept any mode of study
     // Mode of study validation removed to allow any value from frontend
 
-    if (
-      applicationData.preferredIntake &&
-      !Object.values(INTAKE_PERIODS).includes(applicationData.preferredIntake)
-    ) {
-      errors.push("Invalid intake period");
-    }
+    // Accept any intake period for imports
+    // if (
+    //   applicationData.preferredIntake &&
+    //   !Object.values(INTAKE_PERIODS).includes(applicationData.preferredIntake)
+    // ) {
+    //   errors.push("Invalid intake period");
+    // }
 
     // Accept any program selection
     // Program validation removed to allow any value from frontend
