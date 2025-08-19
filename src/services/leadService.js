@@ -965,7 +965,7 @@ class LeadService {
   async getAllLeads(options = {}) {
     try {
       const {
-        limit = 25, // Reduced default limit from 50 to 25
+        limit = 50, // Increased default limit from 25 to 50
         offset = 0,
         status,
         source,
@@ -1070,7 +1070,7 @@ class LeadService {
         leads: [],
         hasMore: false,
         pagination: {
-          limit: options.limit || 25,
+          limit: options.limit || 50,
           offset: options.offset || 0,
           hasMore: false,
           count: 0,

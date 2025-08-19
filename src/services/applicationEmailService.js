@@ -164,8 +164,8 @@ class ApplicationEmailService {
                             If you have any questions about your application, please don't hesitate to contact us:
                         </p>
                         <ul style="color: #666; margin-bottom: 0;">
-                            <li>Email: admissions@iuea.ac.ug</li>
-                            <li>Phone: +256 414 373 747</li>
+                            <li>Email: apply@iuea.ac.ug</li>
+                            <li>Phone: +256 790 002 000</li>
                             <li>Website: www.iuea.ac.ug</li>
                             <li>Application Portal: <a href="https://applicant.iuea.ac.ug/" style="color: #007bff;">https://applicant.iuea.ac.ug/</a></li>
                         </ul>
@@ -226,8 +226,8 @@ Track your application status and access important updates at: https://applicant
 
 Need Help?
 If you have any questions about your application, please contact us:
-- Email: admissions@iuea.ac.ug
-- Phone: +256 414 373 747
+- Email: apply@iuea.ac.ug
+- Phone: +256 790 002 000
 - Website: www.iuea.ac.ug
 - Application Portal: https://applicant.iuea.ac.ug/
 

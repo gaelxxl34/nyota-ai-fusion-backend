@@ -245,7 +245,7 @@ router.get("/email/:email", ensureLeadService, async (req, res) => {
 router.get("/", ensureLeadService, async (req, res) => {
   try {
     const {
-      limit = 25,
+      limit = 50,
       offset = 0,
       status,
       source,
@@ -257,7 +257,7 @@ router.get("/", ensureLeadService, async (req, res) => {
     console.log(`📋 API: Fetching leads with query params:`, req.query);
 
     // Validate limit (max 100)
-    const parsedLimit = Math.min(parseInt(limit) || 25, 100);
+    const parsedLimit = Math.min(parseInt(limit) || 50, 100);
     const parsedOffset = parseInt(offset) || 0;
 
     let result;
@@ -308,7 +308,7 @@ router.get("/", ensureLeadService, async (req, res) => {
       data: [],
       pagination: {
         hasMore: false,
-        limit: parseInt(req.query.limit) || 25,
+        limit: parseInt(req.query.limit) || 50,
         offset: parseInt(req.query.offset) || 0,
         count: 0,
       },

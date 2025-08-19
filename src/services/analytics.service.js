@@ -80,7 +80,7 @@ class AnalyticsService {
 
       leadsSnapshot.forEach((doc) => {
         const lead = doc.data();
-        const currentStatus = LeadModel.getCurrentStatus(lead);
+        const currentStatus = lead.status || LEAD_STATUSES.INTERESTED;
 
         // Filter for admission admin - only show specific statuses
         if (
@@ -275,8 +275,9 @@ class AnalyticsService {
       leadsSnapshot.forEach((doc) => {
         const lead = doc.data();
 
-        // Get current status from timeline
-        const currentStatus = LeadModel.getCurrentStatus(lead);
+        // Get current status from status field directly (instead of timeline)
+        // This ensures we use the manually updated statuses
+        const currentStatus = lead.status || LEAD_STATUSES.INTERESTED;
 
         // Filter for admission admin - only show specific statuses
         if (
@@ -355,7 +356,7 @@ class AnalyticsService {
         const lead = doc.data();
 
         // Apply same role filtering for previous period
-        const currentStatus = LeadModel.getCurrentStatus(lead);
+        const currentStatus = lead.status || LEAD_STATUSES.INTERESTED;
         if (
           userRole === "admissionAdmin" &&
           !admissionAdminStatuses.includes(currentStatus)
@@ -444,8 +445,8 @@ class AnalyticsService {
         leadsSnapshot.forEach((doc) => {
           const lead = doc.data();
 
-          // Get current status from timeline
-          const currentStatus = LeadModel.getCurrentStatus(lead);
+          // Get current status from status field
+          const currentStatus = lead.status || LEAD_STATUSES.INTERESTED;
 
           // Filter for admission admin - only show specific statuses
           if (
@@ -552,7 +553,7 @@ class AnalyticsService {
             submittedByExamples.push({
               leadId: leadDoc.id,
               submittedBy: lead.submittedBy,
-              status: LeadModel.getCurrentStatus(lead),
+              status: lead.status || LEAD_STATUSES.INTERESTED,
             });
           }
         }
@@ -614,7 +615,7 @@ class AnalyticsService {
           const lead = leadDoc.data();
 
           // Get current status and apply admission admin filtering
-          const currentStatus = LeadModel.getCurrentStatus(lead);
+          const currentStatus = lead.status || LEAD_STATUSES.INTERESTED;
           const admissionAdminStatuses = [
             "APPLIED",
             "QUALIFIED",
@@ -1089,7 +1090,7 @@ class AnalyticsService {
       // Process leads for admission pipeline
       leadsSnapshot.forEach((doc) => {
         const lead = doc.data();
-        const currentStatus = LeadModel.getCurrentStatus(lead);
+        const currentStatus = lead.status || LEAD_STATUSES.INTERESTED;
 
         // Only count admission-relevant statuses
         if (!admissionStatuses.includes(currentStatus)) {
@@ -1363,7 +1364,7 @@ class AnalyticsService {
   }
 
   /**
-   * Get program-specific analytics
+   * Get program-specific analytics based on leads (not applications)
    */
   async getProgramAnalytics(applicationsSnapshot, leadsSnapshot) {
     try {
@@ -1379,7 +1380,7 @@ class AnalyticsService {
         certificate_programs: "Certificate Programs",
       };
 
-      // Initialize program stats
+      // Initialize program stats for known programs
       Object.keys(programNames).forEach((programCode) => {
         programStats[programCode] = {
           name: programNames[programCode],
@@ -1406,57 +1407,108 @@ class AnalyticsService {
         };
       });
 
-      // Process applications
-      applicationsSnapshot.forEach((doc) => {
-        const application = doc.data();
-        const program = application.preferredProgram;
+      // Process leads for program analytics (using status field)
+      leadsSnapshot.forEach((doc) => {
+        const lead = doc.data();
+        const leadStatus = lead.status || LEAD_STATUSES.INTERESTED;
 
-        if (program && programStats[program]) {
-          programStats[program].applications++;
+        // Get program - handle both string and object formats
+        let program = lead.program;
+        if (typeof program === "object" && program !== null) {
+          // If program is an object, try to get a meaningful string
+          program = program.name || program.title || program.code || "unknown";
+        }
 
-          // Count by status
-          if (application.status === "ADMITTED") {
-            programStats[program].admitted++;
+        // Normalize program names to match our programNames mapping
+        const normalizedProgram = this.normalizeProgramName(program);
+
+        if (normalizedProgram && programStats[normalizedProgram]) {
+          // Count all leads as "applications" for this program
+          programStats[normalizedProgram].applications++;
+
+          // Count by lead status (not application status)
+          if (leadStatus === LEAD_STATUSES.ADMITTED) {
+            programStats[normalizedProgram].admitted++;
           }
-          if (application.status === "ENROLLED") {
-            programStats[program].enrolled++;
-          }
-
-          // Study mode
-          if (application.modeOfStudy === "Online") {
-            programStats[program].studyModes.online++;
-          } else {
-            programStats[program].studyModes.onCampus++;
-          }
-
-          // Demographics
-          if (application.gender) {
-            const gender = application.gender.toLowerCase();
-            if (programStats[program].demographics[gender] !== undefined) {
-              programStats[program].demographics[gender]++;
-            }
+          if (leadStatus === LEAD_STATUSES.ENROLLED) {
+            programStats[normalizedProgram].enrolled++;
           }
 
-          // Intake distribution
-          if (application.preferredIntake) {
-            const intake = application.preferredIntake.toLowerCase();
-            if (
-              programStats[program].intakeDistribution[intake] !== undefined
-            ) {
-              programStats[program].intakeDistribution[intake]++;
-            }
+          // Try to get additional info from corresponding application
+          try {
+            // This could be enhanced to match lead with application
+            // For now, we'll use basic counting
+          } catch (error) {
+            // Continue without application data
+          }
+        } else if (program && program !== "unknown") {
+          // Create entry for unknown programs
+          const programKey = program.toLowerCase().replace(/\s+/g, "_");
+          if (!programStats[programKey]) {
+            programStats[programKey] = {
+              name: program,
+              code: programKey,
+              applications: 0,
+              admitted: 0,
+              enrolled: 0,
+              conversionRate: 0,
+              avgProcessingTime: 0,
+              studyModes: { online: 0, onCampus: 0 },
+              demographics: { male: 0, female: 0, other: 0 },
+              intakeDistribution: { january: 0, may: 0, august: 0 },
+            };
+          }
+
+          programStats[programKey].applications++;
+          if (leadStatus === LEAD_STATUSES.ADMITTED) {
+            programStats[programKey].admitted++;
+          }
+          if (leadStatus === LEAD_STATUSES.ENROLLED) {
+            programStats[programKey].enrolled++;
           }
         }
       });
 
       // Calculate conversion rates and format data
       const programAnalytics = Object.values(programStats)
+        .filter((program) => program.applications > 0) // Only include programs with actual data
         .map((program) => ({
           ...program,
           conversionRate:
             program.applications > 0
-              ? ((program.enrolled / program.applications) * 100).toFixed(1)
+              ? ((program.admitted / program.applications) * 100).toFixed(1)
               : 0,
+        }))
+        .sort((a, b) => b.applications - a.applications); // Sort by application count
+
+      return programAnalytics;
+    } catch (error) {
+      logger.error("Error calculating program analytics:", error);
+      return [];
+    }
+  }
+
+  /**
+   * Normalize program names to match our standard format
+   */
+  normalizeProgramName(program) {
+    if (!program || typeof program !== "string") return null;
+
+    const normalizations = {
+      "bachelor of information technology": "bachelor_information_technology",
+      "bachelor of business administration": "bachelor_business_administration",
+      "bachelor of commerce": "bachelor_commerce",
+      "master of information technology": "master_information_technology",
+      "master of business administration": "master_business_administration",
+      "diploma in information technology": "diploma_information_technology",
+      "diploma in business administration": "diploma_business_administration",
+    };
+
+    const normalized = program.toLowerCase().trim();
+    return normalizations[normalized] || null;
+  }
+
+  /**
           avgProcessingTime: "3-5 days", // TODO: Calculate from actual timeline data
         }))
         .filter((program) => program.applications > 0) // Only include programs with applications
