@@ -462,7 +462,7 @@
         }
 
         getApiUrl() {
-          // Try to get API URL from URL params first, then fallback to localhost
+          // Try to get API URL from URL params first
           const urlParams = new URLSearchParams(window.location.search);
           const apiUrl = urlParams.get("apiUrl");
 
@@ -470,8 +470,9 @@
             return apiUrl;
           }
 
-          // Default to localhost for development
-          return "http://localhost:3000/api/chatbot";
+          // Auto-detect from current page origin
+          const origin = window.location.origin;
+          return `${origin}/api/chatbot`;
         }
 
         async init() {

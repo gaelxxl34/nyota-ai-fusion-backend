@@ -3,13 +3,42 @@
 
   // Configuration
   const CONFIG = {
-    API_URL: "http://localhost:3000", // Change this to your production URL
-    WIDGET_URL: "http://localhost:3000/chatbot/chatbot-widget.html",
+    API_URL: getApiUrl(), // Automatically detect URL
+    WIDGET_URL: getWidgetUrl(), // Automatically detect URL
     BUTTON_SIZE: "60px",
     BUTTON_POSITION: { bottom: "20px", right: "20px" },
     CHAT_SIZE: { width: "400px", height: "600px" },
     Z_INDEX: 999999,
   };
+
+  // Auto-detect API URL based on script source or current domain
+  function getApiUrl() {
+    // Check if there's a global config
+    if (window.IUEA_CHATBOT_CONFIG && window.IUEA_CHATBOT_CONFIG.apiUrl) {
+      return window.IUEA_CHATBOT_CONFIG.apiUrl;
+    }
+
+    // Try to get from script tag data attribute
+    const script = document.querySelector('script[src*="chatbot-embed.js"]');
+    if (script && script.dataset.apiUrl) {
+      return script.dataset.apiUrl;
+    }
+
+    // Extract from script source URL
+    if (script && script.src) {
+      const url = new URL(script.src);
+      return `${url.protocol}//${url.host}`;
+    }
+
+    // Fallback to current page origin
+    return window.location.origin;
+  }
+
+  // Auto-detect Widget URL
+  function getWidgetUrl() {
+    const baseUrl = getApiUrl();
+    return `${baseUrl}/chatbot/chatbot-widget.html`;
+  }
 
   // Check if widget is already loaded
   if (window.IUEAChatbotLoaded) {
