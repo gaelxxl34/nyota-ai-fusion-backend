@@ -263,8 +263,12 @@ router.get("/", ensureLeadService, async (req, res) => {
     let result;
 
     if (status && !search && !source) {
-      // Optimized path for status-only queries
-      const leads = await leadService.getLeadsByStatus(status, parsedLimit);
+      // Optimized path for status-only queries with consistent sorting
+      const leads = await leadService.getLeadsByStatus(status, parsedLimit, {
+        sortBy,
+        sortOrder,
+        offset: parsedOffset,
+      });
       result = {
         leads,
         hasMore: leads.length === parsedLimit,
@@ -326,7 +330,13 @@ router.get(
   ensureLeadService,
   async (req, res) => {
     try {
-      const { page = 1, limit = 50, status } = req.query;
+      const {
+        page = 1,
+        limit = 50,
+        status,
+        sortBy = "createdAt",
+        sortOrder = "desc",
+      } = req.query;
       const offset = (page - 1) * limit;
 
       // Get user info from request (set by auth middleware)
@@ -338,13 +348,17 @@ router.get(
         });
       }
 
-      console.log(`🔍 Getting leads submitted by ${userEmail}`);
+      console.log(
+        `🔍 Getting leads submitted by ${userEmail} with sorting: ${sortBy} ${sortOrder}`
+      );
 
       // Get leads where submittedBy.email matches the current user's email
       const leads = await leadService.getLeadsBySubmitter(userEmail, {
         limit: parseInt(limit),
         offset,
         status,
+        sortBy,
+        sortOrder,
       });
 
       res.json({

@@ -1039,161 +1039,13 @@ router.get("/status", async (req, res) => {
 // Get all knowledge base items
 router.get("/knowledge", (req, res) => {
   try {
-    const knowledgeData = aiService.getKnowledgeBase();
-
-    if (!knowledgeData.isLoaded || !knowledgeData.csvData) {
-      return res.json({
-        success: true,
-        data: [],
-        count: 0,
-        message: "Knowledge base not loaded",
-      });
-    }
-
-    // Parse CSV data into array of Q&A items with proper CSV parsing
-    const csvLines = knowledgeData.csvData.split("\n");
-    const items = [];
-    let currentCategory = "";
-
-    // Helper function to parse CSV line properly handling quotes
-    const parseCSVLine = (line) => {
-      const result = [];
-      let current = "";
-      let inQuotes = false;
-
-      for (let i = 0; i < line.length; i++) {
-        const char = line[i];
-
-        if (char === '"') {
-          inQuotes = !inQuotes;
-        } else if (char === "," && !inQuotes) {
-          result.push(current.trim());
-          current = "";
-        } else {
-          current += char;
-        }
-      }
-
-      result.push(current.trim()); // Add the last field
-      return result;
-    };
-
-    // Helper function to intelligently categorize based on keywords
-    const categorizeFrontend = (originalCategory, question, answer) => {
-      const text = `${originalCategory} ${question} ${answer}`.toLowerCase();
-
-      // Fee-related keywords
-      if (
-        text.includes("fee") ||
-        text.includes("tuition") ||
-        text.includes("cost") ||
-        text.includes("payment") ||
-        text.includes("money") ||
-        text.includes("account") ||
-        text.includes("billing") ||
-        text.includes("scholarship") ||
-        text.includes("financial")
-      ) {
-        return "fees";
-      }
-
-      // Academic-related keywords
-      if (
-        text.includes("course") ||
-        text.includes("program") ||
-        text.includes("academic") ||
-        text.includes("curriculum") ||
-        text.includes("study") ||
-        text.includes("class") ||
-        text.includes("subject") ||
-        text.includes("degree") ||
-        text.includes("diploma") ||
-        text.includes("bachelor") ||
-        text.includes("master") ||
-        text.includes("faculty") ||
-        text.includes("department") ||
-        text.includes("specialisation") ||
-        text.includes("examination") ||
-        text.includes("grade") ||
-        text.includes("credit") ||
-        text.includes("semester") ||
-        text.includes("duration")
-      ) {
-        return "academics";
-      }
-
-      // Admissions-related keywords
-      if (
-        text.includes("admission") ||
-        text.includes("enrol") ||
-        text.includes("apply") ||
-        text.includes("application") ||
-        text.includes("requirement") ||
-        text.includes("entry") ||
-        text.includes("qualify") ||
-        text.includes("eligibility") ||
-        text.includes("registration") ||
-        text.includes("intake") ||
-        text.includes("deadline")
-      ) {
-        return "admissions";
-      }
-
-      // Everything else goes to general
-      return "general";
-    };
-
-    csvLines.forEach((line, index) => {
-      if (index === 0) return; // Skip header
-
-      const cleanLine = line.trim().replace(/\r$/, "");
-      if (!cleanLine) return;
-
-      const fields = parseCSVLine(cleanLine);
-      const question = fields[0] || "";
-      const answer = fields[1] || "";
-
-      // Check if this is a category line
-      if (question && question.startsWith("CATEGORY:")) {
-        currentCategory = question.replace("CATEGORY:", "").trim();
-        return;
-      }
-
-      // Add Q&A item if both question and answer exist
-      if (
-        question &&
-        answer &&
-        question !== "Questions" &&
-        answer !== "Answers"
-      ) {
-        const originalCategory = currentCategory || "General";
-        const frontendCategory = categorizeFrontend(
-          originalCategory,
-          question,
-          answer
-        );
-
-        items.push({
-          id: `kb_${index}`,
-          title: question, // Frontend expects 'title'
-          content: answer, // Frontend expects 'content'
-          question: question, // Keep original for reference
-          answer: answer, // Keep original for reference
-          category: frontendCategory, // Smart categorized for frontend
-          originalCategory: originalCategory, // Keep original CSV category
-          tags: [frontendCategory, originalCategory], // Both categories as tags
-          priority: "medium",
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        });
-      }
-    });
+    const items = aiService.getAllKnowledgeItems();
 
     res.json({
       success: true,
       data: items,
       count: items.length,
-      csvSize: knowledgeData.size,
+      message: "Knowledge base items retrieved successfully",
     });
   } catch (error) {
     console.error("❌ Error getting knowledge base:", error);
@@ -1205,7 +1057,7 @@ router.get("/knowledge", (req, res) => {
 });
 
 // Add knowledge base item
-router.post("/knowledge", (req, res) => {
+router.post("/knowledge", async (req, res) => {
   try {
     const { category, title, content, tags, priority } = req.body;
 
@@ -1229,7 +1081,7 @@ router.post("/knowledge", (req, res) => {
       priority: priority || "medium",
     };
 
-    const newItem = aiService.addKnowledgeItem(item);
+    const newItem = await aiService.addKnowledgeItem(item);
 
     res.json({
       success: true,
@@ -1246,9 +1098,9 @@ router.post("/knowledge", (req, res) => {
 });
 
 // Update knowledge base item
-router.put("/knowledge/:id", (req, res) => {
+router.put("/knowledge/:id", async (req, res) => {
   try {
-    const id = parseInt(req.params.id);
+    const id = req.params.id; // Keep as string for CSV IDs
     const { category, title, content, tags, priority } = req.body;
 
     if (!title || !content) {
@@ -1271,7 +1123,7 @@ router.put("/knowledge/:id", (req, res) => {
       priority: priority || "medium",
     };
 
-    const updatedItem = aiService.updateKnowledgeItem(id, item);
+    const updatedItem = await aiService.updateKnowledgeItem(id, item);
 
     if (!updatedItem) {
       return res.status(404).json({
@@ -1295,10 +1147,10 @@ router.put("/knowledge/:id", (req, res) => {
 });
 
 // Delete knowledge base item
-router.delete("/knowledge/:id", (req, res) => {
+router.delete("/knowledge/:id", async (req, res) => {
   try {
-    const id = parseInt(req.params.id);
-    const deleted = aiService.deleteKnowledgeItem(id);
+    const id = req.params.id; // Keep as string for CSV IDs
+    const deleted = await aiService.deleteKnowledgeItem(id);
 
     if (!deleted) {
       return res.status(404).json({

@@ -60,11 +60,20 @@ function startServer() {
   // Initialize Express app
   const app = express();
   const fileUpload = require("express-fileupload");
+  const path = require("path");
+
+  // Serve static files for chatbot widget
+  app.use("/chatbot", express.static(path.join(__dirname, "../public")));
 
   // Middleware
   app.use(
     cors({
-      origin: process.env.FRONTEND_URL || "http://localhost:3001",
+      origin: [
+        process.env.FRONTEND_URL || "http://localhost:3001",
+        "http://localhost:3000", // For chatbot widget
+        "http://127.0.0.1:3000", // For chatbot widget
+        /^https?:\/\/.*$/, // Allow all origins for chatbot embedding
+      ],
       credentials: true,
     })
   );
@@ -235,6 +244,15 @@ function startServer() {
     app.use("/api/whatsapp", whatsappRoutes);
   } catch (error) {
     logger.warn("WhatsApp routes not loaded:", error.message);
+  }
+
+  // Chatbot routes for iframe embedding
+  try {
+    const chatbotRoutes = require("./routes/chatbot.routes");
+    app.use("/api/chatbot", chatbotRoutes);
+    logger.info("Chatbot routes loaded");
+  } catch (error) {
+    logger.warn("Chatbot routes not loaded:", error.message);
   }
 
   // Health check endpoint

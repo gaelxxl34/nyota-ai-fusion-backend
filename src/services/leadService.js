@@ -940,18 +940,71 @@ class LeadService {
   /**
    * Get leads by status
    */
-  async getLeadsByStatus(status, limit = 50) {
+  async getLeadsByStatus(status, limit = 50, options = {}) {
     try {
-      const snapshot = await this.db
+      const { sortBy = "createdAt", sortOrder = "desc", offset = 0 } = options;
+
+      console.log(
+        `📋 Fetching leads by status: ${status} with sorting: ${sortBy} ${sortOrder}`
+      );
+
+      let query = this.db
         .collection(this.collection)
-        .where("status", "==", status)
-        .limit(limit)
-        .get();
+        .where("status", "==", status);
+
+      // Add ordering to ensure consistent results
+      const validSortFields = [
+        "createdAt",
+        "updatedAt",
+        "lastInteractionAt",
+        "status",
+      ];
+      const sortField = validSortFields.includes(sortBy) ? sortBy : "createdAt";
+      const sortDirection = sortOrder.toLowerCase() === "asc" ? "asc" : "desc";
+
+      query = query.orderBy(sortField, sortDirection);
+
+      // Add pagination if offset is provided
+      if (offset > 0) {
+        // For consistency with getAllLeads, use similar offset logic
+        if (offset <= 200) {
+          const totalLimit = offset + limit;
+          query = query.limit(totalLimit);
+
+          const snapshot = await query.get();
+          const allLeads = snapshot.docs.map((doc) =>
+            this._normalizeLead(doc.id, doc.data())
+          );
+
+          const leads = allLeads.slice(offset, offset + limit);
+          console.log(
+            `✅ Returning ${leads.length} leads by status (offset-based)`
+          );
+          return leads;
+        } else {
+          // Cursor pagination for larger offsets
+          const offsetQuery = await this.db
+            .collection(this.collection)
+            .where("status", "==", status)
+            .orderBy(sortField, sortDirection)
+            .limit(offset)
+            .get();
+
+          if (!offsetQuery.empty) {
+            const lastDoc = offsetQuery.docs[offsetQuery.docs.length - 1];
+            query = query.startAfter(lastDoc);
+          }
+        }
+      }
+
+      query = query.limit(limit);
+      const snapshot = await query.get();
 
       const leads = snapshot.docs.map((doc) =>
         this._normalizeLead(doc.id, doc.data())
       );
 
+      console.log(`✅ Returning ${leads.length} leads by status: ${status}`);
       return leads;
     } catch (error) {
       console.error("❌ Error getting leads by status:", error);
@@ -1009,9 +1062,58 @@ class LeadService {
 
       query = query.orderBy(sortField, sortDirection);
 
-      // Add pagination
-      if (offset > 0) {
-        // Get offset document for cursor pagination
+      // For better consistency, use simple offset-based pagination for small offsets
+      // and fall back to cursor pagination for larger offsets
+      if (offset > 0 && offset <= 200) {
+        // For small offsets, use simple limit/skip approach by fetching more and slicing
+        const totalLimit = offset + limit;
+        query = query.limit(totalLimit);
+
+        const snapshot = await query.get();
+        console.log(
+          `📊 Raw leads fetched: ${snapshot.docs.length} (for offset: ${offset})`
+        );
+
+        // Convert to objects with timestamp conversion
+        let allLeads = snapshot.docs.map((doc) =>
+          this._normalizeLead(doc.id, doc.data())
+        );
+
+        // Apply text search filter if provided (since Firestore doesn't support text search)
+        if (search && search.trim()) {
+          const searchTerm = search.toLowerCase().trim();
+          allLeads = allLeads.filter(
+            (lead) =>
+              (lead.name && lead.name.toLowerCase().includes(searchTerm)) ||
+              (lead.email && lead.email.toLowerCase().includes(searchTerm)) ||
+              (lead.phone && lead.phone.toLowerCase().includes(searchTerm)) ||
+              (lead.program &&
+                lead.program.toLowerCase().includes(searchTerm)) ||
+              (lead.source && lead.source.toLowerCase().includes(searchTerm))
+          );
+        }
+
+        // Apply offset and limit
+        const leads = allLeads.slice(offset, offset + limit);
+        const hasMore = allLeads.length > offset + limit;
+
+        console.log(
+          `✅ Returning ${leads.length} leads with hasMore: ${hasMore} (offset-based)`
+        );
+
+        return {
+          leads,
+          hasMore,
+          pagination: {
+            limit,
+            offset,
+            hasMore,
+            count: leads.length,
+            totalAvailable: allLeads.length,
+          },
+        };
+      } else if (offset > 200) {
+        // For larger offsets, use cursor pagination
         const offsetQuery = await this.db
           .collection(this.collection)
           .orderBy(sortField, sortDirection)
@@ -1022,48 +1124,92 @@ class LeadService {
           const lastDoc = offsetQuery.docs[offsetQuery.docs.length - 1];
           query = query.startAfter(lastDoc);
         }
-      }
 
-      query = query.limit(limit);
+        query = query.limit(limit);
+        const snapshot = await query.get();
 
-      const snapshot = await query.get();
-
-      console.log(`📊 Raw leads fetched: ${snapshot.docs.length}`);
-
-      // Convert to objects with timestamp conversion
-      let leads = snapshot.docs.map((doc) =>
-        this._normalizeLead(doc.id, doc.data())
-      );
-
-      // Apply text search filter if provided (since Firestore doesn't support text search)
-      if (search && search.trim()) {
-        const searchTerm = search.toLowerCase().trim();
-        leads = leads.filter(
-          (lead) =>
-            (lead.name && lead.name.toLowerCase().includes(searchTerm)) ||
-            (lead.email && lead.email.toLowerCase().includes(searchTerm)) ||
-            (lead.phone && lead.phone.toLowerCase().includes(searchTerm)) ||
-            (lead.program && lead.program.toLowerCase().includes(searchTerm)) ||
-            (lead.source && lead.source.toLowerCase().includes(searchTerm))
+        console.log(
+          `📊 Raw leads fetched: ${snapshot.docs.length} (cursor-based)`
         );
-      }
 
-      const hasMore = snapshot.docs.length === limit;
+        // Convert to objects with timestamp conversion
+        let leads = snapshot.docs.map((doc) =>
+          this._normalizeLead(doc.id, doc.data())
+        );
 
-      console.log(
-        `✅ Returning ${leads.length} leads with hasMore: ${hasMore}`
-      );
+        // Apply text search filter if provided
+        if (search && search.trim()) {
+          const searchTerm = search.toLowerCase().trim();
+          leads = leads.filter(
+            (lead) =>
+              (lead.name && lead.name.toLowerCase().includes(searchTerm)) ||
+              (lead.email && lead.email.toLowerCase().includes(searchTerm)) ||
+              (lead.phone && lead.phone.toLowerCase().includes(searchTerm)) ||
+              (lead.program &&
+                lead.program.toLowerCase().includes(searchTerm)) ||
+              (lead.source && lead.source.toLowerCase().includes(searchTerm))
+          );
+        }
 
-      return {
-        leads,
-        hasMore,
-        pagination: {
-          limit,
-          offset,
+        const hasMore = snapshot.docs.length === limit;
+
+        console.log(
+          `✅ Returning ${leads.length} leads with hasMore: ${hasMore} (cursor-based)`
+        );
+
+        return {
+          leads,
           hasMore,
-          count: leads.length,
-        },
-      };
+          pagination: {
+            limit,
+            offset,
+            hasMore,
+            count: leads.length,
+          },
+        };
+      } else {
+        // For zero offset, simple query
+        query = query.limit(limit);
+        const snapshot = await query.get();
+
+        console.log(`📊 Raw leads fetched: ${snapshot.docs.length} (simple)`);
+
+        // Convert to objects with timestamp conversion
+        let leads = snapshot.docs.map((doc) =>
+          this._normalizeLead(doc.id, doc.data())
+        );
+
+        // Apply text search filter if provided
+        if (search && search.trim()) {
+          const searchTerm = search.toLowerCase().trim();
+          leads = leads.filter(
+            (lead) =>
+              (lead.name && lead.name.toLowerCase().includes(searchTerm)) ||
+              (lead.email && lead.email.toLowerCase().includes(searchTerm)) ||
+              (lead.phone && lead.phone.toLowerCase().includes(searchTerm)) ||
+              (lead.program &&
+                lead.program.toLowerCase().includes(searchTerm)) ||
+              (lead.source && lead.source.toLowerCase().includes(searchTerm))
+          );
+        }
+
+        const hasMore = snapshot.docs.length === limit;
+
+        console.log(
+          `✅ Returning ${leads.length} leads with hasMore: ${hasMore} (simple)`
+        );
+
+        return {
+          leads,
+          hasMore,
+          pagination: {
+            limit,
+            offset,
+            hasMore,
+            count: leads.length,
+          },
+        };
+      }
     } catch (error) {
       console.error("❌ Error getting all leads:", error);
       return {
@@ -1300,7 +1446,13 @@ class LeadService {
    */
   async getLeadsBySubmitter(userEmail, options = {}) {
     try {
-      const { limit = 50, offset = 0, status } = options;
+      const {
+        limit = 50,
+        offset = 0,
+        status,
+        sortBy = "createdAt",
+        sortOrder = "desc",
+      } = options;
 
       console.log(`🔍 Fetching leads submitted by: ${userEmail}`);
 
@@ -1314,8 +1466,17 @@ class LeadService {
         leadQuery = leadQuery.where("status", "==", status);
       }
 
-      // Order by creation date (newest first)
-      leadQuery = leadQuery.orderBy("createdAt", "desc");
+      // Order by creation date (newest first) - ensure consistency
+      const validSortFields = [
+        "createdAt",
+        "updatedAt",
+        "lastInteractionAt",
+        "status",
+      ];
+      const sortField = validSortFields.includes(sortBy) ? sortBy : "createdAt";
+      const sortDirection = sortOrder.toLowerCase() === "asc" ? "asc" : "desc";
+
+      leadQuery = leadQuery.orderBy(sortField, sortDirection);
 
       const leadSnapshot = await leadQuery.get();
       const directLeads = [];
@@ -1386,13 +1547,29 @@ class LeadService {
       // Step 4: Combine and sort all leads
       const allLeads = [...directLeads, ...applicationLinkedLeads];
 
-      // Sort by creation date (newest first)
+      // Sort by the specified field and direction
       allLeads.sort((a, b) => {
-        const dateA =
-          a.createdAt instanceof Date ? a.createdAt : new Date(a.createdAt);
-        const dateB =
-          b.createdAt instanceof Date ? b.createdAt : new Date(b.createdAt);
-        return dateB - dateA;
+        let valueA, valueB;
+
+        if (sortField === "createdAt" || sortField === "updatedAt") {
+          valueA =
+            a[sortField] instanceof Date
+              ? a[sortField]
+              : new Date(a[sortField]);
+          valueB =
+            b[sortField] instanceof Date
+              ? b[sortField]
+              : new Date(b[sortField]);
+        } else {
+          valueA = a[sortField] || "";
+          valueB = b[sortField] || "";
+        }
+
+        if (sortDirection === "desc") {
+          return valueB > valueA ? 1 : valueB < valueA ? -1 : 0;
+        } else {
+          return valueA > valueB ? 1 : valueA < valueB ? -1 : 0;
+        }
       });
 
       // Apply pagination after combining and sorting
@@ -1401,7 +1578,7 @@ class LeadService {
       const paginatedLeads = allLeads.slice(startIndex, endIndex);
 
       console.log(
-        `✅ Total found: ${allLeads.length} leads, returning ${paginatedLeads.length} after pagination`
+        `✅ Total found: ${allLeads.length} leads, returning ${paginatedLeads.length} after pagination (sorted by ${sortField} ${sortDirection})`
       );
 
       return paginatedLeads;

@@ -34,6 +34,176 @@ class AIService {
     }
   }
 
+  // Detect if the user is communicating in French
+  detectFrenchLanguage(userMessage, conversationHistory = []) {
+    const message = userMessage.toLowerCase();
+
+    // Check conversation history for language patterns
+    const recentMessages = conversationHistory.slice(-3);
+    const allText = [
+      userMessage,
+      ...recentMessages.map((msg) => msg.message || ""),
+    ]
+      .join(" ")
+      .toLowerCase();
+
+    // French indicators
+    const frenchIndicators = [
+      // Common French words
+      "bonjour",
+      "salut",
+      "bonsoir",
+      "merci",
+      "oui",
+      "non",
+      "comment",
+      "quoi",
+      "où",
+      "quand",
+      "pourquoi",
+      "qui",
+      "que",
+      "quel",
+      "quelle",
+      "quels",
+      "quelles",
+      // French question words and phrases
+      "est-ce que",
+      "qu'est-ce que",
+      "combien",
+      "depuis",
+      "pendant",
+      "parle",
+      "parles",
+      "parlez",
+      "français",
+      "francais",
+      // French university/education terms
+      "université",
+      "étudiant",
+      "étudiante",
+      "programme",
+      "cours",
+      "diplôme",
+      "inscription",
+      "frais",
+      "coût",
+      "prix",
+      "formation",
+      "études",
+      // French greetings and politeness
+      "s'il vous plaît",
+      "excusez-moi",
+      "pardon",
+      "désolé",
+      "je voudrais",
+      "pouvez-vous",
+      "pourriez-vous",
+      "j'aimerais",
+      // French pronouns and common words
+      "je",
+      "tu",
+      "il",
+      "elle",
+      "nous",
+      "vous",
+      "ils",
+      "elles",
+      "mon",
+      "ma",
+      "mes",
+      "ton",
+      "ta",
+      "tes",
+      "son",
+      "sa",
+      "ses",
+      "notre",
+      "votre",
+      "leur",
+      "leurs",
+      "le",
+      "la",
+      "les",
+      "un",
+      "une",
+      "des",
+      "du",
+      "de la",
+      "des",
+      "au",
+      "aux",
+      // French verbs
+      "avoir",
+      "être",
+      "faire",
+      "aller",
+      "venir",
+      "voir",
+      "savoir",
+      "pouvoir",
+      "vouloir",
+      "devoir",
+      "prendre",
+      "donner",
+      "parler",
+      "comprendre",
+      // Direct French question patterns
+      "tu parle",
+      "tu parles",
+      "vous parlez",
+      "parlez-vous",
+      "est-ce que tu",
+      "est-ce que vous",
+    ];
+
+    // Count French indicators
+    let frenchScore = 0;
+    frenchIndicators.forEach((indicator) => {
+      if (allText.includes(indicator)) {
+        frenchScore++;
+      }
+    });
+
+    // Additional patterns specific to French
+    const frenchPatterns = [
+      /\bje (suis|veux|voudrais|peux|dois)\b/,
+      /\bc'est\b/,
+      /\bil y a\b/,
+      /\bqu'est-ce que\b/,
+      /\best-ce que\b/,
+      /\bj'ai\b/,
+      /\bje n'ai pas\b/,
+      /\bà la\b/,
+      /\bau niveau de\b/,
+      /\ben tant que\b/,
+      /\btu parle(s)?\b/,
+      /\bvous parlez\b/,
+      /\bparlez-vous\b/,
+      /\bfrançais\b/,
+      /\bfrancais\b/,
+    ];
+
+    frenchPatterns.forEach((pattern) => {
+      if (pattern.test(allText)) {
+        frenchScore += 3; // Patterns get higher weight
+      }
+    });
+
+    // French accented characters
+    if (/[àâäéèêëîïôöùûüÿç]/i.test(allText)) {
+      frenchScore += 3;
+    }
+
+    // Specific check for "Tu parle francais?" type questions
+    if (/tu parle(s)?\s+(français|francais)/i.test(allText)) {
+      frenchScore += 10; // Very high confidence for direct French questions
+    }
+
+    // Return true if French score suggests French language
+    return frenchScore >= 2; // Lowered threshold for better detection
+  }
+
   parseCSVToItems(csvData) {
     const items = [];
     const lines = csvData.split("\n");
@@ -97,7 +267,10 @@ class AIService {
 
   // Smart knowledge retrieval based on user question
   getRelevantKnowledge(userMessage, maxItems = 5) {
-    if (!this.knowledgeItems || this.knowledgeItems.length === 0) {
+    // Use only CSV knowledge items since everything is now saved to CSV
+    const allItems = this.knowledgeItems || [];
+
+    if (allItems.length === 0) {
       return "";
     }
 
@@ -116,13 +289,22 @@ class AIService {
     );
 
     // Find items that match keywords from user's question
-    this.knowledgeItems.forEach((item) => {
+    allItems.forEach((item) => {
       let score = 0;
 
       // Direct question match gets highest score
       if (
-        item.question.includes(searchTerms) ||
-        searchTerms.includes(item.question)
+        (item.question && item.question.includes(searchTerms)) ||
+        searchTerms.includes(item.question || "")
+      ) {
+        score += 10;
+      }
+
+      // For dynamic items, also check title
+      if (
+        item.title &&
+        (item.title.toLowerCase().includes(searchTerms) ||
+          searchTerms.includes(item.title.toLowerCase()))
       ) {
         score += 10;
       }
@@ -130,6 +312,7 @@ class AIService {
       // Boost score for "not offered" questions when user asks about non-existent programs
       if (
         hasNotOfferedKeyword &&
+        item.category &&
         item.category.toLowerCase().includes("not offered")
       ) {
         score += 15;
@@ -140,7 +323,12 @@ class AIService {
         .split(" ")
         .filter((word) => word.length > 2);
       userWords.forEach((word) => {
-        if (item.searchText.includes(word)) {
+        const searchText =
+          item.searchText ||
+          `${item.question || item.title || ""} ${
+            item.answer || item.content || ""
+          } ${item.category || ""}`.toLowerCase();
+        if (searchText.includes(word)) {
           score += 1;
         }
       });
@@ -152,8 +340,9 @@ class AIService {
         searchTerms.includes("pay")
       ) {
         if (
-          item.category.toLowerCase().includes("fee") ||
-          item.category.toLowerCase().includes("payment")
+          item.category &&
+          (item.category.toLowerCase().includes("fee") ||
+            item.category.toLowerCase().includes("payment"))
         ) {
           score += 3;
         }
@@ -165,8 +354,9 @@ class AIService {
         searchTerms.includes("study")
       ) {
         if (
-          item.category.toLowerCase().includes("course") ||
-          item.category.toLowerCase().includes("academic")
+          item.category &&
+          (item.category.toLowerCase().includes("course") ||
+            item.category.toLowerCase().includes("academic"))
         ) {
           score += 3;
         }
@@ -178,8 +368,9 @@ class AIService {
         searchTerms.includes("requirement")
       ) {
         if (
-          item.category.toLowerCase().includes("enrol") ||
-          item.category.toLowerCase().includes("admission")
+          item.category &&
+          (item.category.toLowerCase().includes("enrol") ||
+            item.category.toLowerCase().includes("admission"))
         ) {
           score += 3;
         }
@@ -202,9 +393,9 @@ class AIService {
     // Format as Q&A for the AI
     let knowledgeContext = "\n\nRELEVANT KNOWLEDGE:\n";
     topMatches.forEach((item, index) => {
-      knowledgeContext += `${index + 1}. Q: ${item.question}\n   A: ${
-        item.answer
-      }\n\n`;
+      const question = item.question || item.title || "Question";
+      const answer = item.answer || item.content || "Answer";
+      knowledgeContext += `${index + 1}. Q: ${question}\n   A: ${answer}\n\n`;
     });
 
     return knowledgeContext;
@@ -216,6 +407,12 @@ class AIService {
     leadStatus = null
   ) {
     try {
+      // Detect language (French vs English)
+      const isFrench = this.detectFrenchLanguage(
+        userMessage,
+        conversationHistory
+      );
+
       // 1. Compute current date string
       const now = new Date();
       const formattedDate = now.toLocaleDateString("en-US", {
@@ -251,14 +448,29 @@ Use the current date and the intake schedule to answer any questions about the n
 
 You are Miryam, a friendly and knowledgeable admissions consultant for IUEA (International University of East Africa). You help people learn about programs and guide them toward applying.
 
+LANGUAGE INSTRUCTIONS:
+${
+  isFrench
+    ? `- RESPOND ENTIRELY IN FRENCH: The user is communicating in French, so you must respond completely in French
+- Use natural, conversational French appropriate for university admissions
+- Maintain the same helpful and professional tone in French
+- When mentioning email or phone contacts, introduce them in French
+- If asked about your language abilities, confirm enthusiastically in French: "Oui, bien sûr ! Je parle français et je suis là pour vous aider avec vos questions sur IUEA."
+- Never claim you only speak English or cannot speak French`
+    : `- RESPOND IN ENGLISH: The user is communicating in English
+- If asked about language support, mention that IUEA serves both English and French-speaking students
+- You are bilingual and can switch to French if requested: "Je peux aussi parler français si vous préférez!"`
+}
+
 PERSONALITY RULES:
 - Be conversational, warm, and helpful
 - Never use action descriptions like *smiles* or text in asterisks
-- Don't mention you're an AI or assistant
+- Never mention you're an AI, assistant, or chatbot - you are Miryam, a human admissions consultant
 - Keep responses natural and concise (1–2 sentences usually)
 - Be direct and informative
 - Focus on solving their questions and encouraging applications
 - Don't start with "Hi there!" or "Hello there!"—just answer directly
+- Sound like a real human admissions consultant who works at IUEA
 
 STRICT ACCURACY RULES:
 - ONLY provide info explicitly in the knowledge base
@@ -361,7 +573,7 @@ DIPLOMA PROGRAMS:
   }
 
   async generateWelcomeMessage() {
-    return "Hello! I'm Miryam from IUEA. How can I help you with your education goals today?";
+    return "Hello! I'm Miryam from IUEA. How can I help you with your education goals today? 🎓\n\nBonjour ! Je suis Miryam d'IUEA. Comment puis-je vous aider avec vos objectifs éducatifs aujourd'hui ? 🎓";
   }
 
   getStatus() {
@@ -416,6 +628,364 @@ DIPLOMA PROGRAMS:
         "How do I apply?",
       ];
     }
+  }
+
+  // Knowledge base management functions
+  async addKnowledgeItem(item) {
+    try {
+      const csvPath = path.join(
+        __dirname,
+        "../../data/Iuea Knowledgebase with Categories.csv"
+      );
+
+      // Escape CSV content properly
+      const escapeCSV = (str) => {
+        if (!str) return '""';
+        const escaped = str.toString().replace(/"/g, '""');
+        return `"${escaped}"`;
+      };
+
+      // Create CSV line for the new item
+      const newCsvLine = `${escapeCSV(item.title)},${escapeCSV(item.content)}`;
+
+      // Append to CSV file
+      await fs.appendFile(csvPath, `\n${newCsvLine}`);
+
+      // Reload the knowledge base to include the new item
+      await this.loadCSVKnowledge();
+
+      // Find the newly added item in the loaded knowledge base
+      const addedItem = this.knowledgeItems.find(
+        (knowledgeItem) =>
+          knowledgeItem.question === item.title &&
+          knowledgeItem.answer === item.content
+      );
+
+      const newItem = {
+        id: this.knowledgeItems.length, // Use array length as ID
+        category: item.category || "general",
+        title: item.title,
+        content: item.content,
+        question: item.title,
+        answer: item.content,
+        tags: item.tags || [],
+        priority: item.priority || "medium",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        searchText: `${item.title} ${item.content} ${
+          item.category || ""
+        }`.toLowerCase(),
+        source: "csv",
+      };
+
+      console.log(`✅ Added knowledge item to CSV: ${newItem.title}`);
+      return newItem;
+    } catch (error) {
+      console.error("❌ Error adding knowledge item to CSV:", error);
+      throw error;
+    }
+  }
+
+  async updateKnowledgeItem(id, updates) {
+    try {
+      const csvPath = path.join(
+        __dirname,
+        "../../data/Iuea Knowledgebase with Categories.csv"
+      );
+
+      // Read current CSV content
+      const csvData = await fs.readFile(csvPath, "utf8");
+      const lines = csvData.split("\n");
+
+      // Find the item to update by parsing CSV and matching ID
+      let itemIndex = -1;
+      let currentItemIndex = 0;
+      let updatedLines = [];
+      let currentCategory = "";
+
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i].trim();
+
+        if (i === 0) {
+          // Keep header
+          updatedLines.push(lines[i]);
+          continue;
+        }
+
+        if (!line) {
+          updatedLines.push(lines[i]);
+          continue;
+        }
+
+        const fields = this.parseCSVLine(line);
+        const question = fields[0] || "";
+        const answer = fields[1] || "";
+
+        if (question && question.startsWith("CATEGORY:")) {
+          currentCategory = question.replace("CATEGORY:", "").trim();
+          updatedLines.push(lines[i]);
+          continue;
+        }
+
+        if (
+          question &&
+          answer &&
+          question !== "Questions" &&
+          answer !== "Answers"
+        ) {
+          const itemId = `csv_${currentItemIndex}`;
+
+          if (itemId === id) {
+            // Found the item to update
+            itemIndex = i;
+            const escapeCSV = (str) => {
+              if (!str) return '""';
+              const escaped = str.toString().replace(/"/g, '""');
+              return `"${escaped}"`;
+            };
+
+            const newTitle = updates.title || question;
+            const newContent = updates.content || answer;
+            const newCsvLine = `${escapeCSV(newTitle)},${escapeCSV(
+              newContent
+            )}`;
+            updatedLines.push(newCsvLine);
+          } else {
+            updatedLines.push(lines[i]);
+          }
+          currentItemIndex++;
+        } else {
+          updatedLines.push(lines[i]);
+        }
+      }
+
+      if (itemIndex === -1) {
+        return null; // Item not found
+      }
+
+      // Write updated content back to CSV
+      await fs.writeFile(csvPath, updatedLines.join("\n"));
+
+      // Reload the knowledge base
+      await this.loadCSVKnowledge();
+
+      const updatedItem = {
+        id,
+        category: updates.category || "general",
+        title: updates.title,
+        content: updates.content,
+        question: updates.title,
+        answer: updates.content,
+        tags: updates.tags || [],
+        priority: updates.priority || "medium",
+        updatedAt: new Date().toISOString(),
+        searchText: `${updates.title} ${updates.content} ${
+          updates.category || ""
+        }`.toLowerCase(),
+        source: "csv",
+      };
+
+      console.log(`✅ Updated knowledge item in CSV: ${updatedItem.title}`);
+      return updatedItem;
+    } catch (error) {
+      console.error("❌ Error updating knowledge item in CSV:", error);
+      throw error;
+    }
+  }
+
+  async deleteKnowledgeItem(id) {
+    try {
+      const csvPath = path.join(
+        __dirname,
+        "../../data/Iuea Knowledgebase with Categories.csv"
+      );
+
+      // Read current CSV content
+      const csvData = await fs.readFile(csvPath, "utf8");
+      const lines = csvData.split("\n");
+
+      // Find and remove the item by parsing CSV and matching ID
+      let itemFound = false;
+      let currentItemIndex = 0;
+      let updatedLines = [];
+      let deletedItem = null;
+
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i].trim();
+
+        if (i === 0) {
+          // Keep header
+          updatedLines.push(lines[i]);
+          continue;
+        }
+
+        if (!line) {
+          updatedLines.push(lines[i]);
+          continue;
+        }
+
+        const fields = this.parseCSVLine(line);
+        const question = fields[0] || "";
+        const answer = fields[1] || "";
+
+        if (question && question.startsWith("CATEGORY:")) {
+          updatedLines.push(lines[i]);
+          continue;
+        }
+
+        if (
+          question &&
+          answer &&
+          question !== "Questions" &&
+          answer !== "Answers"
+        ) {
+          const itemId = `csv_${currentItemIndex}`;
+
+          if (itemId === id) {
+            // Found the item to delete - don't add it to updatedLines
+            itemFound = true;
+            deletedItem = { title: question, content: answer };
+          } else {
+            updatedLines.push(lines[i]);
+          }
+          currentItemIndex++;
+        } else {
+          updatedLines.push(lines[i]);
+        }
+      }
+
+      if (!itemFound) {
+        return false; // Item not found
+      }
+
+      // Write updated content back to CSV
+      await fs.writeFile(csvPath, updatedLines.join("\n"));
+
+      // Reload the knowledge base
+      await this.loadCSVKnowledge();
+
+      console.log(`✅ Deleted knowledge item from CSV: ${deletedItem.title}`);
+      return true;
+    } catch (error) {
+      console.error("❌ Error deleting knowledge item from CSV:", error);
+      throw error;
+    }
+  }
+
+  searchKnowledgeBase(query) {
+    if (!query) {
+      return this.getAllKnowledgeItems();
+    }
+
+    const searchTerm = query.toLowerCase();
+
+    // Search CSV items only since everything is now in CSV
+    const csvResults = (this.knowledgeItems || [])
+      .filter((item) => item.searchText && item.searchText.includes(searchTerm))
+      .map((item, index) => ({
+        id: `csv_${index}`,
+        title: item.question || "",
+        content: item.answer || "",
+        question: item.question || "",
+        answer: item.answer || "",
+        category: item.category || "general",
+        searchText: item.searchText,
+        source: "csv",
+      }));
+
+    return csvResults;
+  }
+
+  getAllKnowledgeItems() {
+    // Helper function to intelligently categorize based on keywords
+    const categorizeFrontend = (originalCategory, question, answer) => {
+      const text = `${originalCategory} ${question} ${answer}`.toLowerCase();
+
+      // Fee-related keywords
+      if (
+        text.includes("fee") ||
+        text.includes("tuition") ||
+        text.includes("cost") ||
+        text.includes("payment") ||
+        text.includes("money") ||
+        text.includes("account") ||
+        text.includes("billing") ||
+        text.includes("scholarship") ||
+        text.includes("financial")
+      ) {
+        return "fees";
+      }
+
+      // Academic-related keywords
+      if (
+        text.includes("course") ||
+        text.includes("program") ||
+        text.includes("academic") ||
+        text.includes("curriculum") ||
+        text.includes("study") ||
+        text.includes("class") ||
+        text.includes("subject") ||
+        text.includes("degree") ||
+        text.includes("diploma") ||
+        text.includes("bachelor") ||
+        text.includes("master") ||
+        text.includes("faculty") ||
+        text.includes("department") ||
+        text.includes("specialisation") ||
+        text.includes("examination") ||
+        text.includes("grade") ||
+        text.includes("credit") ||
+        text.includes("semester") ||
+        text.includes("duration")
+      ) {
+        return "academics";
+      }
+
+      // Admissions-related keywords
+      if (
+        text.includes("admission") ||
+        text.includes("enrol") ||
+        text.includes("apply") ||
+        text.includes("application") ||
+        text.includes("requirement") ||
+        text.includes("entry") ||
+        text.includes("qualify") ||
+        text.includes("eligibility") ||
+        text.includes("registration") ||
+        text.includes("intake") ||
+        text.includes("deadline")
+      ) {
+        return "admissions";
+      }
+
+      // Everything else goes to general
+      return "general";
+    };
+
+    const csvItems = (this.knowledgeItems || []).map((item, index) => {
+      const frontendCategory = categorizeFrontend(
+        item.category || "General",
+        item.question || "",
+        item.answer || ""
+      );
+
+      return {
+        id: `csv_${index}`,
+        title: item.question || "", // Frontend expects 'title'
+        content: item.answer || "", // Frontend expects 'content'
+        question: item.question || "", // Keep original for reference
+        answer: item.answer || "", // Keep original for reference
+        category: frontendCategory, // Smart categorized for frontend
+        originalCategory: item.category || "General", // Keep original CSV category
+        tags: [frontendCategory, item.category || "General"], // Both categories as tags
+        priority: "medium",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        source: "csv",
+      };
+    });
+
+    return csvItems;
   }
 }
 
