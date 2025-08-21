@@ -172,6 +172,17 @@
         font-weight: 600;
         transition: all 0.2s;
         cursor: pointer;
+        border-radius: 4px;
+        padding: 2px 4px;
+        margin: -2px -4px;
+        display: inline-block;
+      }
+
+      .message-content a:hover {
+        color: #660000;
+        background-color: rgba(139, 0, 0, 0.1);
+        text-decoration: none;
+        transform: translateY(-1px);
       }
 
       .message.user .message-content a {
@@ -179,13 +190,9 @@
         text-decoration: underline;
       }
 
-      .message-content a:hover {
-        color: #660000;
-        text-decoration: none;
-      }
-
       .message.user .message-content a:hover {
         color: #f3f4f6;
+        background-color: rgba(255, 255, 255, 0.2);
       }
 
       .message-time {
@@ -401,6 +408,86 @@
 
       .chat-messages::-webkit-scrollbar-thumb:hover {
         background: #94a3b8;
+      }
+
+      /* Link popup for when opening fails */
+      .link-popup {
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        background: white;
+        border: 2px solid #8b0000;
+        border-radius: 12px;
+        padding: 20px;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+        z-index: 10000;
+        max-width: 400px;
+        width: 90%;
+        font-family: inherit;
+      }
+
+      .link-popup h3 {
+        margin: 0 0 15px 0;
+        color: #8b0000;
+        font-size: 16px;
+        font-weight: 600;
+      }
+
+      .link-popup .link-url {
+        background: #f8fafc;
+        border: 1px solid #e2e8f0;
+        border-radius: 6px;
+        padding: 8px 12px;
+        margin: 10px 0;
+        word-break: break-all;
+        font-size: 14px;
+        color: #1e293b;
+      }
+
+      .link-popup .popup-buttons {
+        display: flex;
+        gap: 10px;
+        margin-top: 15px;
+      }
+
+      .link-popup button {
+        flex: 1;
+        padding: 8px 16px;
+        border: none;
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 14px;
+        font-weight: 500;
+        transition: all 0.2s;
+      }
+
+      .link-popup .copy-btn {
+        background: #8b0000;
+        color: white;
+      }
+
+      .link-popup .copy-btn:hover {
+        background: #660000;
+      }
+
+      .link-popup .close-btn {
+        background: #f1f5f9;
+        color: #64748b;
+      }
+
+      .link-popup .close-btn:hover {
+        background: #e2e8f0;
+      }
+
+      .popup-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0, 0, 0, 0.5);
+        z-index: 9999;
       }
     </style>
   </head>
@@ -662,7 +749,7 @@
           processedContent = processedContent.replace(
             /https?:\/\/[^\s<>]+/g,
             function (url) {
-              return `<a href="#" onclick="openExternalLink('${url}'); return false;" style="color: #dc2626; text-decoration: underline; cursor: pointer;">${url}</a>`;
+              return `<a href="#" onclick="openExternalLink('${url}'); return false;" style="color: #dc2626; text-decoration: underline; cursor: pointer;" title="Click to open ${url}">${url}</a>`;
             }
           );
 
@@ -672,7 +759,7 @@
           processedContent = processedContent.replace(
             emailRegex,
             function (email) {
-              return `<a href="#" onclick="openExternalLink('mailto:${email}'); return false;" style="color: inherit; text-decoration: underline; cursor: pointer;">${email}</a>`;
+              return `<a href="#" onclick="openExternalLink('mailto:${email}'); return false;" style="color: inherit; text-decoration: underline; cursor: pointer;" title="Click to email ${email}">${email}</a>`;
             }
           );
 
@@ -681,7 +768,7 @@
           processedContent = processedContent.replace(
             phoneRegex,
             function (phone) {
-              return `<a href="#" onclick="openExternalLink('tel:${phone}'); return false;" style="color: inherit; text-decoration: underline; cursor: pointer;">${phone}</a>`;
+              return `<a href="#" onclick="openExternalLink('tel:${phone}'); return false;" style="color: inherit; text-decoration: underline; cursor: pointer;" title="Click to call ${phone}">${phone}</a>`;
             }
           );
 
@@ -785,7 +872,7 @@
         console.log("Attempting to open external link:", url);
 
         try {
-          // First try to communicate with parent window
+          // First, always try to communicate with parent window
           if (window.parent && window.parent !== window) {
             window.parent.postMessage(
               {
@@ -795,30 +882,197 @@
               "*"
             );
             console.log("Sent openUrl message to parent");
-            return; // Let parent handle it
+
+            // Also try opening directly as a backup after a short delay
+            setTimeout(() => {
+              try {
+                // Create and click a temporary link
+                const tempLink = document.createElement("a");
+                tempLink.href = url;
+                tempLink.target = "_blank";
+                tempLink.rel = "noopener noreferrer";
+                tempLink.style.position = "absolute";
+                tempLink.style.left = "-9999px";
+                tempLink.style.visibility = "hidden";
+
+                document.body.appendChild(tempLink);
+                tempLink.click();
+
+                setTimeout(() => {
+                  if (document.body.contains(tempLink)) {
+                    document.body.removeChild(tempLink);
+                  }
+                }, 100);
+
+                console.log("Direct link opening attempted as backup");
+              } catch (directError) {
+                console.log("Direct opening failed:", directError);
+              }
+            }, 200);
+
+            return; // Let parent handle it primarily
           }
 
-          // If no parent, try to open in new window/tab
-          const newWindow = window.open(url, "_blank", "noopener,noreferrer");
-          if (newWindow) {
-            return;
-          }
+          // If no parent, try direct opening methods
+          console.log("No parent window detected, trying direct opening");
 
-          // If window.open failed, try creating a temporary link
+          // Method 1: Create and click temporary link
           const tempLink = document.createElement("a");
           tempLink.href = url;
           tempLink.target = "_blank";
           tempLink.rel = "noopener noreferrer";
-          tempLink.style.display = "none";
+          tempLink.style.position = "absolute";
+          tempLink.style.left = "-9999px";
+          tempLink.style.visibility = "hidden";
+
           document.body.appendChild(tempLink);
+
+          // Use both click methods for better compatibility
+          const clickEvent = new MouseEvent("click", {
+            view: window,
+            bubbles: true,
+            cancelable: true,
+          });
+
+          tempLink.dispatchEvent(clickEvent);
           tempLink.click();
-          document.body.removeChild(tempLink);
+
+          setTimeout(() => {
+            if (document.body.contains(tempLink)) {
+              document.body.removeChild(tempLink);
+            }
+          }, 100);
+
+          console.log("Direct link opening successful");
         } catch (error) {
-          console.error("All link opening methods failed:", error);
+          console.error("Primary link opening methods failed:", error);
+
+          // Fallback methods
+          try {
+            // Method 2: Traditional window.open
+            const newWindow = window.open(url, "_blank", "noopener,noreferrer");
+            if (newWindow) {
+              console.log("window.open fallback successful");
+              return;
+            }
+          } catch (windowOpenError) {
+            console.error("window.open fallback failed:", windowOpenError);
+          }
+
+          try {
+            // Method 3: Location assignment in new window
+            const newWindow = window.open("", "_blank", "noopener,noreferrer");
+            if (newWindow) {
+              newWindow.location.href = url;
+              console.log("Location assignment fallback successful");
+              return;
+            }
+          } catch (locationError) {
+            console.error(
+              "Location assignment fallback failed:",
+              locationError
+            );
+          }
 
           // Ultimate fallback - show user the link
-          alert(`Please visit: ${url}`);
+          console.error("All link opening methods failed");
+
+          // Show a user-friendly popup instead of alert
+          showLinkPopup(url);
         }
+      }
+
+      // Function to show a user-friendly link popup
+      function showLinkPopup(url) {
+        // Remove any existing popup
+        const existingPopup = document.querySelector(".link-popup");
+        const existingOverlay = document.querySelector(".popup-overlay");
+        if (existingPopup) existingPopup.remove();
+        if (existingOverlay) existingOverlay.remove();
+
+        // Create overlay
+        const overlay = document.createElement("div");
+        overlay.className = "popup-overlay";
+
+        // Create popup
+        const popup = document.createElement("div");
+        popup.className = "link-popup";
+        popup.innerHTML = `
+          <h3>Open Link</h3>
+          <p>Click the button below to copy this link, then paste it in a new browser tab:</p>
+          <div class="link-url">${url}</div>
+          <div class="popup-buttons">
+            <button class="copy-btn" onclick="copyLinkAndClose('${url}')">Copy Link</button>
+            <button class="close-btn" onclick="closeLinkPopup()">Close</button>
+          </div>
+        `;
+
+        // Add to document
+        document.body.appendChild(overlay);
+        document.body.appendChild(popup);
+
+        // Close on overlay click
+        overlay.addEventListener("click", closeLinkPopup);
+      }
+
+      // Function to copy link and close popup
+      function copyLinkAndClose(url) {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard
+            .writeText(url)
+            .then(() => {
+              // Show success message briefly
+              const copyBtn = document.querySelector(".copy-btn");
+              if (copyBtn) {
+                const originalText = copyBtn.textContent;
+                copyBtn.textContent = "Copied!";
+                copyBtn.style.background = "#22c55e";
+
+                setTimeout(() => {
+                  closeLinkPopup();
+                }, 1000);
+              }
+            })
+            .catch(() => {
+              // Fallback to selection method
+              copyViaSelection(url);
+            });
+        } else {
+          copyViaSelection(url);
+        }
+      }
+
+      // Function to copy via text selection fallback
+      function copyViaSelection(url) {
+        const textArea = document.createElement("textarea");
+        textArea.value = url;
+        textArea.style.position = "absolute";
+        textArea.style.left = "-9999px";
+        document.body.appendChild(textArea);
+        textArea.select();
+
+        try {
+          document.execCommand("copy");
+          const copyBtn = document.querySelector(".copy-btn");
+          if (copyBtn) {
+            copyBtn.textContent = "Copied!";
+            copyBtn.style.background = "#22c55e";
+          }
+          setTimeout(closeLinkPopup, 1000);
+        } catch (err) {
+          alert("Please manually copy this link: " + url);
+          closeLinkPopup();
+        } finally {
+          document.body.removeChild(textArea);
+        }
+      }
+
+      // Function to close link popup
+      function closeLinkPopup() {
+        const popup = document.querySelector(".link-popup");
+        const overlay = document.querySelector(".popup-overlay");
+        if (popup) popup.remove();
+        if (overlay) overlay.remove();
       }
 
       // Initialize chatbot when DOM is ready

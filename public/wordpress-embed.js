@@ -405,28 +405,181 @@
       try {
         debugLog("Opening external URL", url);
 
-        // For all URLs, try to open in new window/tab first
-        const newWindow = window.open(url, "_blank", "noopener,noreferrer");
+        // Create a temporary link element for more reliable opening
+        const tempLink = document.createElement("a");
+        tempLink.href = url;
+        tempLink.target = "_blank";
+        tempLink.rel = "noopener noreferrer";
+        tempLink.style.position = "absolute";
+        tempLink.style.left = "-9999px";
+        tempLink.style.visibility = "hidden";
 
-        if (!newWindow || newWindow.closed) {
-          // If popup was blocked, try creating a temporary link with target="_blank"
-          const tempLink = document.createElement("a");
-          tempLink.href = url;
-          tempLink.target = "_blank";
-          tempLink.rel = "noopener noreferrer";
-          tempLink.style.display = "none";
-          document.body.appendChild(tempLink);
-          tempLink.click();
-          document.body.removeChild(tempLink);
-        }
+        // Add to DOM
+        document.body.appendChild(tempLink);
+
+        // Trigger click immediately
+        const clickEvent = new MouseEvent("click", {
+          view: window,
+          bubbles: true,
+          cancelable: true,
+        });
+
+        tempLink.dispatchEvent(clickEvent);
+
+        // Alternative method: direct click
+        tempLink.click();
+
+        // Clean up after a short delay
+        setTimeout(() => {
+          if (document.body.contains(tempLink)) {
+            document.body.removeChild(tempLink);
+          }
+        }, 100);
+
+        debugLog("External URL opened via link element");
       } catch (error) {
-        console.error("Error opening external URL:", error);
-        // Final fallback - still try new window
+        console.error("Error opening external URL via link:", error);
+
+        // Fallback 1: Try window.open with user interaction context
         try {
-          window.open(url, "_blank");
-        } catch (fallbackError) {
-          console.error("Fallback URL opening failed:", fallbackError);
-          alert(`Please visit: ${url}`);
+          const newWindow = window.open(url, "_blank", "noopener,noreferrer");
+          if (newWindow) {
+            debugLog("External URL opened via window.open");
+            return;
+          }
+        } catch (windowOpenError) {
+          console.error("window.open failed:", windowOpenError);
+        }
+
+        // Fallback 2: Try location assignment in new window
+        try {
+          const newWindow = window.open("", "_blank", "noopener,noreferrer");
+          if (newWindow) {
+            newWindow.location.href = url;
+            debugLog("External URL opened via location assignment");
+            return;
+          }
+        } catch (locationError) {
+          console.error("Location assignment failed:", locationError);
+        }
+
+        // Fallback 3: Show URL to user with better UX
+        console.log(
+          "All automatic opening methods failed, showing user notification"
+        );
+
+        // Create a notification element
+        const notification = document.createElement("div");
+        notification.style.cssText = `
+          position: fixed;
+          top: 20px;
+          right: 20px;
+          background: #8b0000;
+          color: white;
+          padding: 16px 20px;
+          border-radius: 8px;
+          box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+          z-index: ${CONFIG.Z_INDEX + 100};
+          max-width: 400px;
+          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+          font-size: 14px;
+          line-height: 1.4;
+        `;
+
+        notification.innerHTML = `
+          <div style="margin-bottom: 10px;">
+            <strong>Link Blocked</strong><br>
+            Your browser blocked the popup. Click below to copy the link:
+          </div>
+          <div style="background: rgba(255,255,255,0.1); padding: 8px; border-radius: 4px; margin: 8px 0; word-break: break-all; font-size: 12px;">
+            ${url}
+          </div>
+          <div style="display: flex; gap: 8px; margin-top: 12px;">
+            <button onclick="copyToClipboard('${url}', this)" style="
+              background: white;
+              color: #8b0000;
+              border: none;
+              padding: 6px 12px;
+              border-radius: 4px;
+              cursor: pointer;
+              font-size: 12px;
+              font-weight: 500;
+            ">Copy Link</button>
+            <button onclick="this.parentElement.parentElement.remove()" style="
+              background: rgba(255,255,255,0.2);
+              color: white;
+              border: none;
+              padding: 6px 12px;
+              border-radius: 4px;
+              cursor: pointer;
+              font-size: 12px;
+            ">Close</button>
+          </div>
+        `;
+
+        document.body.appendChild(notification);
+
+        // Auto-remove after 10 seconds
+        setTimeout(() => {
+          if (document.body.contains(notification)) {
+            notification.remove();
+          }
+        }, 10000);
+
+        // Add global copy function if it doesn't exist
+        if (!window.copyToClipboard) {
+          window.copyToClipboard = function (text, button) {
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+              navigator.clipboard
+                .writeText(text)
+                .then(() => {
+                  button.textContent = "Copied!";
+                  button.style.background = "#22c55e";
+                  button.style.color = "white";
+                  setTimeout(() => {
+                    if (
+                      button.parentElement &&
+                      button.parentElement.parentElement
+                    ) {
+                      button.parentElement.parentElement.remove();
+                    }
+                  }, 1500);
+                })
+                .catch(() => {
+                  fallbackCopyToClipboard(text, button);
+                });
+            } else {
+              fallbackCopyToClipboard(text, button);
+            }
+          };
+
+          window.fallbackCopyToClipboard = function (text, button) {
+            const textArea = document.createElement("textarea");
+            textArea.value = text;
+            textArea.style.position = "absolute";
+            textArea.style.left = "-9999px";
+            document.body.appendChild(textArea);
+            textArea.select();
+
+            try {
+              document.execCommand("copy");
+              button.textContent = "Copied!";
+              button.style.background = "#22c55e";
+              button.style.color = "white";
+              setTimeout(() => {
+                if (
+                  button.parentElement &&
+                  button.parentElement.parentElement
+                ) {
+                  button.parentElement.parentElement.remove();
+                }
+              }, 1500);
+            } catch (err) {
+              alert("Please manually copy this link: " + text);
+            } finally {
+              document.body.removeChild(textArea);
+            }
+          };
         }
       }
     }
