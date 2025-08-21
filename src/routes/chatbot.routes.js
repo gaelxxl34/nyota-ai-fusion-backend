@@ -52,10 +52,7 @@ router.post("/init", async (req, res) => {
       suggestions: [
         "Tell me about available programs",
         "What are the admission requirements?",
-        "Parlez-moi des programmes disponibles",
-        "¿Qué programas están disponibles?",
-        "Niambie kuhusu programu zinazopatikana",
-        "ما هي البرامج المتاحة؟",
+        "How do I apply?",
       ],
     });
   } catch (error) {
