@@ -276,10 +276,34 @@
         padding: 8px 12px;
         font-size: 14px;
         resize: none;
-        max-height: 100px;
+        max-height: 120px;
         min-height: 20px;
         font-family: inherit;
         line-height: 1.4;
+        overflow-y: auto;
+      }
+
+      @media (max-width: 768px) {
+        .chat-input {
+          max-height: 100px;
+          font-size: 14px;
+        }
+      }
+
+      @media (max-width: 480px) {
+        .chat-input {
+          max-height: 80px;
+          font-size: 13px;
+          padding: 6px 10px;
+        }
+      }
+
+      @media (max-width: 360px) {
+        .chat-input {
+          max-height: 60px;
+          font-size: 12px;
+          padding: 5px 8px;
+        }
       }
 
       .send-button {
@@ -366,13 +390,20 @@
       }
 
       /* Responsive adjustments */
-      @media (max-width: 480px) {
+      @media (max-width: 768px) {
+        .chat-container {
+          height: 100vh;
+          border-radius: 0;
+        }
+
         .chat-header {
           padding: 12px 16px;
+          border-radius: 0;
         }
 
         .chat-messages {
-          padding: 16px;
+          padding: 12px 16px;
+          flex: 1;
         }
 
         .chat-input-container {
@@ -380,7 +411,7 @@
         }
 
         .message {
-          max-width: 90%;
+          max-width: 95%;
         }
 
         .close-button {
@@ -391,6 +422,187 @@
         .close-button svg {
           width: 18px;
           height: 18px;
+        }
+
+        .suggestion-buttons {
+          gap: 6px;
+        }
+
+        .suggestion-button {
+          padding: 8px 14px;
+          font-size: 12px;
+        }
+
+        .welcome-message {
+          padding: 16px;
+        }
+      }
+
+      @media (max-width: 480px) {
+        .chat-header {
+          padding: 10px 12px;
+        }
+
+        .header-info h3 {
+          font-size: 14px;
+        }
+
+        .header-info p {
+          font-size: 11px;
+        }
+
+        .chat-messages {
+          padding: 10px 12px;
+          gap: 12px;
+        }
+
+        .chat-input-container {
+          padding: 10px 12px;
+        }
+
+        .message {
+          max-width: 98%;
+        }
+
+        .message-content {
+          padding: 10px 14px;
+          font-size: 13px;
+          border-radius: 16px;
+        }
+
+        .close-button {
+          width: 32px;
+          height: 32px;
+        }
+
+        .close-button svg {
+          width: 16px;
+          height: 16px;
+        }
+
+        .chat-input {
+          font-size: 13px;
+          padding: 6px 10px;
+        }
+
+        .send-button {
+          width: 32px;
+          height: 32px;
+        }
+
+        .welcome-message {
+          padding: 12px;
+          font-size: 13px;
+        }
+
+        .suggestion-button {
+          padding: 7px 12px;
+          font-size: 11px;
+        }
+
+        .avatar {
+          width: 36px;
+          height: 36px;
+          font-size: 16px;
+        }
+      }
+
+      @media (max-width: 360px) {
+        .chat-header {
+          padding: 8px 10px;
+        }
+
+        .header-info h3 {
+          font-size: 13px;
+        }
+
+        .header-info p {
+          font-size: 10px;
+        }
+
+        .chat-messages {
+          padding: 8px 10px;
+          gap: 10px;
+        }
+
+        .chat-input-container {
+          padding: 8px 10px;
+        }
+
+        .message-content {
+          padding: 8px 12px;
+          font-size: 12px;
+          border-radius: 14px;
+        }
+
+        .close-button {
+          width: 30px;
+          height: 30px;
+        }
+
+        .close-button svg {
+          width: 14px;
+          height: 14px;
+        }
+
+        .chat-input {
+          font-size: 12px;
+          padding: 5px 8px;
+        }
+
+        .send-button {
+          width: 30px;
+          height: 30px;
+        }
+
+        .avatar {
+          width: 32px;
+          height: 32px;
+          font-size: 14px;
+        }
+
+        .suggestion-button {
+          padding: 6px 10px;
+          font-size: 10px;
+        }
+
+        .welcome-message {
+          padding: 10px;
+          font-size: 12px;
+        }
+      }
+
+      /* Landscape mobile */
+      @media (max-height: 500px) and (orientation: landscape) {
+        .chat-container {
+          height: 100vh;
+        }
+
+        .chat-header {
+          padding: 8px 12px;
+        }
+
+        .chat-messages {
+          padding: 8px 12px;
+        }
+
+        .chat-input-container {
+          padding: 8px 12px;
+        }
+
+        .welcome-message {
+          padding: 8px;
+        }
+
+        .suggestion-buttons {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 4px;
+        }
+
+        .suggestion-button {
+          padding: 5px 8px;
+          font-size: 10px;
         }
       } /* Scrollbar styling */
       .chat-messages::-webkit-scrollbar {
@@ -425,6 +637,60 @@
         max-width: 400px;
         width: 90%;
         font-family: inherit;
+        max-height: 80vh;
+        overflow-y: auto;
+      }
+
+      @media (max-width: 480px) {
+        .link-popup {
+          width: 95%;
+          padding: 16px;
+          border-radius: 8px;
+          max-height: 70vh;
+        }
+
+        .link-popup h3 {
+          font-size: 14px;
+          margin-bottom: 12px;
+        }
+
+        .link-popup .link-url {
+          font-size: 12px;
+          padding: 6px 10px;
+        }
+
+        .link-popup .popup-buttons {
+          flex-direction: column;
+          gap: 8px;
+        }
+
+        .link-popup button {
+          padding: 10px 16px;
+          font-size: 13px;
+        }
+      }
+
+      @media (max-width: 360px) {
+        .link-popup {
+          width: 98%;
+          padding: 12px;
+          border-radius: 6px;
+        }
+
+        .link-popup h3 {
+          font-size: 13px;
+          margin-bottom: 10px;
+        }
+
+        .link-popup .link-url {
+          font-size: 11px;
+          padding: 5px 8px;
+        }
+
+        .link-popup button {
+          padding: 8px 12px;
+          font-size: 12px;
+        }
       }
 
       .link-popup h3 {

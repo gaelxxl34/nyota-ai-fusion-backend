@@ -51,9 +51,13 @@
   const CONFIG = {
     API_URL: getApiUrl(),
     WIDGET_URL: getWidgetUrl(),
-    BUTTON_SIZE: "60px",
-    BUTTON_POSITION: { bottom: "20px", right: "20px" },
-    CHAT_SIZE: { width: "400px", height: "600px" },
+    BUTTON_SIZE: "4.5vw", // Responsive button size (4.5% of viewport width)
+    BUTTON_MIN_SIZE: "50px", // Minimum size for very large screens
+    BUTTON_MAX_SIZE: "70px", // Maximum size for very small screens
+    BUTTON_POSITION: { bottom: "2vh", right: "2vw" }, // Percentage-based positioning
+    CHAT_SIZE: { width: "85vw", height: "90vh" }, // Percentage-based chat size
+    CHAT_MAX_WIDTH: "420px", // Maximum width for larger screens
+    CHAT_MAX_HEIGHT: "650px", // Maximum height for larger screens
     Z_INDEX: 999999,
     WORDPRESS_MODE: true,
   };
@@ -154,13 +158,17 @@
                       CONFIG.BUTTON_POSITION.bottom
                     } + ${adminBarHeight}) !important;
                     right: ${CONFIG.BUTTON_POSITION.right} !important;
-                    width: ${CONFIG.BUTTON_SIZE} !important;
-                    height: ${CONFIG.BUTTON_SIZE} !important;
+                    width: clamp(${CONFIG.BUTTON_MIN_SIZE}, ${
+        CONFIG.BUTTON_SIZE
+      }, ${CONFIG.BUTTON_MAX_SIZE}) !important;
+                    height: clamp(${CONFIG.BUTTON_MIN_SIZE}, ${
+        CONFIG.BUTTON_SIZE
+      }, ${CONFIG.BUTTON_MAX_SIZE}) !important;
                     background: linear-gradient(135deg, #dc2626, #991b1b) !important;
                     border-radius: 50% !important;
                     cursor: pointer !important;
                     z-index: ${CONFIG.Z_INDEX} !important;
-                    box-shadow: 0 4px 20px rgba(220, 38, 38, 0.4) !important;
+                    box-shadow: 0 0.5vw 2vw rgba(220, 38, 38, 0.4) !important;
                     display: flex !important;
                     align-items: center !important;
                     justify-content: center !important;
@@ -168,33 +176,88 @@
                     border: none !important;
                     outline: none !important;
                     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
+                    overflow: hidden !important;
                 }
 
                 .iuea-chat-button:hover {
                     transform: scale(1.1) !important;
-                    box-shadow: 0 6px 25px rgba(220, 38, 38, 0.6) !important;
+                    box-shadow: 0 0.7vw 2.5vw rgba(220, 38, 38, 0.6) !important;
                 }
 
-                .iuea-chat-button svg {
-                    width: 24px !important;
-                    height: 24px !important;
+                .iuea-chat-button .chat-icon {
+                    position: relative !important;
+                    display: flex !important;
+                    align-items: center !important;
+                    justify-content: center !important;
+                    width: 100% !important;
+                    height: 100% !important;
+                    transition: all 0.3s ease !important;
+                }
+
+                .iuea-chat-button .chat-svg,
+                .iuea-chat-button .close-svg {
+                    width: 65% !important;
+                    height: 65% !important;
                     fill: white !important;
-                    transition: transform 0.3s ease !important;
+                    stroke: white !important;
+                    transition: all 0.3s ease !important;
+                    position: absolute !important;
+                    top: 50% !important;
+                    left: 50% !important;
+                    transform: translate(-50%, -50%) !important;
+                }
+
+                .iuea-chat-button .close-svg {
+                    opacity: 0 !important;
+                    transform: translate(-50%, -50%) rotate(90deg) !important;
+                }
+
+                .iuea-chat-button.open .chat-svg {
+                    opacity: 0 !important;
+                    transform: translate(-50%, -50%) rotate(-90deg) !important;
+                }
+
+                .iuea-chat-button.open .close-svg {
+                    opacity: 1 !important;
+                    transform: translate(-50%, -50%) rotate(0deg) !important;
+                }
+
+                .iuea-chat-button .chat-text {
+                    position: absolute !important;
+                    bottom: -25px !important;
+                    left: 50% !important;
+                    transform: translateX(-50%) !important;
+                    color: white !important;
+                    font-size: 10px !important;
+                    font-weight: 600 !important;
+                    background: rgba(220, 38, 38, 0.9) !important;
+                    padding: 2px 6px !important;
+                    border-radius: 4px !important;
+                    white-space: nowrap !important;
+                    opacity: 0 !important;
+                    transition: all 0.3s ease !important;
                     pointer-events: none !important;
                 }
 
-                .iuea-chat-button.open svg {
-                    transform: rotate(45deg) !important;
+                .iuea-chat-button:hover .chat-text {
+                    opacity: 1 !important;
+                    bottom: -30px !important;
                 }
 
                 .iuea-chat-widget {
                     position: fixed !important;
-                    bottom: calc(${CONFIG.BUTTON_POSITION.bottom} + ${
-        CONFIG.BUTTON_SIZE
-      } + 10px + ${adminBarHeight}) !important;
+                    bottom: calc(${CONFIG.BUTTON_POSITION.bottom} + clamp(${
+        CONFIG.BUTTON_MIN_SIZE
+      }, ${CONFIG.BUTTON_SIZE}, ${
+        CONFIG.BUTTON_MAX_SIZE
+      }) + 1vh + ${adminBarHeight}) !important;
                     right: ${CONFIG.BUTTON_POSITION.right} !important;
-                    width: ${CONFIG.CHAT_SIZE.width} !important;
-                    height: ${CONFIG.CHAT_SIZE.height} !important;
+                    width: min(${CONFIG.CHAT_SIZE.width}, ${
+        CONFIG.CHAT_MAX_WIDTH
+      }) !important;
+                    height: min(${CONFIG.CHAT_SIZE.height}, ${
+        CONFIG.CHAT_MAX_HEIGHT
+      }) !important;
                     z-index: ${CONFIG.Z_INDEX - 1} !important;
                     border-radius: 12px !important;
                     box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2) !important;
@@ -257,7 +320,26 @@
                 /* WordPress mobile responsive with admin bar */
                 @media (max-width: 768px) {
                     .iuea-chat-button {
-                        bottom: calc(20px + ${mobileAdminBarHeight}) !important;
+                        bottom: calc(2vh + ${mobileAdminBarHeight}) !important;
+                        right: 3vw !important;
+                        width: clamp(50px, 12vw, 65px) !important;
+                        height: clamp(50px, 12vw, 65px) !important;
+                    }
+
+                    .iuea-chat-button .chat-svg,
+                    .iuea-chat-button .close-svg {
+                        width: 60% !important;
+                        height: 60% !important;
+                    }
+
+                    .iuea-chat-button .chat-text {
+                        font-size: 2.5vw !important;
+                        bottom: -3vh !important;
+                        padding: 0.5vw 1.5vw !important;
+                    }
+
+                    .iuea-chat-button:hover .chat-text {
+                        bottom: -3.5vh !important;
                     }
                     
                     .iuea-chat-widget {
@@ -270,6 +352,8 @@
                         height: calc(100vh - ${mobileAdminBarHeight}) !important;
                         border-radius: 0 !important;
                         transform: translateY(100%) !important;
+                        max-width: none !important;
+                        max-height: none !important;
                     }
 
                     .iuea-chat-widget.open {
@@ -283,6 +367,63 @@
                         pointer-events: none !important;
                         transform: scale(0.8) !important;
                         transition: all 0.3s ease !important;
+                    }
+                }
+
+                /* Tablet responsive */
+                @media (max-width: 1024px) and (min-width: 769px) {
+                    .iuea-chat-widget {
+                        width: 380px !important;
+                        height: 550px !important;
+                        right: 15px !important;
+                        bottom: calc(${
+                          CONFIG.BUTTON_POSITION.bottom
+                        } + 70px + ${adminBarHeight}) !important;
+                    }
+
+                    .iuea-chat-button {
+                        right: 15px !important;
+                    }
+                }
+
+                /* Small mobile responsive */
+                @media (max-width: 480px) {
+                    .iuea-chat-button {
+                        width: 52px !important;
+                        height: 52px !important;
+                        right: 12px !important;
+                        bottom: calc(15px + ${mobileAdminBarHeight}) !important;
+                    }
+
+                    .iuea-chat-button .chat-svg,
+                    .iuea-chat-button .close-svg {
+                        width: 22px !important;
+                        height: 22px !important;
+                    }
+
+                    .iuea-chat-widget {
+                        top: ${mobileAdminBarHeight} !important;
+                        height: calc(100vh - ${mobileAdminBarHeight}) !important;
+                    }
+                }
+
+                /* Very small screens */
+                @media (max-width: 360px) {
+                    .iuea-chat-button {
+                        width: 48px !important;
+                        height: 48px !important;
+                        right: 10px !important;
+                        bottom: calc(12px + ${mobileAdminBarHeight}) !important;
+                    }
+
+                    .iuea-chat-button .chat-svg,
+                    .iuea-chat-button .close-svg {
+                        width: 20px !important;
+                        height: 20px !important;
+                    }
+
+                    .iuea-chat-button .chat-text {
+                        display: none !important;
                     }
                 }
 
@@ -323,9 +464,15 @@
       this.chatButton.setAttribute("type", "button");
       this.chatButton.innerHTML = `
                 <div class="iuea-chat-pulse"></div>
-                <svg viewBox="0 0 24 24">
-                    <path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-7 12h-2v-2h2v2zm0-4h-2V6h2v4z"/>
-                </svg>
+                <div class="chat-icon">
+                    <svg viewBox="0 0 24 24" class="chat-svg">
+                        <path d="M20 2H4c-1.1 0-1.99.9-1.99 2L2 22l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zM6 9h12v2H6V9zm8 5H6v-2h8v2zm4-6H6V6h12v2z" fill="currentColor"/>
+                    </svg>
+                    <svg viewBox="0 0 24 24" class="close-svg">
+                        <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" fill="currentColor"/>
+                    </svg>
+                    <div class="chat-text">Chat with Miryam</div>
+                </div>
             `;
 
       document.body.appendChild(this.chatButton);
@@ -764,10 +911,10 @@
       } else {
         this.chatWidget.style.cssText = `
                     position: fixed !important;
-                    bottom: calc(${CONFIG.BUTTON_POSITION.bottom} + ${CONFIG.BUTTON_SIZE} + 10px + ${adminBarHeight}) !important;
+                    bottom: calc(${CONFIG.BUTTON_POSITION.bottom} + clamp(${CONFIG.BUTTON_MIN_SIZE}, ${CONFIG.BUTTON_SIZE}, ${CONFIG.BUTTON_MAX_SIZE}) + 1vh + ${adminBarHeight}) !important;
                     right: ${CONFIG.BUTTON_POSITION.right} !important;
-                    width: ${CONFIG.CHAT_SIZE.width} !important;
-                    height: ${CONFIG.CHAT_SIZE.height} !important;
+                    width: min(${CONFIG.CHAT_SIZE.width}, ${CONFIG.CHAT_MAX_WIDTH}) !important;
+                    height: min(${CONFIG.CHAT_SIZE.height}, ${CONFIG.CHAT_MAX_HEIGHT}) !important;
                     border-radius: 12px !important;
                 `;
       }
