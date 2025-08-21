@@ -171,6 +171,7 @@
         text-decoration: underline;
         font-weight: 600;
         transition: all 0.2s;
+        cursor: pointer;
       }
 
       .message.user .message-content a {
@@ -656,10 +657,12 @@
           // Convert URLs, emails, and phone numbers to clickable links
           let processedContent = content;
 
-          // Convert URLs to clickable links showing the actual URL
+          // Simple URL conversion - make URLs clickable
           processedContent = processedContent.replace(
-            /(https?:\/\/[^\s]+)/g,
-            '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>'
+            /https?:\/\/[^\s<>]+/g,
+            function (url) {
+              return `<a href="#" onclick="openExternalLink('${url}'); return false;" style="color: #dc2626; text-decoration: underline; cursor: pointer;">${url}</a>`;
+            }
           );
 
           // Convert email addresses to clickable mailto links
@@ -772,9 +775,53 @@
         }
       }
 
-      // Initialize chatbot when page loads
+      // Function to handle external links in sandboxed iframe
+      function openExternalLink(url) {
+        try {
+          // Try multiple methods to open the link
+          // Method 1: Try window.top (parent window)
+          if (window.top && window.top !== window) {
+            window.top.open(url, "_blank");
+            return;
+          }
+
+          // Method 2: Try parent window
+          if (window.parent && window.parent !== window) {
+            window.parent.open(url, "_blank");
+            return;
+          }
+
+          // Method 3: Post message to parent
+          if (window.parent) {
+            window.parent.postMessage(
+              {
+                type: "openUrl",
+                url: url,
+              },
+              "*"
+            );
+            return;
+          }
+
+          // Method 4: Fallback - try direct assignment (will navigate current frame)
+          window.location.href = url;
+        } catch (error) {
+          console.error("Error opening link:", error);
+          // Final fallback - copy to clipboard and show message
+          if (navigator.clipboard) {
+            navigator.clipboard.writeText(url).then(() => {
+              alert(`Link copied to clipboard: ${url}
+Please paste it in a new browser tab.`);
+            });
+          } else {
+            alert(`Please copy this link and open it in a new tab: ${url}`);
+          }
+        }
+      }
+
+      // Initialize chatbot when DOM is ready
       document.addEventListener("DOMContentLoaded", () => {
-        new IUEAChatbot();
+        window.chatbot = new IUEAChatbot();
       });
 
       // Handle window resize for mobile
