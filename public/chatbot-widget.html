@@ -332,6 +332,31 @@
         font-size: 14px;
       }
 
+      .suggestion-buttons {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        margin-top: 16px;
+      }
+
+      .suggestion-button {
+        background: white;
+        border: 1px solid #dc2626;
+        color: #dc2626;
+        padding: 10px 16px;
+        border-radius: 20px;
+        font-size: 13px;
+        cursor: pointer;
+        transition: all 0.2s;
+        text-align: center;
+      }
+
+      .suggestion-button:hover {
+        background: #dc2626;
+        color: white;
+        transform: translateY(-1px);
+      }
+
       /* Responsive adjustments */
       @media (max-width: 480px) {
         .chat-header {
@@ -406,6 +431,26 @@
             👋 Hello! I'm Miryam, your IUEA admissions assistant. How can I help
             you today?
           </p>
+          <div class="suggestion-buttons">
+            <button
+              class="suggestion-button"
+              onclick="chatbot.sendSuggestion('What programs do you offer?')"
+            >
+              What programs do you offer?
+            </button>
+            <button
+              class="suggestion-button"
+              onclick="chatbot.sendSuggestion('How much are the tuition fees?')"
+            >
+              How much are the tuition fees?
+            </button>
+            <button
+              class="suggestion-button"
+              onclick="chatbot.sendSuggestion('How can I apply?')"
+            >
+              How can I apply?
+            </button>
+          </div>
         </div>
       </div>
 
@@ -596,6 +641,11 @@
           }
         }
 
+        sendSuggestion(suggestionText) {
+          this.messageInput.value = suggestionText;
+          this.sendMessage();
+        }
+
         addMessage(content, isUser) {
           const messageDiv = document.createElement("div");
           messageDiv.className = `message ${isUser ? "user" : "ai"}`;
@@ -606,11 +656,10 @@
           // Convert URLs, emails, and phone numbers to clickable links
           let processedContent = content;
 
-          // Convert URLs to clickable links with "Click here" text
-          const urlRegex = /(https?:\/\/[^\s]+)/g;
+          // Convert URLs to clickable links showing the actual URL
           processedContent = processedContent.replace(
-            urlRegex,
-            '<a href="$1" target="_blank" rel="noopener noreferrer">Click here</a>'
+            /(https?:\/\/[^\s]+)/g,
+            '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>'
           );
 
           // Convert email addresses to clickable mailto links
