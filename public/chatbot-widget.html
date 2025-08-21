@@ -603,13 +603,32 @@
           const messageContent = document.createElement("div");
           messageContent.className = "message-content";
 
+          // Convert URLs, emails, and phone numbers to clickable links
+          let processedContent = content;
+
           // Convert URLs to clickable links with "Click here" text
           const urlRegex = /(https?:\/\/[^\s]+)/g;
-          const contentWithLinks = content.replace(
+          processedContent = processedContent.replace(
             urlRegex,
             '<a href="$1" target="_blank" rel="noopener noreferrer">Click here</a>'
           );
-          messageContent.innerHTML = contentWithLinks;
+
+          // Convert email addresses to clickable mailto links
+          const emailRegex =
+            /([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/g;
+          processedContent = processedContent.replace(
+            emailRegex,
+            '<a href="mailto:$1">$1</a>'
+          );
+
+          // Convert phone numbers to clickable tel links
+          const phoneRegex = /(\+?\d{10,15})/g;
+          processedContent = processedContent.replace(
+            phoneRegex,
+            '<a href="tel:$1">$1</a>'
+          );
+
+          messageContent.innerHTML = processedContent;
 
           const messageTime = document.createElement("div");
           messageTime.className = "message-time";

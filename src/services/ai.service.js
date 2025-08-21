@@ -104,7 +104,61 @@ class AIService {
       return "";
     }
 
+    // Enhanced keyword matching for better question understanding
     const searchTerms = userMessage.toLowerCase();
+
+    // Normalize common question patterns
+    let normalizedQuery = searchTerms;
+
+    // Handle common informal ways of asking about fees
+    if (
+      normalizedQuery.includes("how much") ||
+      normalizedQuery.includes("what does it cost") ||
+      normalizedQuery.includes("price") ||
+      normalizedQuery.includes("expensive")
+    ) {
+      normalizedQuery += " fee cost tuition";
+    }
+
+    // Handle informal ways of asking about courses
+    if (
+      normalizedQuery.includes("what can i study") ||
+      normalizedQuery.includes("what courses") ||
+      normalizedQuery.includes("what programs") ||
+      normalizedQuery.includes("what degrees")
+    ) {
+      normalizedQuery += " course program degree";
+    }
+
+    // Handle admission questions
+    if (
+      normalizedQuery.includes("how to join") ||
+      normalizedQuery.includes("how do i get in") ||
+      normalizedQuery.includes("can i apply") ||
+      normalizedQuery.includes("how to apply")
+    ) {
+      normalizedQuery += " admission application entry";
+    }
+
+    // Add program name variations
+    const programAliases = {
+      mba: "master business administration",
+      mit: "master information technology",
+      bit: "bachelor information technology",
+      cs: "computer science",
+      it: "information technology",
+      bba: "bachelor business administration",
+      llb: "bachelor law",
+      engineering:
+        "civil electrical architecture petroleum mechatronics communications mining",
+    };
+
+    Object.keys(programAliases).forEach((alias) => {
+      if (normalizedQuery.includes(alias)) {
+        normalizedQuery += " " + programAliases[alias];
+      }
+    });
+
     const keywordMatches = [];
 
     // Check for questions about programs not offered
@@ -115,7 +169,7 @@ class AIService {
       "plant science",
     ];
     const hasNotOfferedKeyword = notOfferedKeywords.some((keyword) =>
-      searchTerms.includes(keyword)
+      normalizedQuery.includes(keyword)
     );
 
     // Find items that match keywords from user's question
@@ -124,8 +178,8 @@ class AIService {
 
       // Direct question match gets highest score
       if (
-        (item.question && item.question.includes(searchTerms)) ||
-        searchTerms.includes(item.question || "")
+        (item.question && item.question.includes(normalizedQuery)) ||
+        normalizedQuery.includes(item.question || "")
       ) {
         score += 10;
       }
@@ -133,8 +187,8 @@ class AIService {
       // For dynamic items, also check title
       if (
         item.title &&
-        (item.title.toLowerCase().includes(searchTerms) ||
-          searchTerms.includes(item.title.toLowerCase()))
+        (item.title.toLowerCase().includes(normalizedQuery) ||
+          normalizedQuery.includes(item.title.toLowerCase()))
       ) {
         score += 10;
       }
@@ -149,7 +203,7 @@ class AIService {
       }
 
       // Check for individual word matches
-      const userWords = searchTerms
+      const userWords = normalizedQuery
         .split(" ")
         .filter((word) => word.length > 2);
       userWords.forEach((word) => {
@@ -163,44 +217,98 @@ class AIService {
         }
       });
 
-      // Category-specific boosting
-      if (
-        searchTerms.includes("fee") ||
-        searchTerms.includes("cost") ||
-        searchTerms.includes("pay")
-      ) {
+      // Category-specific boosting with more flexible keyword matching
+      const feeKeywords = [
+        "fee",
+        "fees",
+        "cost",
+        "costs",
+        "pay",
+        "payment",
+        "money",
+        "price",
+        "tuition",
+        "charges",
+        "expensive",
+        "cheap",
+        "afford",
+        "budget",
+      ];
+      const courseKeywords = [
+        "course",
+        "courses",
+        "program",
+        "programmes",
+        "programs",
+        "study",
+        "studies",
+        "degree",
+        "degrees",
+        "diploma",
+        "diplomas",
+        "major",
+        "field",
+        "subject",
+        "curriculum",
+      ];
+      const admissionKeywords = [
+        "admission",
+        "admissions",
+        "apply",
+        "application",
+        "requirement",
+        "requirements",
+        "entry",
+        "qualify",
+        "qualification",
+        "join",
+        "enroll",
+        "enrolment",
+        "registration",
+      ];
+
+      // Check for fee-related questions
+      if (feeKeywords.some((keyword) => normalizedQuery.includes(keyword))) {
         if (
           item.category &&
           (item.category.toLowerCase().includes("fee") ||
-            item.category.toLowerCase().includes("payment"))
+            item.category.toLowerCase().includes("payment") ||
+            item.category.toLowerCase().includes("tuition"))
+        ) {
+          score += 5; // Higher boost for fee questions
+        }
+        // Also boost if the answer contains fee information
+        if (
+          item.answer &&
+          (item.answer.toLowerCase().includes("dollar") ||
+            item.answer.toLowerCase().includes("usd") ||
+            item.answer.toLowerCase().includes("fee"))
         ) {
           score += 3;
         }
       }
 
-      if (
-        searchTerms.includes("course") ||
-        searchTerms.includes("program") ||
-        searchTerms.includes("study")
-      ) {
+      // Check for course/program questions
+      if (courseKeywords.some((keyword) => normalizedQuery.includes(keyword))) {
         if (
           item.category &&
           (item.category.toLowerCase().includes("course") ||
-            item.category.toLowerCase().includes("academic"))
+            item.category.toLowerCase().includes("academic") ||
+            item.category.toLowerCase().includes("program"))
         ) {
           score += 3;
         }
       }
 
+      // Check for admission questions
       if (
-        searchTerms.includes("admission") ||
-        searchTerms.includes("apply") ||
-        searchTerms.includes("requirement")
+        admissionKeywords.some((keyword) => normalizedQuery.includes(keyword))
       ) {
         if (
           item.category &&
           (item.category.toLowerCase().includes("enrol") ||
-            item.category.toLowerCase().includes("admission"))
+            item.category.toLowerCase().includes("admission") ||
+            item.category.toLowerCase().includes("application"))
         ) {
           score += 3;
         }
@@ -266,6 +374,15 @@ Intakes: Jan/Feb, May/June, Aug/Sept. Use today's date to tell the next intake.
 Language: Always respond in the same language the user writes in. Never claim you don't know a language. If unclear or mixed, default to British English.
 
 Style: 1–2 short sentences. Natural, warm, and direct. No lists unless asked. No filler words, no clichés, no markdown, no hashtags, no asterisks, no em dashes.
+
+Emotions & Emojis: Show personality with appropriate emojis and emotions:
+- Happy/Excited: 😊 😁 🎓 ✨ when discussing opportunities, success, achievements
+- Helpful/Supportive: 👍 💪 🤝 when providing assistance, encouragement  
+- Welcoming: 👋 🌟 when greeting or being friendly
+- Informative: 📚 💡 ℹ️ when sharing knowledge
+- Enthusiastic: 🚀 🎯 ⭐ for great programs or opportunities
+- Concerned/Supportive: 😔 💙 🤗 if user seems worried or needs help
+- Use emojis naturally, 1-2 per response maximum
 
 Accuracy: PRIORITIZE the knowledge base provided below. If the knowledge base has specific information, use it. If not covered in the knowledge base, use the general info listed here. If completely unsure, say: "Please email apply@iuea.ac.ug or call +2567900020000." Never invent details.
 
