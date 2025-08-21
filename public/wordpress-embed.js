@@ -151,6 +151,15 @@
         ? "46px"
         : "0px";
 
+      // Add FontAwesome CDN
+      if (!document.querySelector('link[href*="font-awesome"]')) {
+        const fontAwesome = document.createElement("link");
+        fontAwesome.rel = "stylesheet";
+        fontAwesome.href =
+          "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css";
+        document.head.appendChild(fontAwesome);
+      }
+
       const styles = `
                 .iuea-chat-button {
                     position: fixed !important;
@@ -196,10 +205,8 @@
 
                 .iuea-chat-button .chat-svg,
                 .iuea-chat-button .close-svg {
-                    width: 65% !important;
-                    height: 65% !important;
-                    fill: white !important;
-                    stroke: white !important;
+                    font-size: 60% !important;
+                    color: white !important;
                     transition: all 0.3s ease !important;
                     position: absolute !important;
                     top: 50% !important;
@@ -328,8 +335,7 @@
 
                     .iuea-chat-button .chat-svg,
                     .iuea-chat-button .close-svg {
-                        width: 60% !important;
-                        height: 60% !important;
+                        font-size: 55% !important;
                     }
 
                     .iuea-chat-button .chat-text {
@@ -397,8 +403,7 @@
 
                     .iuea-chat-button .chat-svg,
                     .iuea-chat-button .close-svg {
-                        width: 22px !important;
-                        height: 22px !important;
+                        font-size: 1.375rem !important;
                     }
 
                     .iuea-chat-widget {
@@ -418,8 +423,7 @@
 
                     .iuea-chat-button .chat-svg,
                     .iuea-chat-button .close-svg {
-                        width: 20px !important;
-                        height: 20px !important;
+                        font-size: 1.25rem !important;
                     }
 
                     .iuea-chat-button .chat-text {
@@ -465,12 +469,8 @@
       this.chatButton.innerHTML = `
                 <div class="iuea-chat-pulse"></div>
                 <div class="chat-icon">
-                    <svg viewBox="0 0 24 24" class="chat-svg">
-                        <path d="M20 2H4c-1.1 0-1.99.9-1.99 2L2 22l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zM6 9h12v2H6V9zm8 5H6v-2h8v2zm4-6H6V6h12v2z" fill="currentColor"/>
-                    </svg>
-                    <svg viewBox="0 0 24 24" class="close-svg">
-                        <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" fill="currentColor"/>
-                    </svg>
+                    <i class="fas fa-comments chat-svg"></i>
+                    <i class="fas fa-times close-svg"></i>
                     <div class="chat-text">Chat with Miryam</div>
                 </div>
             `;

@@ -2,8 +2,15 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, user-scalable=no"
+    />
     <title>IUEA AI Assistant - Miryam</title>
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"
+    />
     <style>
       * {
         margin: 0;
@@ -16,8 +23,15 @@
           Oxygen, Ubuntu, Cantarell, sans-serif;
         background: #f8fafc;
         height: 100vh;
+        height: 100dvh; /* Dynamic viewport height */
         display: flex;
         flex-direction: column;
+        margin: 0;
+        padding: 0;
+        overflow: hidden;
+        touch-action: manipulation;
+        -webkit-text-size-adjust: 100%;
+        -webkit-font-smoothing: antialiased;
       }
 
       .chat-container {
@@ -43,15 +57,20 @@
       }
 
       .avatar {
-        width: 40px;
-        height: 40px;
+        width: 2.5rem;
+        height: 2.5rem;
         border-radius: 50%;
         background: rgba(255, 255, 255, 0.2);
         display: flex;
         align-items: center;
         justify-content: center;
         font-weight: bold;
-        font-size: 18px;
+        font-size: 1.125rem;
+        color: white;
+      }
+
+      .avatar i {
+        font-size: 1.25rem;
       }
 
       .header-info h3 {
@@ -248,24 +267,28 @@
       }
 
       .chat-input-container {
-        padding: 16px 20px;
+        padding: 1rem 1.25rem;
         border-top: 1px solid #e2e8f0;
         background: white;
+        position: relative;
+        z-index: 1;
       }
 
       .chat-input-wrapper {
         display: flex;
-        gap: 8px;
+        gap: 0.5rem;
         align-items: flex-end;
         background: #f8fafc;
-        border-radius: 24px;
-        padding: 8px;
+        border-radius: 1.5rem;
+        padding: 0.5rem;
         border: 1px solid #e2e8f0;
-        transition: border-color 0.2s;
+        transition: all 0.2s ease;
+        min-height: 3rem;
       }
 
       .chat-input-wrapper:focus-within {
         border-color: #8b0000;
+        box-shadow: 0 0 0 0.125rem rgba(139, 0, 0, 0.1);
       }
 
       .chat-input {
@@ -273,42 +296,106 @@
         border: none;
         outline: none;
         background: transparent;
-        padding: 8px 12px;
-        font-size: 14px;
+        padding: 0.5rem 0.75rem;
+        font-size: 0.875rem;
         resize: none;
-        max-height: 120px;
-        min-height: 20px;
+        max-height: 7.5rem;
+        min-height: 1.25rem;
         font-family: inherit;
         line-height: 1.4;
         overflow-y: auto;
+        -webkit-appearance: none;
+        appearance: none;
+        -webkit-text-size-adjust: 100%;
+        touch-action: manipulation;
+      }
+
+      .chat-input:focus {
+        -webkit-appearance: none;
+        appearance: none;
+      }
+
+      /* Prevent zoom on iOS */
+      @supports (-webkit-touch-callout: none) {
+        .chat-input {
+          font-size: 1rem;
+        }
       }
 
       @media (max-width: 768px) {
+        .chat-container {
+          height: 100vh;
+          height: 100dvh; /* Dynamic viewport height for mobile */
+        }
+
+        .chat-input-container {
+          padding: 0.75rem 1rem;
+          background: white;
+          border-top: 1px solid #e2e8f0;
+          position: sticky;
+          bottom: 0;
+          z-index: 10;
+        }
+
+        .chat-input-wrapper {
+          border-radius: 1.25rem;
+          padding: 0.375rem;
+          gap: 0.375rem;
+          min-height: 2.75rem;
+        }
+
         .chat-input {
-          max-height: 100px;
-          font-size: 14px;
+          max-height: 6.25rem;
+          font-size: 1rem; /* Prevent zoom on mobile */
+          padding: 0.5rem 0.75rem;
+          -webkit-text-size-adjust: none;
+        }
+
+        .chat-messages {
+          padding-bottom: 0.5rem;
         }
       }
 
       @media (max-width: 480px) {
+        .chat-input-container {
+          padding: 0.625rem 0.75rem;
+        }
+
+        .chat-input-wrapper {
+          border-radius: 1rem;
+          padding: 0.25rem;
+          min-height: 2.5rem;
+        }
+
         .chat-input {
-          max-height: 80px;
-          font-size: 13px;
-          padding: 6px 10px;
+          max-height: 5rem;
+          font-size: 1rem; /* Prevent zoom */
+          padding: 0.375rem 0.625rem;
+          line-height: 1.3;
         }
       }
 
       @media (max-width: 360px) {
+        .chat-input-container {
+          padding: 0.5rem;
+        }
+
+        .chat-input-wrapper {
+          padding: 0.25rem;
+          min-height: 2.25rem;
+        }
+
         .chat-input {
-          max-height: 60px;
-          font-size: 12px;
-          padding: 5px 8px;
+          max-height: 4rem;
+          font-size: 1rem; /* Prevent zoom */
+          padding: 0.25rem 0.5rem;
+          line-height: 1.2;
         }
       }
 
       .send-button {
-        width: 36px;
-        height: 36px;
+        width: 2.25rem;
+        height: 2.25rem;
         border-radius: 50%;
         border: none;
         background: #8b0000;
@@ -317,8 +404,9 @@
         display: flex;
         align-items: center;
         justify-content: center;
-        transition: all 0.2s;
+        transition: all 0.2s ease;
         flex-shrink: 0;
+        touch-action: manipulation;
       }
 
       .send-button:hover:not(:disabled) {
@@ -330,6 +418,35 @@
         background: #cbd5e1;
         cursor: not-allowed;
         transform: none;
+      }
+
+      .send-button svg {
+        width: 1rem;
+        height: 1rem;
+      }
+
+      @media (max-width: 768px) {
+        .send-button {
+          width: 2rem;
+          height: 2rem;
+        }
+
+        .send-button svg {
+          width: 0.875rem;
+          height: 0.875rem;
+        }
+      }
+
+      @media (max-width: 480px) {
+        .send-button {
+          width: 1.875rem;
+          height: 1.875rem;
+        }
+
+        .send-button svg {
+          width: 0.75rem;
+          height: 0.75rem;
+        }
       }
 
       .error-message {
@@ -393,218 +510,275 @@
       @media (max-width: 768px) {
         .chat-container {
           height: 100vh;
+          height: 100dvh; /* Dynamic viewport height for better mobile experience */
           border-radius: 0;
+          display: flex;
+          flex-direction: column;
         }
 
         .chat-header {
-          padding: 12px 16px;
+          padding: 0.75rem 1rem;
           border-radius: 0;
+          flex-shrink: 0;
         }
 
         .chat-messages {
-          padding: 12px 16px;
+          padding: 0.75rem 1rem;
           flex: 1;
-        }
-
-        .chat-input-container {
-          padding: 12px 16px;
+          overflow-y: auto;
+          -webkit-overflow-scrolling: touch;
         }
 
         .message {
-          max-width: 95%;
+          max-width: 90%;
         }
 
         .close-button {
-          width: 36px;
-          height: 36px;
+          width: 2.25rem;
+          height: 2.25rem;
         }
 
         .close-button svg {
-          width: 18px;
-          height: 18px;
+          width: 1.125rem;
+          height: 1.125rem;
         }
 
         .suggestion-buttons {
-          gap: 6px;
+          gap: 0.375rem;
         }
 
         .suggestion-button {
-          padding: 8px 14px;
-          font-size: 12px;
+          padding: 0.5rem 0.875rem;
+          font-size: 0.75rem;
         }
 
         .welcome-message {
-          padding: 16px;
+          padding: 1rem;
+        }
+
+        /* Better touch targets */
+        .suggestion-button,
+        .send-button,
+        .close-button {
+          min-height: 2.75rem;
+          min-width: 2.75rem;
         }
       }
 
       @media (max-width: 480px) {
         .chat-header {
-          padding: 10px 12px;
+          padding: 0.625rem 0.75rem;
         }
 
         .header-info h3 {
-          font-size: 14px;
+          font-size: 0.875rem;
         }
 
         .header-info p {
-          font-size: 11px;
+          font-size: 0.6875rem;
         }
 
         .chat-messages {
-          padding: 10px 12px;
-          gap: 12px;
-        }
-
-        .chat-input-container {
-          padding: 10px 12px;
+          padding: 0.625rem 0.75rem;
+          gap: 0.75rem;
         }
 
         .message {
-          max-width: 98%;
+          max-width: 92%;
         }
 
         .message-content {
-          padding: 10px 14px;
-          font-size: 13px;
-          border-radius: 16px;
+          padding: 0.625rem 0.875rem;
+          font-size: 0.8125rem;
+          border-radius: 1rem;
         }
 
         .close-button {
-          width: 32px;
-          height: 32px;
+          width: 2rem;
+          height: 2rem;
         }
 
         .close-button svg {
-          width: 16px;
-          height: 16px;
-        }
-
-        .chat-input {
-          font-size: 13px;
-          padding: 6px 10px;
-        }
-
-        .send-button {
-          width: 32px;
-          height: 32px;
+          width: 1rem;
+          height: 1rem;
         }
 
         .welcome-message {
-          padding: 12px;
-          font-size: 13px;
+          padding: 0.75rem;
+          font-size: 0.8125rem;
         }
 
         .suggestion-button {
-          padding: 7px 12px;
-          font-size: 11px;
+          padding: 0.4375rem 0.75rem;
+          font-size: 0.6875rem;
+          min-height: 2.5rem;
         }
 
         .avatar {
-          width: 36px;
-          height: 36px;
-          font-size: 16px;
+          width: 2.25rem;
+          height: 2.25rem;
+          font-size: 1rem;
         }
       }
 
       @media (max-width: 360px) {
         .chat-header {
-          padding: 8px 10px;
+          padding: 0.5rem 0.625rem;
         }
 
         .header-info h3 {
-          font-size: 13px;
+          font-size: 0.8125rem;
         }
 
         .header-info p {
-          font-size: 10px;
+          font-size: 0.625rem;
         }
 
         .chat-messages {
-          padding: 8px 10px;
-          gap: 10px;
-        }
-
-        .chat-input-container {
-          padding: 8px 10px;
+          padding: 0.5rem 0.625rem;
+          gap: 0.625rem;
         }
 
         .message-content {
-          padding: 8px 12px;
-          font-size: 12px;
-          border-radius: 14px;
+          padding: 0.5rem 0.75rem;
+          font-size: 0.75rem;
+          border-radius: 0.875rem;
         }
 
         .close-button {
-          width: 30px;
-          height: 30px;
+          width: 1.875rem;
+          height: 1.875rem;
         }
 
         .close-button svg {
-          width: 14px;
-          height: 14px;
-        }
-
-        .chat-input {
-          font-size: 12px;
-          padding: 5px 8px;
-        }
-
-        .send-button {
-          width: 30px;
-          height: 30px;
+          width: 0.875rem;
+          height: 0.875rem;
         }
 
         .avatar {
-          width: 32px;
-          height: 32px;
-          font-size: 14px;
+          width: 2rem;
+          height: 2rem;
+          font-size: 0.875rem;
         }
 
         .suggestion-button {
-          padding: 6px 10px;
-          font-size: 10px;
+          padding: 0.375rem 0.625rem;
+          font-size: 0.625rem;
+          min-height: 2.25rem;
         }
 
         .welcome-message {
-          padding: 10px;
-          font-size: 12px;
+          padding: 0.625rem;
+          font-size: 0.75rem;
         }
       }
 
-      /* Landscape mobile */
+      /* Landscape mobile optimization */
       @media (max-height: 500px) and (orientation: landscape) {
         .chat-container {
           height: 100vh;
+          height: 100dvh;
         }
 
         .chat-header {
-          padding: 8px 12px;
+          padding: 0.5rem 0.75rem;
         }
 
         .chat-messages {
-          padding: 8px 12px;
+          padding: 0.5rem 0.75rem;
         }
 
         .chat-input-container {
-          padding: 8px 12px;
+          padding: 0.5rem 0.75rem;
         }
 
         .welcome-message {
-          padding: 8px;
+          padding: 0.5rem;
         }
 
         .suggestion-buttons {
           display: grid;
           grid-template-columns: 1fr 1fr;
-          gap: 4px;
+          gap: 0.25rem;
         }
 
         .suggestion-button {
-          padding: 5px 8px;
-          font-size: 10px;
+          padding: 0.3125rem 0.5rem;
+          font-size: 0.625rem;
+          min-height: 2rem;
         }
-      } /* Scrollbar styling */
+      } /* iOS Safari specific fixes */
+      @supports (-webkit-touch-callout: none) {
+        body {
+          height: 100vh;
+          height: -webkit-fill-available;
+        }
+
+        .chat-container {
+          height: 100vh;
+          height: -webkit-fill-available;
+        }
+
+        .chat-input {
+          font-size: 1rem; /* Prevent zoom on iOS */
+          transform: translateZ(0); /* Force hardware acceleration */
+        }
+      }
+
+      /* Prevent mobile keyboard from breaking layout */
+      @media (max-width: 768px) {
+        html {
+          height: 100%;
+          height: -webkit-fill-available;
+        }
+
+        body {
+          height: 100%;
+          height: -webkit-fill-available;
+          position: fixed;
+          width: 100%;
+        }
+
+        .chat-container {
+          position: relative;
+          height: 100%;
+          height: -webkit-fill-available;
+          overflow: hidden;
+        }
+
+        .chat-messages {
+          height: calc(100% - 8rem); /* Account for header and input */
+          overflow-y: auto;
+          -webkit-overflow-scrolling: touch;
+        }
+
+        .chat-input-container {
+          position: absolute;
+          bottom: 0;
+          left: 0;
+          right: 0;
+          background: white;
+          border-top: 1px solid #e2e8f0;
+        }
+      }
+
+      /* Scrollbar styling */
+      .chat-messages::-webkit-scrollbar {
+        width: 4px;
+      }
+
+      .chat-messages::-webkit-scrollbar-track {
+        background: transparent;
+      }
+
+      .chat-messages::-webkit-scrollbar-thumb {
+        background: #cbd5e1;
+        border-radius: 2px;
+      }
+
+      .chat-messages::-webkit-scrollbar-thumb:hover {
+        background: #94a3b8;
+      }
       .chat-messages::-webkit-scrollbar {
         width: 4px;
       }
@@ -760,7 +934,9 @@
   <body>
     <div class="chat-container">
       <div class="chat-header">
-        <div class="avatar">M</div>
+        <div class="avatar">
+          <i class="fas fa-comment-dots"></i>
+        </div>
         <div class="header-info">
           <h3>Miryam</h3>
           <p>IUEA Admissions Assistant</p>
@@ -782,7 +958,7 @@
       <div class="chat-messages" id="chatMessages">
         <div class="welcome-message">
           <p>
-            👋 Hello! I'm Miryam, your IUEA admissions assistant. How can I help
+            🤖 Hello! I'm Miryam, your IUEA admissions assistant. How can I help
             you today?
           </p>
           <div class="suggestion-buttons">
@@ -885,6 +1061,28 @@
             this.updateSendButton();
           });
 
+          // Better mobile focus handling
+          this.messageInput.addEventListener("focus", () => {
+            if (window.innerWidth <= 768) {
+              // Delay to allow keyboard to show
+              setTimeout(() => {
+                this.messageInput.scrollIntoView({
+                  behavior: "smooth",
+                  block: "center",
+                });
+              }, 300);
+            }
+          });
+
+          this.messageInput.addEventListener("blur", () => {
+            if (window.innerWidth <= 768) {
+              // Scroll back to show more of the chat
+              setTimeout(() => {
+                this.chatMessages.scrollTop = this.chatMessages.scrollHeight;
+              }, 300);
+            }
+          });
+
           // Close button functionality
           this.closeButton.addEventListener("click", () => {
             this.closeChat();
@@ -905,6 +1103,17 @@
           this.messageInput.style.height = "auto";
           this.messageInput.style.height =
             Math.min(this.messageInput.scrollHeight, 100) + "px";
+
+          // Additional mobile handling
+          if (window.innerWidth <= 768) {
+            // Ensure input stays in view on mobile
+            setTimeout(() => {
+              this.messageInput.scrollIntoView({
+                behavior: "smooth",
+                block: "center",
+              });
+            }, 100);
+          }
         }
 
         updateSendButton() {
@@ -1273,7 +1482,44 @@
         if (chatMessages) {
           chatMessages.scrollTop = chatMessages.scrollHeight;
         }
+
+        // Handle mobile keyboard showing/hiding
+        if (window.innerWidth <= 768) {
+          const chatContainer = document.querySelector(".chat-container");
+          const chatInputContainer = document.querySelector(
+            ".chat-input-container"
+          );
+
+          if (chatContainer && chatInputContainer) {
+            // Adjust layout when keyboard shows
+            const viewportHeight = window.visualViewport
+              ? window.visualViewport.height
+              : window.innerHeight;
+            const windowHeight = window.innerHeight;
+
+            if (viewportHeight < windowHeight * 0.75) {
+              // Keyboard is likely showing
+              chatContainer.style.height = `${viewportHeight}px`;
+            } else {
+              // Keyboard is likely hidden
+              chatContainer.style.height = "100vh";
+              chatContainer.style.height = "100dvh";
+            }
+          }
+        }
       });
+
+      // Handle visual viewport changes (better mobile keyboard detection)
+      if (window.visualViewport) {
+        window.visualViewport.addEventListener("resize", () => {
+          if (window.innerWidth <= 768) {
+            const chatContainer = document.querySelector(".chat-container");
+            if (chatContainer) {
+              chatContainer.style.height = `${window.visualViewport.height}px`;
+            }
+          }
+        });
+      }
     </script>
   </body>
 </html>
