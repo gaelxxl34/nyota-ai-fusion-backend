@@ -5,7 +5,8 @@
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",
-    "dev": "nodemon src/index.js"
+    "dev": "nodemon src/index.js",
+    "send-interested-leads": "node src/scripts/sendInterestedLeadsMessages.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.56.0",

@@ -41,7 +41,7 @@ class SendGridEmailService {
     }
   }
 
-  async sendEmail({ to, subject, html, text }) {
+  async sendEmail({ to, subject, html, text, replyTo }) {
     try {
       console.log(`📧 SendGrid: Preparing to send email to: ${to}`);
       console.log(`📧 SendGrid: Subject: ${subject}`);
@@ -62,13 +62,31 @@ class SendGridEmailService {
           email: "noreply@iuea.app",
           name: "IUEA Admissions Office",
         },
-        replyTo: {
-          email: process.env.EMAIL_REPLY_TO || "info@iuea.ac.ug",
-          name: "IUEA Admissions Office",
-        },
+        replyTo: replyTo
+          ? {
+              email: replyTo,
+              name: "IUEA Admissions Office",
+            }
+          : {
+              email: process.env.EMAIL_REPLY_TO || "info@iuea.ac.ug",
+              name: "IUEA Admissions Office",
+            },
         subject,
         text: text || "",
         html: html || text || "",
+        // Disable link tracking to prevent URL rewriting
+        trackingSettings: {
+          clickTracking: {
+            enable: false,
+            enableText: false,
+          },
+          openTracking: {
+            enable: false,
+          },
+          subscriptionTracking: {
+            enable: false,
+          },
+        },
       };
 
       console.log(`📧 SendGrid: Sending email with message ID...`);
