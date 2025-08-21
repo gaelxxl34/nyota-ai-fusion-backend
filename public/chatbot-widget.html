@@ -603,11 +603,11 @@
           const messageContent = document.createElement("div");
           messageContent.className = "message-content";
 
-          // Convert URLs to clickable links
+          // Convert URLs to clickable links with "Click here" text
           const urlRegex = /(https?:\/\/[^\s]+)/g;
           const contentWithLinks = content.replace(
             urlRegex,
-            '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>'
+            '<a href="$1" target="_blank" rel="noopener noreferrer">Click here</a>'
           );
           messageContent.innerHTML = contentWithLinks;
 
