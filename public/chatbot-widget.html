@@ -166,6 +166,27 @@
         color: #1e293b;
       }
 
+      .message-content a {
+        color: #dc2626;
+        text-decoration: underline;
+        font-weight: 600;
+        transition: all 0.2s;
+      }
+
+      .message.user .message-content a {
+        color: #ffffff;
+        text-decoration: underline;
+      }
+
+      .message-content a:hover {
+        color: #991b1b;
+        text-decoration: none;
+      }
+
+      .message.user .message-content a:hover {
+        color: #f3f4f6;
+      }
+
       .message-time {
         font-size: 11px;
         color: #64748b;
@@ -216,30 +237,6 @@
           transform: translateY(-10px);
           opacity: 1;
         }
-      }
-
-      .suggestions {
-        padding: 0 20px 10px;
-        display: flex;
-        flex-wrap: wrap;
-        gap: 8px;
-      }
-
-      .suggestion-button {
-        background: #f8fafc;
-        border: 1px solid #e2e8f0;
-        border-radius: 16px;
-        padding: 8px 12px;
-        font-size: 12px;
-        cursor: pointer;
-        transition: all 0.2s;
-        color: #475569;
-      }
-
-      .suggestion-button:hover {
-        background: #dc2626;
-        color: white;
-        border-color: #dc2626;
       }
 
       .chat-input-container {
@@ -412,8 +409,6 @@
         </div>
       </div>
 
-      <div class="suggestions" id="suggestions"></div>
-
       <div class="chat-input-container">
         <div class="chat-input-wrapper">
           <textarea
@@ -450,7 +445,6 @@
           this.messageInput = document.getElementById("messageInput");
           this.sendButton = document.getElementById("sendButton");
           this.chatMessages = document.getElementById("chatMessages");
-          this.suggestions = document.getElementById("suggestions");
           this.statusIndicator = document.getElementById("statusIndicator");
           this.closeButton = document.getElementById("closeButton");
 
@@ -540,7 +534,6 @@
             if (data.success) {
               this.sessionId = data.sessionId;
               this.addMessage(data.message, false);
-              this.showSuggestions(data.suggestions);
               this.setConnectionStatus(true);
             } else {
               throw new Error(data.error || "Failed to initialize chat");
@@ -563,7 +556,6 @@
           this.messageInput.value = "";
           this.autoResize();
           this.updateSendButton();
-          this.hideSuggestions();
 
           // Show typing indicator
           this.showTypingIndicator();
@@ -592,11 +584,6 @@
               // Add AI response
               this.addMessage(data.response, false);
 
-              // Show suggestions
-              if (data.suggestions && data.suggestions.length > 0) {
-                this.showSuggestions(data.suggestions);
-              }
-
               this.setConnectionStatus(true);
             } else {
               throw new Error(data.error || "Failed to send message");
@@ -615,7 +602,14 @@
 
           const messageContent = document.createElement("div");
           messageContent.className = "message-content";
-          messageContent.textContent = content;
+
+          // Convert URLs to clickable links
+          const urlRegex = /(https?:\/\/[^\s]+)/g;
+          const contentWithLinks = content.replace(
+            urlRegex,
+            '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>'
+          );
+          messageContent.innerHTML = contentWithLinks;
 
           const messageTime = document.createElement("div");
           messageTime.className = "message-time";
@@ -667,31 +661,6 @@
           if (typingIndicator) {
             typingIndicator.remove();
           }
-        }
-
-        showSuggestions(suggestions) {
-          this.suggestions.innerHTML = "";
-
-          if (!suggestions || suggestions.length === 0) return;
-
-          suggestions.forEach((suggestion) => {
-            const button = document.createElement("button");
-            button.className = "suggestion-button";
-            button.textContent = suggestion;
-            button.addEventListener("click", () => {
-              this.messageInput.value = suggestion;
-              this.autoResize();
-              this.updateSendButton();
-              this.messageInput.focus();
-              this.hideSuggestions();
-            });
-
-            this.suggestions.appendChild(button);
-          });
-        }
-
-        hideSuggestions() {
-          this.suggestions.innerHTML = "";
         }
 
         showError(message) {
