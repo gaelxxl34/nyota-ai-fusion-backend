@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>IUEA Chatbot Demo</title>
+    <style>
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+          sans-serif;
+        margin: 0;
+        padding: 40px 20px;
+        background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+        min-height: 100vh;
+      }
+
+      .container {
+        max-width: 800px;
+        margin: 0 auto;
+        background: white;
+        padding: 40px;
+        border-radius: 12px;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+      }
+
+      h1 {
+        color: #dc2626;
+        text-align: center;
+        margin-bottom: 30px;
+      }
+
+      .demo-section {
+        margin: 30px 0;
+        padding: 20px;
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        background: #f9fafb;
+      }
+
+      .demo-button {
+        background: #dc2626;
+        color: white;
+        border: none;
+        padding: 12px 24px;
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 16px;
+        margin: 10px 10px 10px 0;
+        transition: all 0.2s;
+      }
+
+      .demo-button:hover {
+        background: #b91c1c;
+        transform: translateY(-1px);
+      }
+
+      .status {
+        padding: 15px;
+        border-radius: 6px;
+        margin: 20px 0;
+        font-weight: 500;
+      }
+
+      .status.success {
+        background: #d1fae5;
+        color: #065f46;
+        border: 1px solid #a7f3d0;
+      }
+
+      .status.error {
+        background: #fee2e2;
+        color: #991b1b;
+        border: 1px solid #fca5a5;
+      }
+
+      .info {
+        background: #eff6ff;
+        border: 1px solid #bfdbfe;
+        color: #1e40af;
+        padding: 15px;
+        border-radius: 6px;
+        margin: 20px 0;
+      }
+
+      code {
+        background: #f3f4f6;
+        padding: 2px 6px;
+        border-radius: 4px;
+        font-family: "Courier New", monospace;
+        font-size: 14px;
+      }
+
+      .feature-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+        gap: 20px;
+        margin: 30px 0;
+      }
+
+      .feature-card {
+        background: white;
+        padding: 20px;
+        border-radius: 8px;
+        border: 1px solid #e5e7eb;
+        text-align: center;
+      }
+
+      .feature-icon {
+        font-size: 32px;
+        margin-bottom: 10px;
+      }
+
+      .integration-code {
+        background: #1f2937;
+        color: #f9fafb;
+        padding: 20px;
+        border-radius: 8px;
+        font-family: "Courier New", monospace;
+        font-size: 14px;
+        overflow-x: auto;
+        margin: 20px 0;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>🤖 IUEA AI Chatbot Demo</h1>
+
+      <div class="info">
+        <strong>Welcome!</strong> This page demonstrates the IUEA AI Chatbot
+        integration. The chatbot button should appear in the bottom-right corner
+        of your screen.
+      </div>
+
+      <div class="demo-section">
+        <h3>🎮 Try the Chatbot</h3>
+        <p>
+          The chatbot widget is automatically loaded on this page. Look for the
+          red chat button in the bottom-right corner.
+        </p>
+
+        <button class="demo-button" onclick="openChat()">Open Chat</button>
+        <button class="demo-button" onclick="closeChat()">Close Chat</button>
+        <button class="demo-button" onclick="toggleChat()">Toggle Chat</button>
+
+        <div id="chatStatus" class="status" style="display: none"></div>
+      </div>
+
+      <div class="demo-section">
+        <h3>✨ Features</h3>
+        <div class="feature-grid">
+          <div class="feature-card">
+            <div class="feature-icon">🧠</div>
+            <h4>AI-Powered</h4>
+            <p>Powered by Claude AI with IUEA knowledge base</p>
+          </div>
+          <div class="feature-card">
+            <div class="feature-icon">💬</div>
+            <h4>Live Chat</h4>
+            <p>Real-time conversations without data persistence</p>
+          </div>
+          <div class="feature-card">
+            <div class="feature-icon">📱</div>
+            <h4>Mobile Ready</h4>
+            <p>Responsive design for all devices</p>
+          </div>
+          <div class="feature-card">
+            <div class="feature-icon">🔧</div>
+            <h4>Easy Integration</h4>
+            <p>Simple embed code for any website</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="demo-section">
+        <h3>🌐 WordPress Integration</h3>
+        <p>
+          To add this chatbot to your WordPress website, simply add this script
+          to your footer:
+        </p>
+
+        <div class="integration-code">
+          &lt;script src="/chatbot/chatbot-embed.js"&gt;&lt;/script&gt;
+        </div>
+
+        <p>
+          <strong>Easy Integration:</strong> The chatbot automatically detects
+          your domain - no configuration needed!
+        </p>
+      </div>
+
+      <div class="demo-section">
+        <h3>🔧 Custom Triggers</h3>
+        <p>You can create custom buttons anywhere on your site:</p>
+
+        <button class="demo-button" onclick="window.IUEAChatbot?.open()">
+          💬 Chat with Admissions
+        </button>
+
+        <button class="demo-button" onclick="window.IUEAChatbot?.toggle()">
+          ❓ Need Help?
+        </button>
+      </div>
+
+      <div class="demo-section">
+        <h3>📊 Status Information</h3>
+        <p>Monitor the chatbot status:</p>
+        <button class="demo-button" onclick="checkStatus()">
+          Check Status
+        </button>
+        <div id="statusInfo"></div>
+      </div>
+
+      <div class="demo-section">
+        <h3>📱 Mobile Testing</h3>
+        <p>Test the mobile experience (screens ≤768px wide):</p>
+        <ul>
+          <li>
+            ✨ <strong>New:</strong> Chat button automatically hides when chat
+            is open on mobile
+          </li>
+          <li>🎯 Close button is now available in the chat header</li>
+          <li>📱 Full-screen experience on mobile devices</li>
+          <li>🔄 Button reappears when chat is closed</li>
+        </ul>
+        <p>
+          <em
+            >Resize your browser window to under 768px width to test mobile
+            behavior!</em
+          >
+        </p>
+      </div>
+
+      <div class="demo-section">
+        <h3>🎨 Customization</h3>
+        <p>The chatbot can be customized to match your website's design:</p>
+        <ul>
+          <li>Button position and size</li>
+          <li>Chat window dimensions</li>
+          <li>Color scheme</li>
+          <li>Z-index for proper layering</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Load the chatbot -->
+    <script src="/chatbot/chatbot-embed.js"></script>
+
+    <script>
+      // Demo functions
+      function openChat() {
+        if (window.IUEAChatbot) {
+          window.IUEAChatbot.open();
+          showStatus("Chat opened successfully!", "success");
+        } else {
+          showStatus("Chatbot not loaded yet. Please wait...", "error");
+        }
+      }
+
+      function closeChat() {
+        if (window.IUEAChatbot) {
+          window.IUEAChatbot.close();
+          showStatus("Chat closed successfully!", "success");
+        } else {
+          showStatus("Chatbot not loaded yet. Please wait...", "error");
+        }
+      }
+
+      function toggleChat() {
+        if (window.IUEAChatbot) {
+          window.IUEAChatbot.toggle();
+          const isOpen = window.IUEAChatbot.isOpen();
+          showStatus(
+            `Chat ${isOpen ? "opened" : "closed"} successfully!`,
+            "success"
+          );
+        } else {
+          showStatus("Chatbot not loaded yet. Please wait...", "error");
+        }
+      }
+
+      function checkStatus() {
+        const statusDiv = document.getElementById("statusInfo");
+
+        if (window.IUEAChatbot) {
+          const isOpen = window.IUEAChatbot.isOpen();
+          statusDiv.innerHTML = `
+                    <div class="status success">
+                        <strong>Chatbot Status:</strong><br>
+                        • Loaded: ✅ Yes<br>
+                        • Currently Open: ${isOpen ? "✅ Yes" : "❌ No"}<br>
+                        • Ready for use: ✅ Yes
+                    </div>
+                `;
+        } else {
+          statusDiv.innerHTML = `
+                    <div class="status error">
+                        <strong>Chatbot Status:</strong><br>
+                        • Loaded: ❌ No<br>
+                        • Currently Open: ❌ No<br>
+                        • Ready for use: ❌ No
+                    </div>
+                `;
+        }
+      }
+
+      function showStatus(message, type) {
+        const statusDiv = document.getElementById("chatStatus");
+        statusDiv.textContent = message;
+        statusDiv.className = `status ${type}`;
+        statusDiv.style.display = "block";
+
+        setTimeout(() => {
+          statusDiv.style.display = "none";
+        }, 3000);
+      }
+
+      // Listen for chatbot ready event
+      document.addEventListener("iueaChatbotReady", function (event) {
+        showStatus("Chatbot loaded successfully! 🎉", "success");
+        console.log("IUEA Chatbot is ready:", event.detail.widget);
+      });
+
+      // Check status on page load
+      setTimeout(checkStatus, 2000);
+    </script>
+  </body>
+</html>

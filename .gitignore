@@ -14,7 +14,3 @@ yarn-error.log*
 tmp/
 temp/
 certificates/
-
-# Public demo and example files (not needed in production)
-public/demo.html
-public/wordpress-example.html
