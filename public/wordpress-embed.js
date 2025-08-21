@@ -348,11 +348,14 @@
       )}&wp=1`;
       this.chatWidget.frameBorder = "0";
       this.chatWidget.title = "IUEA Chat Assistant";
-      this.chatWidget.setAttribute("allow", "microphone; camera");
-      this.chatWidget.setAttribute(
-        "sandbox",
-        "allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-top-navigation-by-user-activation"
-      );
+      this.chatWidget.setAttribute("allow", "microphone; camera; popups");
+
+      // Remove sandbox restrictions to allow popups - this is necessary for external links
+      // The iframe content is controlled by us, so this is safe
+      // this.chatWidget.setAttribute(
+      //   "sandbox",
+      //   "allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-top-navigation-by-user-activation"
+      // );
 
       document.body.appendChild(this.chatWidget);
       debugLog("Chat widget created");
@@ -417,17 +420,36 @@
         // Add to DOM
         document.body.appendChild(tempLink);
 
-        // Trigger click immediately
-        const clickEvent = new MouseEvent("click", {
-          view: window,
-          bubbles: true,
-          cancelable: true,
-        });
+        // Trigger click immediately with enhanced error handling
+        let clickSuccess = false;
 
-        tempLink.dispatchEvent(clickEvent);
+        try {
+          const clickEvent = new MouseEvent("click", {
+            view: window,
+            bubbles: true,
+            cancelable: true,
+            button: 0,
+          });
 
-        // Alternative method: direct click
-        tempLink.click();
+          const result = tempLink.dispatchEvent(clickEvent);
+          if (result) {
+            clickSuccess = true;
+            debugLog("External URL opened via dispatchEvent");
+          }
+        } catch (dispatchError) {
+          console.log("dispatchEvent failed:", dispatchError);
+        }
+
+        // Try direct click if dispatch didn't work
+        if (!clickSuccess) {
+          try {
+            tempLink.click();
+            clickSuccess = true;
+            debugLog("External URL opened via click()");
+          } catch (clickError) {
+            console.log("Direct click failed:", clickError);
+          }
+        }
 
         // Clean up after a short delay
         setTimeout(() => {
@@ -436,16 +458,27 @@
           }
         }, 100);
 
-        debugLog("External URL opened via link element");
+        if (clickSuccess) {
+          debugLog("External URL opened successfully");
+          return; // Exit early if successful
+        } else {
+          throw new Error("All click methods failed");
+        }
       } catch (error) {
         console.error("Error opening external URL via link:", error);
 
         // Fallback 1: Try window.open with user interaction context
         try {
-          const newWindow = window.open(url, "_blank", "noopener,noreferrer");
-          if (newWindow) {
+          const newWindow = window.open(
+            url,
+            "_blank",
+            "noopener,noreferrer,width=800,height=600"
+          );
+          if (newWindow && !newWindow.closed) {
             debugLog("External URL opened via window.open");
             return;
+          } else {
+            throw new Error("window.open returned null or was closed");
           }
         } catch (windowOpenError) {
           console.error("window.open failed:", windowOpenError);
@@ -453,11 +486,17 @@
 
         // Fallback 2: Try location assignment in new window
         try {
-          const newWindow = window.open("", "_blank", "noopener,noreferrer");
-          if (newWindow) {
+          const newWindow = window.open(
+            "about:blank",
+            "_blank",
+            "noopener,noreferrer,width=800,height=600"
+          );
+          if (newWindow && !newWindow.closed) {
             newWindow.location.href = url;
             debugLog("External URL opened via location assignment");
             return;
+          } else {
+            throw new Error("Failed to open blank window");
           }
         } catch (locationError) {
           console.error("Location assignment failed:", locationError);

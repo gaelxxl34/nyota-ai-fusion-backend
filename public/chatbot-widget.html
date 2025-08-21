@@ -885,99 +885,20 @@
 
             // Also try opening directly as a backup after a short delay
             setTimeout(() => {
-              try {
-                // Create and click a temporary link
-                const tempLink = document.createElement("a");
-                tempLink.href = url;
-                tempLink.target = "_blank";
-                tempLink.rel = "noopener noreferrer";
-                tempLink.style.position = "absolute";
-                tempLink.style.left = "-9999px";
-                tempLink.style.visibility = "hidden";
-
-                document.body.appendChild(tempLink);
-                tempLink.click();
-
-                setTimeout(() => {
-                  if (document.body.contains(tempLink)) {
-                    document.body.removeChild(tempLink);
-                  }
-                }, 100);
-
-                console.log("Direct link opening attempted as backup");
-              } catch (directError) {
-                console.log("Direct opening failed:", directError);
-              }
-            }, 200);
+              // Show user-friendly popup as fallback since direct opening might be blocked
+              console.log("Showing fallback popup for external link");
+              showLinkPopup(url);
+            }, 1000);
 
             return; // Let parent handle it primarily
           }
 
-          // If no parent, try direct opening methods
-          console.log("No parent window detected, trying direct opening");
-
-          // Method 1: Create and click temporary link
-          const tempLink = document.createElement("a");
-          tempLink.href = url;
-          tempLink.target = "_blank";
-          tempLink.rel = "noopener noreferrer";
-          tempLink.style.position = "absolute";
-          tempLink.style.left = "-9999px";
-          tempLink.style.visibility = "hidden";
-
-          document.body.appendChild(tempLink);
-
-          // Use both click methods for better compatibility
-          const clickEvent = new MouseEvent("click", {
-            view: window,
-            bubbles: true,
-            cancelable: true,
-          });
-
-          tempLink.dispatchEvent(clickEvent);
-          tempLink.click();
-
-          setTimeout(() => {
-            if (document.body.contains(tempLink)) {
-              document.body.removeChild(tempLink);
-            }
-          }, 100);
-
-          console.log("Direct link opening successful");
+          // If no parent window detected, show the popup immediately
+          console.log("No parent window detected, showing link popup");
+          showLinkPopup(url);
         } catch (error) {
-          console.error("Primary link opening methods failed:", error);
-
-          // Fallback methods
-          try {
-            // Method 2: Traditional window.open
-            const newWindow = window.open(url, "_blank", "noopener,noreferrer");
-            if (newWindow) {
-              console.log("window.open fallback successful");
-              return;
-            }
-          } catch (windowOpenError) {
-            console.error("window.open fallback failed:", windowOpenError);
-          }
-
-          try {
-            // Method 3: Location assignment in new window
-            const newWindow = window.open("", "_blank", "noopener,noreferrer");
-            if (newWindow) {
-              newWindow.location.href = url;
-              console.log("Location assignment fallback successful");
-              return;
-            }
-          } catch (locationError) {
-            console.error(
-              "Location assignment fallback failed:",
-              locationError
-            );
-          }
-
-          // Ultimate fallback - show user the link
-          console.error("All link opening methods failed");
-
-          // Show a user-friendly popup instead of alert
+          console.error("Error in openExternalLink:", error);
+          // Always fall back to popup
           showLinkPopup(url);
         }
       }
