@@ -32,14 +32,14 @@
       }
 
       .chat-header {
-        background: linear-gradient(135deg, #dc2626, #991b1b);
+        background: linear-gradient(135deg, #8b0000, #660000);
         color: white;
         padding: 16px 20px;
         display: flex;
         align-items: center;
         gap: 12px;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-        position: relative;
+        border-radius: 12px 12px 0 0;
+        box-shadow: 0 2px 8px rgba(139, 0, 0, 0.2);
       }
 
       .avatar {
@@ -157,7 +157,7 @@
       }
 
       .message.user .message-content {
-        background: #dc2626;
+        background: #8b0000;
         color: white;
       }
 
@@ -167,7 +167,7 @@
       }
 
       .message-content a {
-        color: #dc2626;
+        color: #8b0000;
         text-decoration: underline;
         font-weight: 600;
         transition: all 0.2s;
@@ -180,7 +180,7 @@
       }
 
       .message-content a:hover {
-        color: #991b1b;
+        color: #660000;
         text-decoration: none;
       }
 
@@ -258,7 +258,7 @@
       }
 
       .chat-input-wrapper:focus-within {
-        border-color: #dc2626;
+        border-color: #8b0000;
       }
 
       .chat-input {
@@ -280,7 +280,7 @@
         height: 36px;
         border-radius: 50%;
         border: none;
-        background: #dc2626;
+        background: #8b0000;
         color: white;
         cursor: pointer;
         display: flex;
@@ -291,7 +291,7 @@
       }
 
       .send-button:hover:not(:disabled) {
-        background: #b91c1c;
+        background: #660000;
         transform: scale(1.05);
       }
 
@@ -342,8 +342,8 @@
 
       .suggestion-button {
         background: white;
-        border: 1px solid #dc2626;
-        color: #dc2626;
+        border: 1px solid #8b0000;
+        color: #8b0000;
         padding: 10px 16px;
         border-radius: 20px;
         font-size: 13px;
@@ -353,7 +353,7 @@
       }
 
       .suggestion-button:hover {
-        background: #dc2626;
+        background: #8b0000;
         color: white;
         transform: translateY(-1px);
       }
@@ -435,19 +435,19 @@
           <div class="suggestion-buttons">
             <button
               class="suggestion-button"
-              onclick="chatbot.sendSuggestion('What programs do you offer?')"
+              onclick="window.chatbot.sendSuggestion('What programs do you offer?')"
             >
               What programs do you offer?
             </button>
             <button
               class="suggestion-button"
-              onclick="chatbot.sendSuggestion('How much are the tuition fees?')"
+              onclick="window.chatbot.sendSuggestion('How much are the tuition fees?')"
             >
               How much are the tuition fees?
             </button>
             <button
               class="suggestion-button"
-              onclick="chatbot.sendSuggestion('How can I apply?')"
+              onclick="window.chatbot.sendSuggestion('How can I apply?')"
             >
               How can I apply?
             </button>
@@ -579,7 +579,8 @@
 
             if (data.success) {
               this.sessionId = data.sessionId;
-              this.addMessage(data.message, false);
+              // Don't add the AI's welcome message - keep the HTML welcome with suggestions
+              // this.addMessage(data.message, false);
               this.setConnectionStatus(true);
             } else {
               throw new Error(data.error || "Failed to initialize chat");
@@ -670,14 +671,18 @@
             /([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/g;
           processedContent = processedContent.replace(
             emailRegex,
-            '<a href="mailto:$1">$1</a>'
+            function (email) {
+              return `<a href="#" onclick="openExternalLink('mailto:${email}'); return false;" style="color: inherit; text-decoration: underline; cursor: pointer;">${email}</a>`;
+            }
           );
 
           // Convert phone numbers to clickable tel links
           const phoneRegex = /(\+?\d{10,15})/g;
           processedContent = processedContent.replace(
             phoneRegex,
-            '<a href="tel:$1">$1</a>'
+            function (phone) {
+              return `<a href="#" onclick="openExternalLink('tel:${phone}'); return false;" style="color: inherit; text-decoration: underline; cursor: pointer;">${phone}</a>`;
+            }
           );
 
           messageContent.innerHTML = processedContent;
@@ -775,24 +780,13 @@
         }
       }
 
-      // Function to handle external links in sandboxed iframe
+      // Function to handle external links in cross-origin environment
       function openExternalLink(url) {
+        console.log("Attempting to open external link:", url);
+
         try {
-          // Try multiple methods to open the link
-          // Method 1: Try window.top (parent window)
-          if (window.top && window.top !== window) {
-            window.top.open(url, "_blank");
-            return;
-          }
-
-          // Method 2: Try parent window
+          // First try to communicate with parent window
           if (window.parent && window.parent !== window) {
-            window.parent.open(url, "_blank");
-            return;
-          }
-
-          // Method 3: Post message to parent
-          if (window.parent) {
             window.parent.postMessage(
               {
                 type: "openUrl",
@@ -800,22 +794,30 @@
               },
               "*"
             );
+            console.log("Sent openUrl message to parent");
+            return; // Let parent handle it
+          }
+
+          // If no parent, try to open in new window/tab
+          const newWindow = window.open(url, "_blank", "noopener,noreferrer");
+          if (newWindow) {
             return;
           }
 
-          // Method 4: Fallback - try direct assignment (will navigate current frame)
-          window.location.href = url;
+          // If window.open failed, try creating a temporary link
+          const tempLink = document.createElement("a");
+          tempLink.href = url;
+          tempLink.target = "_blank";
+          tempLink.rel = "noopener noreferrer";
+          tempLink.style.display = "none";
+          document.body.appendChild(tempLink);
+          tempLink.click();
+          document.body.removeChild(tempLink);
         } catch (error) {
-          console.error("Error opening link:", error);
-          // Final fallback - copy to clipboard and show message
-          if (navigator.clipboard) {
-            navigator.clipboard.writeText(url).then(() => {
-              alert(`Link copied to clipboard: ${url}
-Please paste it in a new browser tab.`);
-            });
-          } else {
-            alert(`Please copy this link and open it in a new tab: ${url}`);
-          }
+          console.error("All link opening methods failed:", error);
+
+          // Ultimate fallback - show user the link
+          alert(`Please visit: ${url}`);
         }
       }
 

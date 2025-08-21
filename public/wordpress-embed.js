@@ -351,7 +351,7 @@
       this.chatWidget.setAttribute("allow", "microphone; camera");
       this.chatWidget.setAttribute(
         "sandbox",
-        "allow-scripts allow-same-origin allow-forms"
+        "allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-top-navigation-by-user-activation"
       );
 
       document.body.appendChild(this.chatWidget);
@@ -394,6 +394,40 @@
         case "closeChat":
           this.closeChat();
           break;
+        case "openUrl":
+          // Handle external URL opening from iframe
+          this.openExternalUrl(data.url);
+          break;
+      }
+    }
+
+    openExternalUrl(url) {
+      try {
+        debugLog("Opening external URL", url);
+
+        // For all URLs, try to open in new window/tab first
+        const newWindow = window.open(url, "_blank", "noopener,noreferrer");
+
+        if (!newWindow || newWindow.closed) {
+          // If popup was blocked, try creating a temporary link with target="_blank"
+          const tempLink = document.createElement("a");
+          tempLink.href = url;
+          tempLink.target = "_blank";
+          tempLink.rel = "noopener noreferrer";
+          tempLink.style.display = "none";
+          document.body.appendChild(tempLink);
+          tempLink.click();
+          document.body.removeChild(tempLink);
+        }
+      } catch (error) {
+        console.error("Error opening external URL:", error);
+        // Final fallback - still try new window
+        try {
+          window.open(url, "_blank");
+        } catch (fallbackError) {
+          console.error("Fallback URL opening failed:", fallbackError);
+          alert(`Please visit: ${url}`);
+        }
       }
     }
 
