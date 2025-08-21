@@ -34,12 +34,12 @@ class AIService {
     }
   }
 
-  // Detect if the user is communicating in French
-  detectFrenchLanguage(userMessage, conversationHistory = []) {
-    const message = userMessage.toLowerCase();
+  // Detect the primary language of the user's message
+  detectLanguage(userMessage, conversationHistory = []) {
+    const message = userMessage.toLowerCase().trim();
 
     // Check conversation history for language patterns
-    const recentMessages = conversationHistory.slice(-3);
+    const recentMessages = conversationHistory.slice(-5);
     const allText = [
       userMessage,
       ...recentMessages.map((msg) => msg.message || ""),
@@ -47,161 +47,329 @@ class AIService {
       .join(" ")
       .toLowerCase();
 
-    // French indicators
-    const frenchIndicators = [
-      // Common French words
-      "bonjour",
-      "salut",
-      "bonsoir",
-      "merci",
-      "oui",
-      "non",
-      "comment",
-      "quoi",
-      "où",
-      "quand",
-      "pourquoi",
-      "qui",
-      "que",
-      "quel",
-      "quelle",
-      "quels",
-      "quelles",
-      // French question words and phrases
-      "est-ce que",
-      "qu'est-ce que",
-      "combien",
-      "depuis",
-      "pendant",
-      "parle",
-      "parles",
-      "parlez",
-      "français",
-      "francais",
-      // French university/education terms
-      "université",
-      "étudiant",
-      "étudiante",
-      "programme",
-      "cours",
-      "diplôme",
-      "inscription",
-      "frais",
-      "coût",
-      "prix",
-      "formation",
-      "études",
-      // French greetings and politeness
-      "s'il vous plaît",
-      "excusez-moi",
-      "pardon",
-      "désolé",
-      "je voudrais",
-      "pouvez-vous",
-      "pourriez-vous",
-      "j'aimerais",
-      // French pronouns and common words
-      "je",
-      "tu",
-      "il",
-      "elle",
-      "nous",
-      "vous",
-      "ils",
-      "elles",
-      "mon",
-      "ma",
-      "mes",
-      "ton",
-      "ta",
-      "tes",
-      "son",
-      "sa",
-      "ses",
-      "notre",
-      "votre",
-      "leur",
-      "leurs",
-      "le",
-      "la",
-      "les",
-      "un",
-      "une",
-      "des",
-      "du",
-      "de la",
-      "des",
-      "au",
-      "aux",
-      // French verbs
-      "avoir",
-      "être",
-      "faire",
-      "aller",
-      "venir",
-      "voir",
-      "savoir",
-      "pouvoir",
-      "vouloir",
-      "devoir",
-      "prendre",
-      "donner",
-      "parler",
-      "comprendre",
-      // Direct French question patterns
-      "tu parle",
-      "tu parles",
-      "vous parlez",
-      "parlez-vous",
-      "est-ce que tu",
-      "est-ce que vous",
-    ];
+    // Language indicators with weights
+    const languageIndicators = {
+      french: [
+        // High confidence French words (weight 5)
+        {
+          words: ["bonjour", "bonsoir", "salut", "au revoir", "à bientôt"],
+          weight: 5,
+        },
+        {
+          words: [
+            "français",
+            "francais",
+            "je parle français",
+            "parlez-vous français",
+          ],
+          weight: 5,
+        },
+        {
+          words: [
+            "s'il vous plaît",
+            "excusez-moi",
+            "je voudrais",
+            "pouvez-vous",
+          ],
+          weight: 5,
+        },
 
-    // Count French indicators
-    let frenchScore = 0;
-    frenchIndicators.forEach((indicator) => {
-      if (allText.includes(indicator)) {
-        frenchScore++;
-      }
+        // Medium confidence French words (weight 3)
+        {
+          words: ["merci", "oui", "non", "comment", "où", "quand", "pourquoi"],
+          weight: 3,
+        },
+        {
+          words: [
+            "qu'est-ce que",
+            "est-ce que",
+            "combien",
+            "depuis",
+            "pendant",
+          ],
+          weight: 3,
+        },
+        {
+          words: ["université", "étudiant", "étudiante", "programme", "cours"],
+          weight: 3,
+        },
+        {
+          words: [
+            "diplôme",
+            "inscription",
+            "frais",
+            "coût",
+            "prix",
+            "formation",
+            "études",
+          ],
+          weight: 3,
+        },
+
+        // Low confidence French words (weight 1) - common but could be in other contexts
+        {
+          words: ["je", "tu", "il", "elle", "nous", "vous", "ils", "elles"],
+          weight: 1,
+        },
+        {
+          words: [
+            "le",
+            "la",
+            "les",
+            "un",
+            "une",
+            "des",
+            "du",
+            "de la",
+            "au",
+            "aux",
+          ],
+          weight: 1,
+        },
+        {
+          words: ["mon", "ma", "mes", "ton", "ta", "tes", "son", "sa", "ses"],
+          weight: 1,
+        },
+      ],
+
+      english: [
+        // High confidence English words (weight 5)
+        {
+          words: [
+            "hello",
+            "hi",
+            "good morning",
+            "good afternoon",
+            "good evening",
+          ],
+          weight: 5,
+        },
+        {
+          words: [
+            "thank you",
+            "thanks",
+            "please",
+            "excuse me",
+            "can you",
+            "could you",
+          ],
+          weight: 5,
+        },
+        {
+          words: ["english", "do you speak english", "speak english"],
+          weight: 5,
+        },
+
+        // Medium confidence English words (weight 3)
+        {
+          words: ["what", "where", "when", "why", "how", "which", "who"],
+          weight: 3,
+        },
+        {
+          words: [
+            "university",
+            "student",
+            "program",
+            "course",
+            "degree",
+            "admission",
+          ],
+          weight: 3,
+        },
+        {
+          words: [
+            "tuition",
+            "fees",
+            "cost",
+            "price",
+            "application",
+            "requirements",
+          ],
+          weight: 3,
+        },
+
+        // English patterns
+        {
+          words: ["i am", "i'm", "you are", "you're", "we are", "they are"],
+          weight: 2,
+        },
+        {
+          words: ["the", "and", "but", "for", "with", "about", "from"],
+          weight: 1,
+        },
+      ],
+
+      spanish: [
+        {
+          words: [
+            "hola",
+            "buenos días",
+            "buenas tardes",
+            "buenas noches",
+            "adiós",
+          ],
+          weight: 5,
+        },
+        {
+          words: [
+            "gracias",
+            "por favor",
+            "perdón",
+            "disculpe",
+            "español",
+            "habla español",
+          ],
+          weight: 5,
+        },
+        {
+          words: ["qué", "cómo", "cuándo", "dónde", "por qué", "cuánto"],
+          weight: 3,
+        },
+        {
+          words: [
+            "universidad",
+            "estudiante",
+            "programa",
+            "curso",
+            "matrícula",
+          ],
+          weight: 3,
+        },
+        {
+          words: ["yo", "tú", "él", "ella", "nosotros", "ustedes", "ellos"],
+          weight: 1,
+        },
+      ],
+
+      swahili: [
+        {
+          words: ["habari", "jambo", "asante", "karibu", "kwaheri", "pole"],
+          weight: 5,
+        },
+        {
+          words: ["nini", "wapi", "lini", "kwa nini", "vipi", "ngapi"],
+          weight: 3,
+        },
+        {
+          words: ["chuo", "mwanafunzi", "programu", "masomo", "ada"],
+          weight: 3,
+        },
+        { words: ["mimi", "wewe", "yeye", "sisi", "ninyi", "wao"], weight: 1 },
+      ],
+
+      luganda: [
+        {
+          words: ["ki kati", "oli otya", "webale", "tusiibye", "mukwano"],
+          weight: 5,
+        },
+        { words: ["ki", "wa", "ddi", "lwaki", "otya"], weight: 3 },
+        { words: ["ttendekero", "omuyizi", "puloguramu"], weight: 3 },
+      ],
+
+      arabic: [
+        {
+          words: ["مرحبا", "السلام عليكم", "شكرا", "من فضلك", "عذرا"],
+          weight: 5,
+        },
+        { words: ["ماذا", "أين", "متى", "لماذا", "كيف", "كم"], weight: 3 },
+        { words: ["جامعة", "طالب", "برنامج", "دورة", "رسوم"], weight: 3 },
+      ],
+    };
+
+    // Calculate scores for each language
+    const scores = {};
+    Object.keys(languageIndicators).forEach((lang) => {
+      scores[lang] = 0;
+
+      languageIndicators[lang].forEach((group) => {
+        group.words.forEach((word) => {
+          if (allText.includes(word)) {
+            scores[lang] += group.weight;
+          }
+        });
+      });
     });
 
-    // Additional patterns specific to French
-    const frenchPatterns = [
-      /\bje (suis|veux|voudrais|peux|dois)\b/,
-      /\bc'est\b/,
-      /\bil y a\b/,
-      /\bqu'est-ce que\b/,
-      /\best-ce que\b/,
-      /\bj'ai\b/,
-      /\bje n'ai pas\b/,
-      /\bà la\b/,
-      /\bau niveau de\b/,
-      /\ben tant que\b/,
-      /\btu parle(s)?\b/,
-      /\bvous parlez\b/,
-      /\bparlez-vous\b/,
-      /\bfrançais\b/,
-      /\bfrancais\b/,
-    ];
+    // Language-specific patterns
+    const patterns = {
+      french: [
+        /\bje (suis|veux|voudrais|peux|dois|ne|n')\b/,
+        /\bc'est\b/,
+        /\bil y a\b/,
+        /\bqu'est-ce que\b/,
+        /\best-ce que\b/,
+        /\bj'ai\b/,
+        /\bje n'ai pas\b/,
+        /\bà la\b/,
+        /\bau niveau de\b/,
+        /\ben tant que\b/,
+        /\bparlez-vous\b/,
+      ],
+      english: [
+        /\bi (am|want|would|can|need|have)\b/,
+        /\byou (are|can|could|would|have)\b/,
+        /\bdo you\b/,
+        /\bcan you\b/,
+        /\bhow (much|many|long|do)\b/,
+        /\bwhat (is|are|do|does)\b/,
+      ],
+      spanish: [
+        /\byo (soy|quiero|puedo|necesito|tengo)\b/,
+        /\btú (eres|puedes|quieres|tienes)\b/,
+        /\b¿(qué|cómo|cuándo|dónde)\b/,
+        /\bme gusta\b/,
+      ],
+    };
 
-    frenchPatterns.forEach((pattern) => {
-      if (pattern.test(allText)) {
-        frenchScore += 3; // Patterns get higher weight
-      }
+    // Apply pattern bonuses
+    Object.keys(patterns).forEach((lang) => {
+      patterns[lang].forEach((pattern) => {
+        if (pattern.test(allText)) {
+          scores[lang] += 4;
+        }
+      });
     });
 
-    // French accented characters
+    // Check for accented characters
     if (/[àâäéèêëîïôöùûüÿç]/i.test(allText)) {
-      frenchScore += 3;
+      scores.french += 4;
+    }
+    if (/[áéíóúñü]/i.test(allText)) {
+      scores.spanish += 4;
+    }
+    if (/[\u0600-\u06FF]/i.test(allText)) {
+      scores.arabic += 5;
     }
 
-    // Specific check for "Tu parle francais?" type questions
-    if (/tu parle(s)?\s+(français|francais)/i.test(allText)) {
-      frenchScore += 10; // Very high confidence for direct French questions
+    // Special cases for language switching requests
+    const languageRequests = {
+      french: /speak\s+(french|français)|parler\s+français|en français/i,
+      english: /speak\s+english|parler\s+anglais|in english/i,
+      spanish: /hablar\s+español|speak\s+spanish|en español/i,
+      swahili: /speak\s+swahili|kiswahili/i,
+    };
+
+    for (const [lang, pattern] of Object.entries(languageRequests)) {
+      if (pattern.test(allText)) {
+        return lang;
+      }
     }
 
-    // Return true if French score suggests French language
-    return frenchScore >= 2; // Lowered threshold for better detection
+    console.log(`Language detection scores:`, scores, `Text: "${message}"`);
+
+    // Find the language with the highest score
+    const maxScore = Math.max(...Object.values(scores));
+    const detectedLanguage = Object.keys(scores).find(
+      (lang) => scores[lang] === maxScore
+    );
+
+    // Only return detected language if score is significant enough
+    if (maxScore >= 3) {
+      return detectedLanguage;
+    }
+
+    // Default to English if no clear indicators
+    return "english";
   }
 
   parseCSVToItems(csvData) {
@@ -407,11 +575,73 @@ class AIService {
     leadStatus = null
   ) {
     try {
-      // Detect language (French vs English)
-      const isFrench = this.detectFrenchLanguage(
+      // Detect the language of the user's message
+      const detectedLanguage = this.detectLanguage(
         userMessage,
         conversationHistory
       );
+
+      console.log(
+        `Detected language: ${detectedLanguage} for message: "${userMessage}"`
+      );
+
+      // Language-specific response instructions
+      const getLanguageInstructions = (language) => {
+        switch (language) {
+          case "french":
+            return `- CRITICAL: Respond ENTIRELY in FRENCH - the user has been detected as communicating in French
+- Use natural, conversational French appropriate for university admissions  
+- Maintain a warm and professional tone in French
+- All information about programs, fees, and requirements should be in French
+- When providing contact information, introduce it in French
+- Example: "Pour plus d'informations, vous pouvez nous contacter à apply@iuea.ac.ug ou au +256 706 026496"
+- If asked about language capabilities, respond in French: "Oui, bien sûr ! Je parle français et je suis là pour vous aider avec toutes vos questions sur IUEA."`;
+
+          case "spanish":
+            return `- CRITICAL: Respond ENTIRELY in SPANISH - the user has been detected as communicating in Spanish
+- Use natural, conversational Spanish appropriate for university admissions
+- Maintain a warm and professional tone in Spanish
+- All information about programs, fees, and requirements should be in Spanish
+- When providing contact information, introduce it in Spanish
+- Example: "Para más información, puede contactarnos en apply@iuea.ac.ug o llamar al +256 706 026496"
+- If asked about language capabilities, respond in Spanish: "¡Por supuesto! Hablo español y estoy aquí para ayudarle con todas sus preguntas sobre IUEA."`;
+
+          case "swahili":
+            return `- CRITICAL: Respond ENTIRELY in SWAHILI - the user has been detected as communicating in Swahili
+- Use natural, conversational Swahili appropriate for university admissions
+- Maintain a warm and professional tone in Swahili
+- All information about programs, fees, and requirements should be in Swahili
+- When providing contact information, introduce it in Swahili
+- Example: "Kwa maelezo zaidi, unaweza kuwasiliana nasi kupitia apply@iuea.ac.ug au kupiga simu +256 706 026496"
+- If asked about language capabilities, respond in Swahili: "Ndiyo, nina uelewa! Ninazungumza Kiswahili na niko hapa kukusaidia na maswali yako yote kuhusu IUEA."`;
+
+          case "luganda":
+            return `- CRITICAL: Respond ENTIRELY in LUGANDA - the user has been detected as communicating in Luganda
+- Use natural, conversational Luganda appropriate for university admissions
+- Maintain a warm and professional tone in Luganda
+- All information about programs, fees, and requirements should be in Luganda
+- When providing contact information, introduce it in Luganda
+- If asked about language capabilities, respond in Luganda about IUEA support in Luganda`;
+
+          case "arabic":
+            return `- CRITICAL: Respond ENTIRELY in ARABIC - the user has been detected as communicating in Arabic
+- Use natural, conversational Arabic appropriate for university admissions
+- Maintain a warm and professional tone in Arabic
+- All information about programs, fees, and requirements should be in Arabic
+- When providing contact information, introduce it in Arabic
+- Example: "لمزيد من المعلومات، يمكنكم التواصل معنا على apply@iuea.ac.ug أو الاتصال على +256 706 026496"
+- If asked about language capabilities, respond in Arabic: "نعم بالطبع! أتحدث العربية وأنا هنا لمساعدتكم في جميع أسئلتكم حول IUEA."`;
+
+          default: // English
+            return `- CRITICAL: Respond ENTIRELY in ENGLISH - the user has been detected as communicating in English
+- Use clear, professional English appropriate for university admissions
+- Maintain a warm and helpful tone in English
+- All information about programs, fees, and requirements should be in English  
+- When providing contact information, use English
+- Example: "For more information, you can contact us at apply@iuea.ac.ug or call +256 706 026496"
+- If asked about language support, mention: "I can also help you in other languages including French, Spanish, Arabic, and local Ugandan languages - just let me know your preference!"`;
+        }
+      };
 
       // 1. Compute current date string
       const now = new Date();
@@ -449,18 +679,7 @@ Use the current date and the intake schedule to answer any questions about the n
 You are Miryam, a friendly and knowledgeable admissions consultant for IUEA (International University of East Africa). You help people learn about programs and guide them toward applying.
 
 LANGUAGE INSTRUCTIONS:
-${
-  isFrench
-    ? `- RESPOND ENTIRELY IN FRENCH: The user is communicating in French, so you must respond completely in French
-- Use natural, conversational French appropriate for university admissions
-- Maintain the same helpful and professional tone in French
-- When mentioning email or phone contacts, introduce them in French
-- If asked about your language abilities, confirm enthusiastically in French: "Oui, bien sûr ! Je parle français et je suis là pour vous aider avec vos questions sur IUEA."
-- Never claim you only speak English or cannot speak French`
-    : `- RESPOND IN ENGLISH: The user is communicating in English
-- If asked about language support, mention that IUEA serves both English and French-speaking students
-- You are bilingual and can switch to French if requested: "Je peux aussi parler français si vous préférez!"`
-}
+${getLanguageInstructions(detectedLanguage)}
 
 PERSONALITY RULES:
 - Be conversational, warm, and helpful
@@ -573,7 +792,7 @@ DIPLOMA PROGRAMS:
   }
 
   async generateWelcomeMessage() {
-    return "Hello! I'm Miryam from IUEA. How can I help you with your education goals today? 🎓\n\nBonjour ! Je suis Miryam d'IUEA. Comment puis-je vous aider avec vos objectifs éducatifs aujourd'hui ? 🎓";
+    return "Hello! I'm Miryam from IUEA. How can I help you with your education goals today? 🎓\n\nBonjour ! Je suis Miryam d'IUEA. Comment puis-je vous aider avec vos objectifs éducatifs aujourd'hui ? 🎓\n\n(I can communicate in both English and French - Je peux communiquer en anglais et en français)";
   }
 
   getStatus() {

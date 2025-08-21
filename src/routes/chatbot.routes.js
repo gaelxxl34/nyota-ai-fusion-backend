@@ -51,9 +51,11 @@ router.post("/init", async (req, res) => {
       message: welcomeMessage,
       suggestions: [
         "Tell me about available programs",
-        "Parlez-moi des programmes disponibles",
         "What are the admission requirements?",
-        "Quels sont les frais de scolarité?",
+        "Parlez-moi des programmes disponibles",
+        "¿Qué programas están disponibles?",
+        "Niambie kuhusu programu zinazopatikana",
+        "ما هي البرامج المتاحة؟",
       ],
     });
   } catch (error) {
