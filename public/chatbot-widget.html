@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta
       name="viewport"
-      content="width=device-width, initial-scale=1.0, user-scalable=no"
+      content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover"
     />
     <title>IUEA AI Assistant - Miryam</title>
     <link
@@ -17,41 +17,81 @@
         theme: {
           extend: {
             colors: {
-              'iuea-red': '#8b0000',
-              'iuea-red-dark': '#660000',
+              "iuea-red": "#8b0000",
+              "iuea-red-dark": "#660000",
             },
-            height: {
-              'dvh': '100dvh',
-            },
-            minHeight: {
-              'dvh': '100dvh',
-            }
-          }
-        }
-      }
+          },
+        },
+      };
     </script>
     <style>
-      /* Only essential custom CSS for safe-area and webkit-specific features */
-      @supports (-webkit-touch-callout: none) {
-        .ios-safe-area {
-          padding-bottom: env(safe-area-inset-bottom, 0px);
+      /* CSS custom properties for dynamic viewport height */
+      :root {
+        --viewport-height: 100dvh;
+      }
+
+      /* Essential mobile viewport and safe area support */
+      html {
+        height: 100%;
+        height: var(--viewport-height);
+        overflow: hidden;
+      }
+
+      body {
+        height: 100%;
+        height: var(--viewport-height);
+        margin: 0;
+        padding: 0;
+        overflow: hidden;
+        font-family: system-ui, -apple-system, sans-serif;
+        background: #f8fafc;
+      }
+
+      .chat-container {
+        height: var(--viewport-height);
+      }
+
+      /* Safe area insets for iOS - properly positioned input */
+      @supports (padding: env(safe-area-inset-bottom)) {
+        .safe-bottom {
+          padding-bottom: calc(1rem + env(safe-area-inset-bottom));
         }
       }
-      
+
+      /* iOS Safari specific viewport handling */
+      @supports (-webkit-touch-callout: none) {
+        :root {
+          --viewport-height: -webkit-fill-available;
+        }
+
+        html {
+          height: -webkit-fill-available;
+        }
+
+        body {
+          height: -webkit-fill-available;
+        }
+
+        .chat-container {
+          height: -webkit-fill-available;
+        }
+
+        /* Prevent zoom on input focus */
+        input,
+        textarea {
+          font-size: 16px !important;
+          -webkit-appearance: none;
+          appearance: none;
+        }
+      }
+
       /* Smooth scrolling for chat messages */
       .chat-messages {
         -webkit-overflow-scrolling: touch;
         overscroll-behavior: contain;
       }
-      
-      /* Prevent iOS zoom on input focus */
-      @supports (-webkit-touch-callout: none) {
-        input, textarea {
-          font-size: 16px !important;
-        }
-      }
-      
-      /* Hide scrollbar on webkit browsers */
+
+      /* Hide scrollbars */
       .hide-scrollbar::-webkit-scrollbar {
         display: none;
       }
@@ -60,7 +100,7 @@
         scrollbar-width: none;
       }
 
-      /* Custom animations */
+      /* Animations */
       @keyframes slideIn {
         from {
           opacity: 0;
@@ -73,7 +113,9 @@
       }
 
       @keyframes typing {
-        0%, 60%, 100% {
+        0%,
+        60%,
+        100% {
           transform: translateY(0);
           opacity: 0.5;
         }
@@ -83,48 +125,8 @@
         }
       }
 
-      /* Enhanced mobile keyboard and viewport handling */
+      /* Mobile touch optimizations */
       @media (max-width: 768px) {
-        html {
-          height: 100%;
-          overflow: hidden;
-          position: fixed;
-          width: 100%;
-        }
-
-        body {
-          height: 100vh;
-          height: 100dvh;
-          position: fixed;
-          width: 100%;
-          overflow: hidden;
-          top: 0;
-          left: 0;
-          right: 0;
-          bottom: 0;
-        }
-
-        .chat-container {
-          height: 100vh;
-          height: 100dvh;
-          border-radius: 0;
-        }
-
-        /* Better keyboard state management */
-        .chat-input-container.keyboard-visible {
-          position: fixed;
-          bottom: 0;
-          left: 0;
-          right: 0;
-          z-index: 10000;
-        }
-
-        .chat-messages.keyboard-visible {
-          padding-bottom: 5rem;
-          transition: padding-bottom 0.3s ease;
-        }
-
-        /* Prevent unwanted zooming and scrolling */
         body {
           -webkit-user-select: none;
           user-select: none;
@@ -132,91 +134,58 @@
           -webkit-tap-highlight-color: transparent;
         }
 
-        /* Allow text selection only in message content and input */
-        .chat-input,
-        .message-content {
+        /* Allow text selection in messages and input */
+        .message-content,
+        .chat-input {
           -webkit-user-select: text;
           user-select: text;
         }
 
-        /* Better focus states for mobile */
-        .chat-input:focus {
-          outline: none;
-          background: white;
-        }
-
-        /* Improve button press feedback */
-        .send-button:active,
-        .close-button:active,
-        .suggestion-button:active {
+        /* Touch feedback for buttons */
+        .touch-button:active {
           transform: scale(0.95);
           transition: transform 0.1s ease;
         }
-      }
 
-      /* iOS Safari specific fixes */
-      @supports (-webkit-touch-callout: none) {
-        html {
-          height: 100%;
-          overflow: hidden;
-        }
-
-        body {
-          height: 100vh;
-          height: -webkit-fill-available;
-          position: fixed;
-          width: 100%;
-          top: 0;
-          left: 0;
-          right: 0;
-          bottom: 0;
-          overflow: hidden;
-        }
-
+        /* Ensure chat container takes full viewport on mobile */
         .chat-container {
-          height: 100vh;
-          height: -webkit-fill-available;
-        }
-
-        .chat-input {
-          font-size: 16px !important;
-          transform: translateZ(0);
-          -webkit-appearance: none;
-          appearance: none;
+          border-radius: 0;
+          max-height: var(--viewport-height);
         }
       }
-
-      /* Landscape mobile optimizations */
-      @media (max-height: 500px) and (orientation: landscape) and (max-width: 768px) {
-        .suggestion-buttons {
-          display: grid;
-          grid-template-columns: 1fr 1fr;
-          gap: 0.25rem;
-        }
-      }
-    </style>
-  </head>
-  <body class="font-sans bg-slate-50 h-dvh flex flex-col m-0 p-0 overflow-hidden touch-manipulation antialiased fixed inset-0 w-full">
-    <div class="chat-container flex flex-col h-dvh max-w-full bg-white md:rounded-lg md:shadow-xl overflow-hidden relative w-full min-h-0">
-
-
-
-
     </style>
   </head>
   <body>
-    <div class="chat-container">
+    <!-- Main chat container using flexbox with dvh for modern viewport handling -->
+    <div
+      class="chat-container flex flex-col h-dvh max-w-full bg-white md:rounded-lg md:shadow-xl overflow-hidden relative"
+    >
       <!-- Header: sticky at the top with gradient background -->
-      <div class="chat-header bg-gradient-to-br from-iuea-red to-iuea-red-dark text-white p-4 md:p-5 flex items-center gap-3 md:rounded-t-xl shadow-lg flex-shrink-0">
-        <div class="avatar w-10 h-10 rounded-full bg-white/20 flex items-center justify-center font-bold text-lg text-white">
+      <header
+        class="chat-header bg-gradient-to-br from-iuea-red to-iuea-red-dark text-white p-4 md:p-5 flex items-center gap-3 md:rounded-t-xl shadow-lg flex-shrink-0 sticky top-0 z-20"
+      >
+        <div
+          class="avatar w-10 h-10 rounded-full bg-white/20 flex items-center justify-center font-bold text-lg text-white"
+        >
           <i class="fas fa-comment-dots text-xl"></i>
         </div>
-        <div class="header-info flex-1">
-          <h3 class="text-base md:text-lg font-semibold mb-0.5">Miryam</h3>
-          <p class="text-xs md:text-sm opacity-90">IUEA Admissions Assistant</p>
+        <div class="header-info flex-1 min-w-0">
+          <h3 class="text-base md:text-lg font-semibold mb-0.5 truncate">
+            Miryam
+          </h3>
+          <p class="text-xs md:text-sm opacity-90 truncate">
+            IUEA Admissions Assistant
+          </p>
         </div>
-        <div class="status-indicator w-2 h-2 bg-green-500 rounded-full animate-pulse" id="statusIndicator"></div>
-        <button class="close-button w-8 h-8 border-0 bg-white/10 hover:bg-white/20 text-white rounded-full cursor-pointer flex items-center justify-center transition-all duration-200 hover:scale-110 ml-auto flex-shrink-0 min-w-[44px] min-h-[44px] md:min-w-[32px] md:min-h-[32px]" id="closeButton" aria-label="Close chat">
+        <div
+          class="status-indicator w-2 h-2 bg-green-500 rounded-full animate-pulse flex-shrink-0"
+          id="statusIndicator"
+        ></div>
+        <button
+          class="close-button touch-button w-10 h-10 border-0 bg-white/10 hover:bg-white/20 text-white rounded-full cursor-pointer flex items-center justify-center transition-all duration-200 hover:scale-110 flex-shrink-0"
+          id="closeButton"
+          aria-label="Close chat"
+        >
           <svg
             viewBox="0 0 24 24"
             fill="none"
@@ -228,48 +197,59 @@
             <line x1="6" y1="6" x2="18" y2="18"></line>
           </svg>
         </button>
-      </div>
+      </header>
 
-      <!-- Chat messages: scrollable area taking remaining height -->
-      <div class="chat-messages flex-1 overflow-y-auto p-4 md:p-5 flex flex-col gap-4 scroll-smooth hide-scrollbar min-h-0 ios-safe-area" id="chatMessages">
+      <!-- Chat messages: flex-1 takes remaining space, scrollable -->
+      <main
+        class="chat-messages flex-1 overflow-y-auto p-4 md:p-5 flex flex-col gap-4 scroll-smooth hide-scrollbar min-h-0"
+        id="chatMessages"
+      >
         <div class="welcome-message text-center p-5 text-slate-500 text-sm">
           <p class="mb-4">
             🤖 Hello! I'm Miryam, your IUEA admissions assistant. How can I help
             you today?
           </p>
-          <div class="suggestion-buttons flex flex-col gap-2 mt-4">
+          <div class="suggestion-buttons flex flex-col gap-3 mt-4 md:gap-2">
             <button
-              class="suggestion-button bg-white border border-iuea-red text-iuea-red py-2.5 px-4 rounded-full text-sm cursor-pointer transition-all duration-200 text-center hover:bg-iuea-red hover:text-white hover:-translate-y-0.5 min-h-[44px] md:min-h-[40px]"
+              class="suggestion-button touch-button bg-white border border-iuea-red text-iuea-red py-3 px-4 rounded-full text-sm cursor-pointer transition-all duration-200 text-center hover:bg-iuea-red hover:text-white hover:-translate-y-0.5 active:scale-95"
               onclick="window.chatbot.sendSuggestion('What programs do you offer?')"
             >
               What programs do you offer?
             </button>
             <button
-              class="suggestion-button bg-white border border-iuea-red text-iuea-red py-2.5 px-4 rounded-full text-sm cursor-pointer transition-all duration-200 text-center hover:bg-iuea-red hover:text-white hover:-translate-y-0.5 min-h-[44px] md:min-h-[40px]"
+              class="suggestion-button touch-button bg-white border border-iuea-red text-iuea-red py-3 px-4 rounded-full text-sm cursor-pointer transition-all duration-200 text-center hover:bg-iuea-red hover:text-white hover:-translate-y-0.5 active:scale-95"
               onclick="window.chatbot.sendSuggestion('How much are the tuition fees?')"
             >
               How much are the tuition fees?
             </button>
             <button
-              class="suggestion-button bg-white border border-iuea-red text-iuea-red py-2.5 px-4 rounded-full text-sm cursor-pointer transition-all duration-200 text-center hover:bg-iuea-red hover:text-white hover:-translate-y-0.5 min-h-[44px] md:min-h-[40px]"
+              class="suggestion-button touch-button bg-white border border-iuea-red text-iuea-red py-3 px-4 rounded-full text-sm cursor-pointer transition-all duration-200 text-center hover:bg-iuea-red hover:text-white hover:-translate-y-0.5 active:scale-95"
               onclick="window.chatbot.sendSuggestion('How can I apply?')"
             >
               How can I apply?
             </button>
           </div>
         </div>
-      </div>
+      </main>
 
-      <!-- Input area: sticky at the bottom with safe-area support -->
-      <div class="chat-input-container p-4 md:p-5 border-t border-slate-200 bg-white relative z-10 flex-shrink-0 sticky bottom-0 w-full box-border ios-safe-area shadow-lg md:shadow-none">
-        <div class="chat-input-wrapper flex gap-2 items-end bg-slate-50 rounded-3xl p-2 border border-slate-200 transition-all duration-200 min-h-[48px] focus-within:border-iuea-red focus-within:shadow-sm focus-within:shadow-iuea-red/10">
+      <!-- Input area: sticky bottom with safe-area support -->
+      <footer
+        class="chat-input-container sticky bottom-0 p-4 md:p-5 border-t border-slate-200 bg-white z-30 flex-shrink-0 safe-bottom shadow-lg md:shadow-none"
+      >
+        <div
+          class="chat-input-wrapper flex gap-2 items-end bg-slate-50 rounded-3xl p-2 border border-slate-200 transition-all duration-200 focus-within:border-iuea-red focus-within:shadow-sm focus-within:shadow-iuea-red/10"
+        >
           <textarea
-            class="chat-input flex-1 border-0 outline-none bg-transparent py-2 px-3 text-sm resize-none max-h-24 md:max-h-32 min-h-[20px] font-inherit leading-5 overflow-y-auto appearance-none touch-manipulation rounded-2xl"
+            class="chat-input flex-1 border-0 outline-none bg-transparent py-2 px-3 text-base resize-none max-h-24 md:max-h-32 min-h-[20px] font-inherit leading-5 overflow-y-auto rounded-2xl placeholder:text-slate-500"
             id="messageInput"
             placeholder="Type your message..."
             rows="1"
           ></textarea>
-          <button class="send-button w-9 h-9 md:w-10 md:h-10 rounded-full border-0 bg-iuea-red text-white cursor-pointer flex items-center justify-center transition-all duration-200 flex-shrink-0 touch-manipulation disabled:bg-slate-300 disabled:cursor-not-allowed hover:enabled:bg-iuea-red-dark hover:enabled:scale-105 min-w-[44px] min-h-[44px] md:min-w-[36px] md:min-h-[36px]" id="sendButton" disabled>
+          <button
+            class="send-button touch-button w-10 h-10 md:w-11 md:h-11 rounded-full border-0 bg-iuea-red text-white cursor-pointer flex items-center justify-center transition-all duration-200 flex-shrink-0 disabled:bg-slate-300 disabled:cursor-not-allowed hover:enabled:bg-iuea-red-dark hover:enabled:scale-105 active:scale-95"
+            id="sendButton"
+            disabled
+          >
             <svg
               width="16"
               height="16"
@@ -284,7 +264,7 @@
             </svg>
           </button>
         </div>
-      </div>
+      </footer>
     </div>
 
     <script>
@@ -328,90 +308,82 @@
         }
 
         setupMobileViewportHandling() {
-          // Handle visual viewport changes (modern browsers)
+          // Modern approach using Visual Viewport API for better mobile keyboard handling
           if (window.visualViewport) {
+            let initialHeight = window.visualViewport.height;
+
             const handleViewportChange = () => {
-              if (window.innerWidth <= 768) {
-                const keyboardHeight =
-                  window.innerHeight - window.visualViewport.height;
-                const isKeyboardVisible = keyboardHeight > 150;
+              const currentHeight = window.visualViewport.height;
+              const keyboardHeight = initialHeight - currentHeight;
+              const isKeyboardVisible = keyboardHeight > 100;
 
-                if (isKeyboardVisible) {
-                  // Keyboard is visible
-                  this.chatMessages.classList.add("keyboard-visible");
-                  this.messageInput.parentElement.parentElement.classList.add(
-                    "keyboard-visible"
-                  );
+              if (isKeyboardVisible) {
+                // Keyboard is visible - adjust container to fit viewport
+                document.documentElement.style.setProperty(
+                  "--viewport-height",
+                  `${currentHeight}px`
+                );
+                this.chatMessages.style.paddingBottom = "1rem";
 
-                  // Adjust container height for better UX
-                  const chatContainer =
-                    document.querySelector(".chat-container");
-                  if (chatContainer) {
-                    chatContainer.style.height = `${window.visualViewport.height}px`;
-                  }
-
-                  // Ensure messages are scrolled to bottom
-                  setTimeout(() => {
-                    this.scrollToBottom();
-                  }, 100);
-                } else {
-                  // Keyboard is hidden
-                  this.chatMessages.classList.remove("keyboard-visible");
-                  this.messageInput.parentElement.parentElement.classList.remove(
-                    "keyboard-visible"
-                  );
-
-                  // Reset container height
-                  const chatContainer =
-                    document.querySelector(".chat-container");
-                  if (chatContainer) {
-                    chatContainer.style.height = "100vh";
-                    chatContainer.style.height = "100dvh";
-                  }
-                }
+                // Ensure messages stay scrolled to bottom
+                requestAnimationFrame(() => {
+                  this.scrollToBottom();
+                });
+              } else {
+                // Keyboard hidden - reset to full height
+                document.documentElement.style.setProperty(
+                  "--viewport-height",
+                  "100dvh"
+                );
+                this.chatMessages.style.paddingBottom = "";
               }
             };
 
+            // Listen for viewport changes
             window.visualViewport.addEventListener(
               "resize",
               handleViewportChange
             );
-            window.visualViewport.addEventListener(
-              "scroll",
-              handleViewportChange
+
+            // Initial setup
+            document.documentElement.style.setProperty(
+              "--viewport-height",
+              "100dvh"
             );
           }
 
           // Fallback for older browsers
           let lastHeight = window.innerHeight;
           const handleResize = () => {
-            if (window.innerWidth <= 768) {
-              const currentHeight = window.innerHeight;
-              const heightDiff = lastHeight - currentHeight;
+            const currentHeight = window.innerHeight;
+            const heightDiff = lastHeight - currentHeight;
 
-              if (heightDiff > 150) {
-                // Keyboard likely visible
-                this.chatMessages.classList.add("keyboard-visible");
-                this.messageInput.parentElement.parentElement.classList.add(
-                  "keyboard-visible"
-                );
-              } else if (heightDiff < -100) {
-                // Keyboard likely hidden
-                this.chatMessages.classList.remove("keyboard-visible");
-                this.messageInput.parentElement.parentElement.classList.remove(
-                  "keyboard-visible"
-                );
-              }
-
-              lastHeight = currentHeight;
+            if (heightDiff > 100) {
+              // Keyboard likely visible
+              document.documentElement.style.setProperty(
+                "--viewport-height",
+                `${currentHeight}px`
+              );
+            } else if (heightDiff < -50) {
+              // Keyboard likely hidden
+              document.documentElement.style.setProperty(
+                "--viewport-height",
+                "100dvh"
+              );
             }
+
+            lastHeight = currentHeight;
           };
 
           window.addEventListener("resize", handleResize);
 
-          // Enhanced orientation change handling
+          // Handle orientation changes
           window.addEventListener("orientationchange", () => {
             setTimeout(() => {
+              document.documentElement.style.setProperty(
+                "--viewport-height",
+                "100dvh"
+              );
               lastHeight = window.innerHeight;
               this.scrollToBottom();
             }, 500);
@@ -433,61 +405,23 @@
             this.updateSendButton();
           });
 
-          // Enhanced mobile focus handling
+          // Enhanced mobile focus handling for better keyboard UX
           this.messageInput.addEventListener("focus", () => {
-            if (window.innerWidth <= 768) {
-              // Add keyboard visible class immediately
-              this.chatMessages.classList.add("keyboard-visible");
-              this.messageInput.parentElement.parentElement.classList.add(
-                "keyboard-visible"
-              );
-
-              // Prevent viewport jumping by maintaining scroll position
-              const currentScroll = this.chatMessages.scrollTop;
-
-              // Multiple attempts to ensure proper positioning
-              const ensureVisibility = () => {
-                // Scroll messages to bottom
-                this.scrollToBottom();
-
-                // Ensure input stays in view
-                setTimeout(() => {
-                  this.messageInput.scrollIntoView({
-                    behavior: "instant",
-                    block: "end",
-                    inline: "nearest",
-                  });
-                }, 50);
-              };
-
-              // Initial positioning
-              setTimeout(ensureVisibility, 100);
-
-              // Secondary positioning for iOS keyboard animation
-              setTimeout(ensureVisibility, 300);
-
-              // Final positioning after keyboard is fully visible
-              setTimeout(ensureVisibility, 600);
-            }
+            // Smooth scroll to ensure input visibility
+            setTimeout(() => {
+              this.messageInput.scrollIntoView({
+                behavior: "smooth",
+                block: "end",
+              });
+              this.scrollToBottom();
+            }, 300);
           });
 
           this.messageInput.addEventListener("blur", () => {
-            if (window.innerWidth <= 768) {
-              // Delay removal to prevent flashing during input switching
-              setTimeout(() => {
-                if (document.activeElement !== this.messageInput) {
-                  this.chatMessages.classList.remove("keyboard-visible");
-                  this.messageInput.parentElement.parentElement.classList.remove(
-                    "keyboard-visible"
-                  );
-
-                  // Smooth scroll back to bottom
-                  setTimeout(() => {
-                    this.scrollToBottom();
-                  }, 100);
-                }
-              }, 200);
-            }
+            // Small delay to allow for input switching
+            setTimeout(() => {
+              this.scrollToBottom();
+            }, 100);
           });
 
           // Close button functionality
@@ -511,35 +445,14 @@
           this.messageInput.style.height = "auto";
 
           // Calculate new height based on content
-          const maxHeight = window.innerWidth <= 768 ? 100 : 120;
+          const maxHeight = 120; // Consistent max height
           const newHeight = Math.min(this.messageInput.scrollHeight, maxHeight);
           this.messageInput.style.height = newHeight + "px";
 
-          // Enhanced mobile handling for keyboard visibility
-          if (window.innerWidth <= 768) {
-            // Ensure input stays visible when resizing
+          // Ensure input visibility after resize
+          if (document.activeElement === this.messageInput) {
             setTimeout(() => {
-              // Check if input is focused and keyboard might be visible
-              if (document.activeElement === this.messageInput) {
-                const inputContainer =
-                  this.messageInput.parentElement.parentElement;
-                const rect = inputContainer.getBoundingClientRect();
-                const viewportHeight = window.visualViewport
-                  ? window.visualViewport.height
-                  : window.innerHeight;
-
-                // If input is below visible area, scroll it into view
-                if (rect.bottom > viewportHeight) {
-                  this.messageInput.scrollIntoView({
-                    behavior: "smooth",
-                    block: "end",
-                    inline: "nearest",
-                  });
-                }
-
-                // Also ensure messages are scrolled to bottom
-                this.scrollToBottom();
-              }
+              this.scrollToBottom();
             }, 50);
           }
         }
@@ -641,16 +554,14 @@
         addMessage(content, isUser) {
           const messageDiv = document.createElement("div");
           messageDiv.className = `message flex items-start gap-2 max-w-[85%] animate-[slideIn_0.3s_ease-out] ${
-            isUser 
-              ? "self-end flex-row-reverse max-w-[90%] md:max-w-[85%]" 
+            isUser
+              ? "self-end flex-row-reverse max-w-[90%] md:max-w-[85%]"
               : "self-start"
           }`;
 
           const messageContent = document.createElement("div");
           messageContent.className = `message-content py-3 px-4 rounded-2xl text-sm leading-5 break-words ${
-            isUser 
-              ? "bg-iuea-red text-white" 
-              : "bg-slate-100 text-slate-800"
+            isUser ? "bg-iuea-red text-white" : "bg-slate-100 text-slate-800"
           }`;
 
           // Convert URLs, emails, and phone numbers to clickable links
@@ -660,8 +571,8 @@
           processedContent = processedContent.replace(
             /https?:\/\/[^\s<>]+/g,
             function (url) {
-              const linkClass = isUser 
-                ? "text-white underline cursor-pointer hover:text-gray-200 hover:bg-white/20 transition-all duration-200 rounded px-1 py-0.5 -mx-1 -my-0.5 inline-block" 
+              const linkClass = isUser
+                ? "text-white underline cursor-pointer hover:text-gray-200 hover:bg-white/20 transition-all duration-200 rounded px-1 py-0.5 -mx-1 -my-0.5 inline-block"
                 : "text-red-600 underline cursor-pointer hover:text-red-800 hover:bg-red-50 transition-all duration-200 rounded px-1 py-0.5 -mx-1 -my-0.5 inline-block hover:-translate-y-0.5";
               return `<a href="#" onclick="openExternalLink('${url}'); return false;" class="${linkClass}" title="Click to open ${url}">${url}</a>`;
             }
@@ -673,8 +584,8 @@
           processedContent = processedContent.replace(
             emailRegex,
             function (email) {
-              const linkClass = isUser 
-                ? "text-white underline cursor-pointer hover:text-gray-200 hover:bg-white/20 transition-all duration-200 rounded px-1 py-0.5 -mx-1 -my-0.5 inline-block" 
+              const linkClass = isUser
+                ? "text-white underline cursor-pointer hover:text-gray-200 hover:bg-white/20 transition-all duration-200 rounded px-1 py-0.5 -mx-1 -my-0.5 inline-block"
                 : "text-inherit underline cursor-pointer hover:bg-slate-200 transition-all duration-200 rounded px-1 py-0.5 -mx-1 -my-0.5 inline-block";
               return `<a href="#" onclick="openExternalLink('mailto:${email}'); return false;" class="${linkClass}" title="Click to email ${email}">${email}</a>`;
             }
@@ -685,8 +596,8 @@
           processedContent = processedContent.replace(
             phoneRegex,
             function (phone) {
-              const linkClass = isUser 
-                ? "text-white underline cursor-pointer hover:text-gray-200 hover:bg-white/20 transition-all duration-200 rounded px-1 py-0.5 -mx-1 -my-0.5 inline-block" 
+              const linkClass = isUser
+                ? "text-white underline cursor-pointer hover:text-gray-200 hover:bg-white/20 transition-all duration-200 rounded px-1 py-0.5 -mx-1 -my-0.5 inline-block"
                 : "text-inherit underline cursor-pointer hover:bg-slate-200 transition-all duration-200 rounded px-1 py-0.5 -mx-1 -my-0.5 inline-block";
               return `<a href="#" onclick="openExternalLink('tel:${phone}'); return false;" class="${linkClass}" title="Click to call ${phone}">${phone}</a>`;
             }
@@ -695,7 +606,8 @@
           messageContent.innerHTML = processedContent;
 
           const messageTime = document.createElement("div");
-          messageTime.className = "message-time text-xs text-slate-500 mt-1 text-center";
+          messageTime.className =
+            "message-time text-xs text-slate-500 mt-1 text-center";
           messageTime.textContent = new Date().toLocaleTimeString([], {
             hour: "2-digit",
             minute: "2-digit",
@@ -720,7 +632,8 @@
           this.updateSendButton();
 
           const typingDiv = document.createElement("div");
-          typingDiv.className = "typing-indicator flex items-center gap-2 py-3 px-4 bg-slate-100 rounded-2xl max-w-[85%] mb-4";
+          typingDiv.className =
+            "typing-indicator flex items-center gap-2 py-3 px-4 bg-slate-100 rounded-2xl max-w-[85%] mb-4";
           typingDiv.id = "typingIndicator";
 
           typingDiv.innerHTML = `
@@ -748,7 +661,8 @@
 
         showError(message) {
           const errorDiv = document.createElement("div");
-          errorDiv.className = "error-message bg-red-50 border border-red-200 text-red-600 py-3 px-4 rounded-lg mx-4 my-4 text-sm text-center";
+          errorDiv.className =
+            "error-message bg-red-50 border border-red-200 text-red-600 py-3 px-4 rounded-lg mx-4 my-4 text-sm text-center";
           errorDiv.textContent = message;
 
           // Remove existing error messages
@@ -837,7 +751,8 @@
 
         // Create popup
         const popup = document.createElement("div");
-        popup.className = "link-popup fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-white border-2 border-iuea-red rounded-xl p-5 shadow-2xl z-[10000] max-w-sm w-[90%] md:w-[400px] font-inherit max-h-[80vh] overflow-y-auto";
+        popup.className =
+          "link-popup fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-white border-2 border-iuea-red rounded-xl p-5 shadow-2xl z-[10000] max-w-sm w-[90%] md:w-[400px] font-inherit max-h-[80vh] overflow-y-auto";
         popup.innerHTML = `
           <h3 class="text-base md:text-lg font-semibold text-iuea-red mb-4">Open Link</h3>
           <p class="text-sm text-slate-600 mb-3">Click the button below to copy this link, then paste it in a new browser tab:</p>
@@ -867,7 +782,10 @@
               if (copyBtn) {
                 const originalText = copyBtn.textContent;
                 copyBtn.textContent = "Copied!";
-                copyBtn.className = copyBtn.className.replace("bg-iuea-red hover:bg-iuea-red-dark", "bg-green-500");
+                copyBtn.className = copyBtn.className.replace(
+                  "bg-iuea-red hover:bg-iuea-red-dark",
+                  "bg-green-500"
+                );
 
                 setTimeout(() => {
                   closeLinkPopup();
@@ -897,7 +815,10 @@
           const copyBtn = document.querySelector(".copy-btn");
           if (copyBtn) {
             copyBtn.textContent = "Copied!";
-            copyBtn.className = copyBtn.className.replace("bg-iuea-red hover:bg-iuea-red-dark", "bg-green-500");
+            copyBtn.className = copyBtn.className.replace(
+              "bg-iuea-red hover:bg-iuea-red-dark",
+              "bg-green-500"
+            );
           }
           setTimeout(closeLinkPopup, 1000);
         } catch (err) {
@@ -921,109 +842,31 @@
         window.chatbot = new IUEAChatbot();
       });
 
-      // Enhanced window resize handling for mobile
-      window.addEventListener("resize", () => {
-        const chatMessages = document.getElementById("chatMessages");
-        if (chatMessages) {
-          chatMessages.scrollTop = chatMessages.scrollHeight;
-        }
-
-        // Enhanced mobile keyboard detection and handling
-        if (window.innerWidth <= 768) {
-          const chatContainer = document.querySelector(".chat-container");
-          const chatInputContainer = document.querySelector(
-            ".chat-input-container"
-          );
-
-          if (chatContainer && chatInputContainer) {
-            // Use visual viewport if available for better accuracy
-            const viewportHeight = window.visualViewport
-              ? window.visualViewport.height
-              : window.innerHeight;
-            const windowHeight = window.innerHeight;
-
-            // More sophisticated keyboard detection
-            const heightDifference = windowHeight - viewportHeight;
-            const isKeyboardVisible = heightDifference > 150;
-
-            if (isKeyboardVisible) {
-              // Keyboard is showing - adjust layout
-              chatContainer.style.height = `${viewportHeight}px`;
-              chatInputContainer.classList.add("keyboard-visible");
-              chatMessages.classList.add("keyboard-visible");
-
-              // Ensure content remains scrollable
-              setTimeout(() => {
-                if (chatMessages) {
-                  chatMessages.scrollTop = chatMessages.scrollHeight;
-                }
-              }, 100);
-            } else {
-              // Keyboard is hidden - reset layout
-              chatContainer.style.height = "100vh";
-              chatContainer.style.height = "100dvh";
-              chatInputContainer.classList.remove("keyboard-visible");
-              chatMessages.classList.remove("keyboard-visible");
-            }
-          }
-        }
-      });
-
-      // Enhanced visual viewport handling for modern browsers
+      // Update container height using CSS custom property for smooth transitions
       if (window.visualViewport) {
-        window.visualViewport.addEventListener("resize", () => {
-          if (window.innerWidth <= 768) {
-            const chatContainer = document.querySelector(".chat-container");
-            const chatMessages = document.getElementById("chatMessages");
+        const updateHeight = () => {
+          document.documentElement.style.setProperty(
+            "--viewport-height",
+            `${window.visualViewport.height}px`
+          );
+        };
 
-            if (chatContainer) {
-              // Smoothly adjust container height to match visual viewport
-              chatContainer.style.height = `${window.visualViewport.height}px`;
-
-              // Maintain scroll position
-              if (chatMessages) {
-                setTimeout(() => {
-                  chatMessages.scrollTop = chatMessages.scrollHeight;
-                }, 50);
-              }
-            }
-          }
-        });
-
-        // Handle viewport scroll (can occur on some mobile browsers)
-        window.visualViewport.addEventListener("scroll", () => {
-          if (window.innerWidth <= 768) {
-            // Compensate for any unwanted scrolling
-            window.scrollTo(0, 0);
-          }
-        });
+        window.visualViewport.addEventListener("resize", updateHeight);
+        updateHeight();
       }
 
       // Handle orientation changes
       window.addEventListener("orientationchange", () => {
-        // Reset viewport after orientation change
         setTimeout(() => {
-          const chatContainer = document.querySelector(".chat-container");
-          const chatMessages = document.getElementById("chatMessages");
-
-          if (chatContainer) {
-            chatContainer.style.height = "100vh";
-            chatContainer.style.height = "100dvh";
-          }
-
-          if (chatMessages) {
-            chatMessages.scrollTop = chatMessages.scrollHeight;
-          }
-
-          // Reset any keyboard state
-          const inputContainer = document.querySelector(
-            ".chat-input-container"
+          document.documentElement.style.setProperty(
+            "--viewport-height",
+            "100dvh"
           );
-          if (inputContainer) {
-            inputContainer.classList.remove("keyboard-visible");
-            chatMessages?.classList.remove("keyboard-visible");
+          const chatMessages = document.getElementById("chatMessages");
+          if (chatMessages && window.chatbot) {
+            window.chatbot.scrollToBottom();
           }
-        }, 500); // Give time for orientation change to complete
+        }, 500);
       });
     </script>
   </body>
