@@ -11,159 +11,56 @@
       rel="stylesheet"
       href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"
     />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              'iuea-red': '#8b0000',
+              'iuea-red-dark': '#660000',
+            },
+            height: {
+              'dvh': '100dvh',
+            },
+            minHeight: {
+              'dvh': '100dvh',
+            }
+          }
+        }
+      }
+    </script>
     <style>
-      * {
-        margin: 0;
-        padding: 0;
-        box-sizing: border-box;
-      }
-
-      body {
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-          Oxygen, Ubuntu, Cantarell, sans-serif;
-        background: #f8fafc;
-        height: 100vh;
-        height: 100dvh; /* Dynamic viewport height */
-        display: flex;
-        flex-direction: column;
-        margin: 0;
-        padding: 0;
-        overflow: hidden;
-        touch-action: manipulation;
-        -webkit-text-size-adjust: 100%;
-        -webkit-font-smoothing: antialiased;
-        /* Enhanced mobile support */
-        position: fixed;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        width: 100%;
-      }
-
-      .chat-container {
-        display: flex;
-        flex-direction: column;
-        height: 100vh;
-        height: 100dvh;
-        max-width: 100%;
-        background: white;
-        border-radius: 8px;
-        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
-        overflow: hidden;
-        position: relative;
-        /* Enhanced mobile container */
-        width: 100%;
-        min-height: 0; /* Important for flex children */
-      }
-
-      .chat-header {
-        background: linear-gradient(135deg, #8b0000, #660000);
-        color: white;
-        padding: 16px 20px;
-        display: flex;
-        align-items: center;
-        gap: 12px;
-        border-radius: 12px 12px 0 0;
-        box-shadow: 0 2px 8px rgba(139, 0, 0, 0.2);
-      }
-
-      .avatar {
-        width: 2.5rem;
-        height: 2.5rem;
-        border-radius: 50%;
-        background: rgba(255, 255, 255, 0.2);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-weight: bold;
-        font-size: 1.125rem;
-        color: white;
-      }
-
-      .avatar i {
-        font-size: 1.25rem;
-      }
-
-      .header-info h3 {
-        font-size: 16px;
-        font-weight: 600;
-        margin-bottom: 2px;
-      }
-
-      .header-info p {
-        font-size: 12px;
-        opacity: 0.9;
-      }
-
-      .status-indicator {
-        width: 8px;
-        height: 8px;
-        background: #22c55e;
-        border-radius: 50%;
-        animation: pulse 2s infinite;
-      }
-
-      .close-button {
-        width: 32px;
-        height: 32px;
-        border: none;
-        background: rgba(255, 255, 255, 0.1);
-        color: white;
-        border-radius: 50%;
-        cursor: pointer;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        transition: all 0.2s;
-        margin-left: auto;
-        flex-shrink: 0;
-      }
-
-      .close-button:hover {
-        background: rgba(255, 255, 255, 0.2);
-        transform: scale(1.1);
-      }
-
-      .close-button svg {
-        width: 16px;
-        height: 16px;
-      }
-
-      @keyframes pulse {
-        0%,
-        100% {
-          opacity: 1;
-        }
-        50% {
-          opacity: 0.5;
+      /* Only essential custom CSS for safe-area and webkit-specific features */
+      @supports (-webkit-touch-callout: none) {
+        .ios-safe-area {
+          padding-bottom: env(safe-area-inset-bottom, 0px);
         }
       }
-
+      
+      /* Smooth scrolling for chat messages */
       .chat-messages {
-        flex: 1;
-        overflow-y: auto;
-        padding: 20px;
-        display: flex;
-        flex-direction: column;
-        gap: 16px;
-        scroll-behavior: smooth;
-        /* Enhanced scrolling for mobile */
         -webkit-overflow-scrolling: touch;
         overscroll-behavior: contain;
-        min-height: 0; /* Allow shrinking */
-        /* Add padding bottom for mobile input spacing */
-        padding-bottom: env(safe-area-inset-bottom, 20px);
+      }
+      
+      /* Prevent iOS zoom on input focus */
+      @supports (-webkit-touch-callout: none) {
+        input, textarea {
+          font-size: 16px !important;
+        }
+      }
+      
+      /* Hide scrollbar on webkit browsers */
+      .hide-scrollbar::-webkit-scrollbar {
+        display: none;
+      }
+      .hide-scrollbar {
+        -ms-overflow-style: none;
+        scrollbar-width: none;
       }
 
-      .message {
-        display: flex;
-        align-items: flex-start;
-        gap: 8px;
-        max-width: 85%;
-        animation: slideIn 0.3s ease-out;
-      }
-
+      /* Custom animations */
       @keyframes slideIn {
         from {
           opacity: 0;
@@ -175,681 +72,14 @@
         }
       }
 
-      .message.user {
-        align-self: flex-end;
-        flex-direction: row-reverse;
-      }
-
-      .message.ai {
-        align-self: flex-start;
-      }
-
-      .message-content {
-        background: #f1f5f9;
-        padding: 12px 16px;
-        border-radius: 18px;
-        font-size: 14px;
-        line-height: 1.4;
-        word-wrap: break-word;
-      }
-
-      .message.user .message-content {
-        background: #8b0000;
-        color: white;
-      }
-
-      .message.ai .message-content {
-        background: #f1f5f9;
-        color: #1e293b;
-      }
-
-      .message-content a {
-        color: #8b0000;
-        text-decoration: underline;
-        font-weight: 600;
-        transition: all 0.2s;
-        cursor: pointer;
-        border-radius: 4px;
-        padding: 2px 4px;
-        margin: -2px -4px;
-        display: inline-block;
-      }
-
-      .message-content a:hover {
-        color: #660000;
-        background-color: rgba(139, 0, 0, 0.1);
-        text-decoration: none;
-        transform: translateY(-1px);
-      }
-
-      .message.user .message-content a {
-        color: #ffffff;
-        text-decoration: underline;
-      }
-
-      .message.user .message-content a:hover {
-        color: #f3f4f6;
-        background-color: rgba(255, 255, 255, 0.2);
-      }
-
-      .message-time {
-        font-size: 11px;
-        color: #64748b;
-        margin-top: 4px;
-        text-align: center;
-      }
-
-      .typing-indicator {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        padding: 12px 16px;
-        background: #f1f5f9;
-        border-radius: 18px;
-        max-width: 85%;
-        margin-bottom: 16px;
-      }
-
-      .typing-dots {
-        display: flex;
-        gap: 2px;
-      }
-
-      .typing-dots span {
-        width: 6px;
-        height: 6px;
-        background: #64748b;
-        border-radius: 50%;
-        animation: typing 1.4s infinite;
-      }
-
-      .typing-dots span:nth-child(2) {
-        animation-delay: 0.2s;
-      }
-
-      .typing-dots span:nth-child(3) {
-        animation-delay: 0.4s;
-      }
-
       @keyframes typing {
-        0%,
-        60%,
-        100% {
+        0%, 60%, 100% {
           transform: translateY(0);
           opacity: 0.5;
         }
         30% {
           transform: translateY(-10px);
           opacity: 1;
-        }
-      }
-
-      .chat-input-container {
-        padding: 1rem 1.25rem;
-        border-top: 1px solid #e2e8f0;
-        background: white;
-        position: relative;
-        z-index: 1;
-        /* Enhanced mobile input positioning */
-        flex-shrink: 0;
-        /* Safe area support for mobile devices */
-        padding-bottom: calc(1rem + env(safe-area-inset-bottom, 0px));
-        /* Ensure input stays above keyboard on mobile */
-        position: sticky;
-        bottom: 0;
-        width: 100%;
-        box-sizing: border-box;
-      }
-
-      .chat-input-wrapper {
-        display: flex;
-        gap: 0.5rem;
-        align-items: flex-end;
-        background: #f8fafc;
-        border-radius: 1.5rem;
-        padding: 0.5rem;
-        border: 1px solid #e2e8f0;
-        transition: all 0.2s ease;
-        min-height: 3rem;
-      }
-
-      .chat-input-wrapper:focus-within {
-        border-color: #8b0000;
-        box-shadow: 0 0 0 0.125rem rgba(139, 0, 0, 0.1);
-      }
-
-      .chat-input {
-        flex: 1;
-        border: none;
-        outline: none;
-        background: transparent;
-        padding: 0.5rem 0.75rem;
-        font-size: 0.875rem;
-        resize: none;
-        max-height: 7.5rem;
-        min-height: 1.25rem;
-        font-family: inherit;
-        line-height: 1.4;
-        overflow-y: auto;
-        -webkit-appearance: none;
-        appearance: none;
-        -webkit-text-size-adjust: 100%;
-        touch-action: manipulation;
-      }
-
-      .chat-input:focus {
-        -webkit-appearance: none;
-        appearance: none;
-      }
-
-      /* Prevent zoom on iOS */
-      @supports (-webkit-touch-callout: none) {
-        .chat-input {
-          font-size: 1rem;
-        }
-      }
-
-      @media (max-width: 768px) {
-        .chat-container {
-          height: 100vh;
-          height: 100dvh; /* Dynamic viewport height for mobile */
-          border-radius: 0;
-          display: flex;
-          flex-direction: column;
-          position: relative;
-          overflow: hidden;
-        }
-
-        .chat-input-container {
-          padding: 0.75rem 1rem;
-          background: white;
-          border-top: 1px solid #e2e8f0;
-          position: sticky;
-          bottom: 0;
-          z-index: 1000;
-          /* Enhanced safe area support */
-          padding-bottom: calc(0.75rem + env(safe-area-inset-bottom, 0px));
-          /* Ensure container stays visible */
-          min-height: calc(3.5rem + env(safe-area-inset-bottom, 0px));
-          width: 100%;
-          box-sizing: border-box;
-          /* Shadow to separate from content */
-          box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.1);
-        }
-
-        .chat-input-wrapper {
-          border-radius: 1.25rem;
-          padding: 0.375rem;
-          gap: 0.375rem;
-          min-height: 2.75rem;
-          background: #f8fafc;
-          border: 1px solid #e2e8f0;
-        }
-
-        .chat-input {
-          max-height: 6.25rem;
-          font-size: 1rem; /* Prevent zoom on mobile */
-          padding: 0.5rem 0.75rem;
-          -webkit-text-size-adjust: none;
-          /* Better touch handling */
-          -webkit-appearance: none;
-          appearance: none;
-          border-radius: 1rem;
-        }
-
-        .chat-messages {
-          padding: 0.75rem 1rem;
-          flex: 1;
-          overflow-y: auto;
-          -webkit-overflow-scrolling: touch;
-          /* Enhanced scrolling behavior */
-          overscroll-behavior: contain;
-          min-height: 0;
-          /* Account for sticky input */
-          padding-bottom: 0.5rem;
-        }
-
-        /* Enhanced keyboard visibility handling */
-        .chat-input-container.keyboard-active {
-          position: fixed;
-          bottom: 0;
-          left: 0;
-          right: 0;
-          z-index: 10000;
-          /* Maintain safe area when keyboard is active */
-          padding-bottom: calc(
-            0.75rem +
-              env(keyboard-inset-height, env(safe-area-inset-bottom, 0px))
-          );
-        }
-
-        .chat-messages.keyboard-active {
-          /* Adjust for fixed input when keyboard is visible */
-          padding-bottom: calc(
-            4rem + env(keyboard-inset-height, env(safe-area-inset-bottom, 0px))
-          );
-          height: calc(
-            100dvh - 8rem -
-              env(keyboard-inset-height, env(safe-area-inset-bottom, 0px))
-          );
-          overflow-y: auto;
-        }
-
-        /* Improved viewport handling */
-        html {
-          height: 100%;
-          overflow: hidden;
-        }
-
-        body {
-          height: 100vh;
-          height: 100dvh;
-          overflow: hidden;
-          position: fixed;
-          width: 100%;
-          top: 0;
-          left: 0;
-          right: 0;
-          bottom: 0;
-        }
-      }
-
-      @media (max-width: 480px) {
-        .chat-input-container {
-          padding: 0.625rem 0.75rem;
-        }
-
-        .chat-input-wrapper {
-          border-radius: 1rem;
-          padding: 0.25rem;
-          min-height: 2.5rem;
-        }
-
-        .chat-input {
-          max-height: 5rem;
-          font-size: 1rem; /* Prevent zoom */
-          padding: 0.375rem 0.625rem;
-          line-height: 1.3;
-        }
-      }
-
-      @media (max-width: 360px) {
-        .chat-input-container {
-          padding: 0.5rem;
-        }
-
-        .chat-input-wrapper {
-          padding: 0.25rem;
-          min-height: 2.25rem;
-        }
-
-        .chat-input {
-          max-height: 4rem;
-          font-size: 1rem; /* Prevent zoom */
-          padding: 0.25rem 0.5rem;
-          line-height: 1.2;
-        }
-      }
-
-      .send-button {
-        width: 2.25rem;
-        height: 2.25rem;
-        border-radius: 50%;
-        border: none;
-        background: #8b0000;
-        color: white;
-        cursor: pointer;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        transition: all 0.2s ease;
-        flex-shrink: 0;
-        touch-action: manipulation;
-      }
-
-      .send-button:hover:not(:disabled) {
-        background: #660000;
-        transform: scale(1.05);
-      }
-
-      .send-button:disabled {
-        background: #cbd5e1;
-        cursor: not-allowed;
-        transform: none;
-      }
-
-      .send-button svg {
-        width: 1rem;
-        height: 1rem;
-      }
-
-      @media (max-width: 768px) {
-        .send-button {
-          width: 2rem;
-          height: 2rem;
-        }
-
-        .send-button svg {
-          width: 0.875rem;
-          height: 0.875rem;
-        }
-      }
-
-      @media (max-width: 480px) {
-        .send-button {
-          width: 1.875rem;
-          height: 1.875rem;
-        }
-
-        .send-button svg {
-          width: 0.75rem;
-          height: 0.75rem;
-        }
-      }
-
-      .error-message {
-        background: #fef2f2;
-        border: 1px solid #fecaca;
-        color: #dc2626;
-        padding: 12px 16px;
-        border-radius: 8px;
-        margin: 16px 20px;
-        font-size: 14px;
-        text-align: center;
-      }
-
-      .connection-status {
-        position: absolute;
-        top: 8px;
-        right: 8px;
-        width: 8px;
-        height: 8px;
-        border-radius: 50%;
-        background: #22c55e;
-      }
-
-      .connection-status.disconnected {
-        background: #ef4444;
-      }
-
-      .welcome-message {
-        text-align: center;
-        padding: 20px;
-        color: #64748b;
-        font-size: 14px;
-      }
-
-      .suggestion-buttons {
-        display: flex;
-        flex-direction: column;
-        gap: 8px;
-        margin-top: 16px;
-      }
-
-      .suggestion-button {
-        background: white;
-        border: 1px solid #8b0000;
-        color: #8b0000;
-        padding: 10px 16px;
-        border-radius: 20px;
-        font-size: 13px;
-        cursor: pointer;
-        transition: all 0.2s;
-        text-align: center;
-      }
-
-      .suggestion-button:hover {
-        background: #8b0000;
-        color: white;
-        transform: translateY(-1px);
-      }
-
-      /* Responsive adjustments */
-      @media (max-width: 768px) {
-        .chat-container {
-          height: 100vh;
-          height: 100dvh; /* Dynamic viewport height for better mobile experience */
-          border-radius: 0;
-          display: flex;
-          flex-direction: column;
-        }
-
-        .chat-header {
-          padding: 0.75rem 1rem;
-          border-radius: 0;
-          flex-shrink: 0;
-        }
-
-        .chat-messages {
-          padding: 0.75rem 1rem;
-          flex: 1;
-          overflow-y: auto;
-          -webkit-overflow-scrolling: touch;
-        }
-
-        .message {
-          max-width: 90%;
-        }
-
-        .close-button {
-          width: 2.25rem;
-          height: 2.25rem;
-        }
-
-        .close-button svg {
-          width: 1.125rem;
-          height: 1.125rem;
-        }
-
-        .suggestion-buttons {
-          gap: 0.375rem;
-        }
-
-        .suggestion-button {
-          padding: 0.5rem 0.875rem;
-          font-size: 0.75rem;
-        }
-
-        .welcome-message {
-          padding: 1rem;
-        }
-
-        /* Better touch targets */
-        .suggestion-button,
-        .send-button,
-        .close-button {
-          min-height: 2.75rem;
-          min-width: 2.75rem;
-        }
-      }
-
-      @media (max-width: 480px) {
-        .chat-header {
-          padding: 0.625rem 0.75rem;
-        }
-
-        .header-info h3 {
-          font-size: 0.875rem;
-        }
-
-        .header-info p {
-          font-size: 0.6875rem;
-        }
-
-        .chat-messages {
-          padding: 0.625rem 0.75rem;
-          gap: 0.75rem;
-        }
-
-        .message {
-          max-width: 92%;
-        }
-
-        .message-content {
-          padding: 0.625rem 0.875rem;
-          font-size: 0.8125rem;
-          border-radius: 1rem;
-        }
-
-        .close-button {
-          width: 2rem;
-          height: 2rem;
-        }
-
-        .close-button svg {
-          width: 1rem;
-          height: 1rem;
-        }
-
-        .welcome-message {
-          padding: 0.75rem;
-          font-size: 0.8125rem;
-        }
-
-        .suggestion-button {
-          padding: 0.4375rem 0.75rem;
-          font-size: 0.6875rem;
-          min-height: 2.5rem;
-        }
-
-        .avatar {
-          width: 2.25rem;
-          height: 2.25rem;
-          font-size: 1rem;
-        }
-      }
-
-      @media (max-width: 360px) {
-        .chat-header {
-          padding: 0.5rem 0.625rem;
-        }
-
-        .header-info h3 {
-          font-size: 0.8125rem;
-        }
-
-        .header-info p {
-          font-size: 0.625rem;
-        }
-
-        .chat-messages {
-          padding: 0.5rem 0.625rem;
-          gap: 0.625rem;
-        }
-
-        .message-content {
-          padding: 0.5rem 0.75rem;
-          font-size: 0.75rem;
-          border-radius: 0.875rem;
-        }
-
-        .close-button {
-          width: 1.875rem;
-          height: 1.875rem;
-        }
-
-        .close-button svg {
-          width: 0.875rem;
-          height: 0.875rem;
-        }
-
-        .avatar {
-          width: 2rem;
-          height: 2rem;
-          font-size: 0.875rem;
-        }
-
-        .suggestion-button {
-          padding: 0.375rem 0.625rem;
-          font-size: 0.625rem;
-          min-height: 2.25rem;
-        }
-
-        .welcome-message {
-          padding: 0.625rem;
-          font-size: 0.75rem;
-        }
-      }
-
-      /* Landscape mobile optimization */
-      @media (max-height: 500px) and (orientation: landscape) {
-        .chat-container {
-          height: 100vh;
-          height: 100dvh;
-        }
-
-        .chat-header {
-          padding: 0.5rem 0.75rem;
-        }
-
-        .chat-messages {
-          padding: 0.5rem 0.75rem;
-        }
-
-        .chat-input-container {
-          padding: 0.5rem 0.75rem;
-        }
-
-        .welcome-message {
-          padding: 0.5rem;
-        }
-
-        .suggestion-buttons {
-          display: grid;
-          grid-template-columns: 1fr 1fr;
-          gap: 0.25rem;
-        }
-
-        .suggestion-button {
-          padding: 0.3125rem 0.5rem;
-          font-size: 0.625rem;
-          min-height: 2rem;
-        }
-      } /* iOS Safari specific fixes */
-      @supports (-webkit-touch-callout: none) {
-        html {
-          height: 100%;
-          overflow: hidden;
-        }
-
-        body {
-          height: 100vh;
-          height: -webkit-fill-available;
-          position: fixed;
-          width: 100%;
-          top: 0;
-          left: 0;
-          right: 0;
-          bottom: 0;
-          overflow: hidden;
-        }
-
-        .chat-container {
-          height: 100vh;
-          height: -webkit-fill-available;
-        }
-
-        .chat-input {
-          font-size: 1rem; /* Prevent zoom on iOS */
-          transform: translateZ(0); /* Force hardware acceleration */
-          -webkit-appearance: none;
-          appearance: none;
-        }
-
-        /* Enhanced safe area support for iOS */
-        .chat-input-container {
-          padding-bottom: calc(1rem + env(safe-area-inset-bottom, 0px));
-          /* Support for older iOS versions */
-          padding-bottom: calc(1rem + constant(safe-area-inset-bottom, 0px));
-        }
-
-        @media (max-width: 768px) {
-          .chat-input-container {
-            padding-bottom: calc(0.75rem + env(safe-area-inset-bottom, 0px));
-            padding-bottom: calc(
-              0.75rem + constant(safe-area-inset-bottom, 0px)
-            );
-          }
         }
       }
 
@@ -875,47 +105,9 @@
         }
 
         .chat-container {
-          display: flex;
-          flex-direction: column;
           height: 100vh;
           height: 100dvh;
-          overflow: hidden;
-          position: relative;
-          width: 100%;
-        }
-
-        .chat-header {
-          flex-shrink: 0;
-          position: relative;
-          z-index: 100;
-        }
-
-        .chat-messages {
-          flex: 1;
-          overflow-y: auto;
-          -webkit-overflow-scrolling: touch;
-          overscroll-behavior: contain;
-          padding-bottom: 0.5rem;
-          min-height: 0;
-          position: relative;
-          /* Enhanced scrolling performance */
-          will-change: scroll-position;
-          transform: translateZ(0);
-        }
-
-        .chat-input-container {
-          flex-shrink: 0;
-          position: sticky;
-          bottom: 0;
-          background: white;
-          border-top: 1px solid #e2e8f0;
-          z-index: 1000;
-          width: 100%;
-          box-sizing: border-box;
-          /* Enhanced spacing with safe areas */
-          padding: 0.75rem 1rem calc(0.75rem + env(safe-area-inset-bottom, 0px));
-          /* Subtle shadow for separation */
-          box-shadow: 0 -1px 10px rgba(0, 0, 0, 0.1);
+          border-radius: 0;
         }
 
         /* Better keyboard state management */
@@ -925,266 +117,11 @@
           left: 0;
           right: 0;
           z-index: 10000;
-          /* Maintain spacing when keyboard is active */
-          padding-bottom: 0.75rem;
         }
 
         .chat-messages.keyboard-visible {
-          /* Reserve space for fixed input when keyboard is visible */
           padding-bottom: 5rem;
-          /* Smooth transition */
           transition: padding-bottom 0.3s ease;
-        }
-
-        /* Input wrapper styling for mobile */
-        .chat-input-wrapper {
-          background: #f8fafc;
-          border: 1px solid #e2e8f0;
-          border-radius: 1.25rem;
-          padding: 0.375rem;
-          min-height: 2.75rem;
-          display: flex;
-          align-items: flex-end;
-          gap: 0.375rem;
-          transition: border-color 0.2s ease, box-shadow 0.2s ease;
-        }
-
-        .chat-input-wrapper:focus-within {
-          border-color: #8b0000;
-          box-shadow: 0 0 0 2px rgba(139, 0, 0, 0.1);
-        }
-
-        .chat-input {
-          flex: 1;
-          border: none;
-          outline: none;
-          background: transparent;
-          font-size: 1rem; /* Prevent zoom */
-          padding: 0.5rem 0.75rem;
-          max-height: 6rem;
-          resize: none;
-          font-family: inherit;
-          line-height: 1.4;
-          -webkit-appearance: none;
-          appearance: none;
-          -webkit-text-size-adjust: 100%;
-          border-radius: 1rem;
-          /* Better touch responsiveness */
-          touch-action: manipulation;
-        }
-
-        /* Send button mobile optimization */
-        .send-button {
-          width: 2.5rem;
-          height: 2.5rem;
-          border-radius: 50%;
-          border: none;
-          background: #8b0000;
-          color: white;
-          cursor: pointer;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          transition: all 0.2s ease;
-          flex-shrink: 0;
-          touch-action: manipulation;
-          /* Better touch target */
-          min-width: 44px;
-          min-height: 44px;
-        }
-      }
-
-      /* Scrollbar styling */
-      .chat-messages::-webkit-scrollbar {
-        width: 4px;
-      }
-
-      .chat-messages::-webkit-scrollbar-track {
-        background: transparent;
-      }
-
-      .chat-messages::-webkit-scrollbar-thumb {
-        background: #cbd5e1;
-        border-radius: 2px;
-      }
-
-      .chat-messages::-webkit-scrollbar-thumb:hover {
-        background: #94a3b8;
-      }
-      .chat-messages::-webkit-scrollbar {
-        width: 4px;
-      }
-
-      .chat-messages::-webkit-scrollbar-track {
-        background: transparent;
-      }
-
-      .chat-messages::-webkit-scrollbar-thumb {
-        background: #cbd5e1;
-        border-radius: 2px;
-      }
-
-      .chat-messages::-webkit-scrollbar-thumb:hover {
-        background: #94a3b8;
-      }
-
-      /* Link popup for when opening fails */
-      .link-popup {
-        position: fixed;
-        top: 50%;
-        left: 50%;
-        transform: translate(-50%, -50%);
-        background: white;
-        border: 2px solid #8b0000;
-        border-radius: 12px;
-        padding: 20px;
-        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
-        z-index: 10000;
-        max-width: 400px;
-        width: 90%;
-        font-family: inherit;
-        max-height: 80vh;
-        overflow-y: auto;
-      }
-
-      @media (max-width: 480px) {
-        .link-popup {
-          width: 95%;
-          padding: 16px;
-          border-radius: 8px;
-          max-height: 70vh;
-        }
-
-        .link-popup h3 {
-          font-size: 14px;
-          margin-bottom: 12px;
-        }
-
-        .link-popup .link-url {
-          font-size: 12px;
-          padding: 6px 10px;
-        }
-
-        .link-popup .popup-buttons {
-          flex-direction: column;
-          gap: 8px;
-        }
-
-        .link-popup button {
-          padding: 10px 16px;
-          font-size: 13px;
-        }
-      }
-
-      @media (max-width: 360px) {
-        .link-popup {
-          width: 98%;
-          padding: 12px;
-          border-radius: 6px;
-        }
-
-        .link-popup h3 {
-          font-size: 13px;
-          margin-bottom: 10px;
-        }
-
-        .link-popup .link-url {
-          font-size: 11px;
-          padding: 5px 8px;
-        }
-
-        .link-popup button {
-          padding: 8px 12px;
-          font-size: 12px;
-        }
-      }
-
-      .link-popup h3 {
-        margin: 0 0 15px 0;
-        color: #8b0000;
-        font-size: 16px;
-        font-weight: 600;
-      }
-
-      .link-popup .link-url {
-        background: #f8fafc;
-        border: 1px solid #e2e8f0;
-        border-radius: 6px;
-        padding: 8px 12px;
-        margin: 10px 0;
-        word-break: break-all;
-        font-size: 14px;
-        color: #1e293b;
-      }
-
-      .link-popup .popup-buttons {
-        display: flex;
-        gap: 10px;
-        margin-top: 15px;
-      }
-
-      .link-popup button {
-        flex: 1;
-        padding: 8px 16px;
-        border: none;
-        border-radius: 6px;
-        cursor: pointer;
-        font-size: 14px;
-        font-weight: 500;
-        transition: all 0.2s;
-      }
-
-      .link-popup .copy-btn {
-        background: #8b0000;
-        color: white;
-      }
-
-      .link-popup .copy-btn:hover {
-        background: #660000;
-      }
-
-      .link-popup .close-btn {
-        background: #f1f5f9;
-        color: #64748b;
-      }
-
-      .link-popup .close-btn:hover {
-        background: #e2e8f0;
-      }
-
-      .popup-overlay {
-        position: fixed;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        background: rgba(0, 0, 0, 0.5);
-        z-index: 9999;
-      }
-
-      /* Enhanced mobile touch optimization */
-      @media (max-width: 768px) {
-        /* Ensure all interactive elements have adequate touch targets */
-        .send-button,
-        .close-button,
-        .suggestion-button {
-          min-height: 44px;
-          min-width: 44px;
-          touch-action: manipulation;
-        }
-
-        /* Improve scrolling performance */
-        .chat-messages {
-          transform: translateZ(0);
-          will-change: scroll-position;
-          scroll-snap-type: none;
-        }
-
-        /* Better text selection on mobile */
-        .message-content {
-          -webkit-user-select: text;
-          user-select: text;
-          -webkit-touch-callout: default;
         }
 
         /* Prevent unwanted zooming and scrolling */
@@ -1195,23 +132,17 @@
           -webkit-tap-highlight-color: transparent;
         }
 
-        /* Allow text selection only in message content */
+        /* Allow text selection only in message content and input */
         .chat-input,
         .message-content {
           -webkit-user-select: text;
           user-select: text;
         }
 
-        /* Optimize for touch scrolling */
-        .chat-messages::-webkit-scrollbar {
-          display: none;
-        }
-
         /* Better focus states for mobile */
         .chat-input:focus {
           outline: none;
           background: white;
-          border-radius: 1rem;
         }
 
         /* Improve button press feedback */
@@ -1221,103 +152,77 @@
           transform: scale(0.95);
           transition: transform 0.1s ease;
         }
-
-        /* Better link handling on mobile */
-        .message-content a {
-          padding: 2px 4px;
-          margin: -2px -4px;
-          border-radius: 4px;
-          min-height: 44px;
-          display: inline-flex;
-          align-items: center;
-          touch-action: manipulation;
-        }
       }
 
-      /* Specific optimizations for very small screens */
-      @media (max-width: 360px) {
-        .chat-input-container {
-          padding: 0.5rem 0.75rem
-            calc(0.5rem + env(safe-area-inset-bottom, 0px));
+      /* iOS Safari specific fixes */
+      @supports (-webkit-touch-callout: none) {
+        html {
+          height: 100%;
+          overflow: hidden;
         }
 
-        .chat-input-wrapper {
-          padding: 0.25rem;
-          min-height: 2.5rem;
+        body {
+          height: 100vh;
+          height: -webkit-fill-available;
+          position: fixed;
+          width: 100%;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          overflow: hidden;
+        }
+
+        .chat-container {
+          height: 100vh;
+          height: -webkit-fill-available;
         }
 
         .chat-input {
-          font-size: 1rem;
-          padding: 0.375rem 0.625rem;
-          max-height: 5rem;
-        }
-
-        .send-button {
-          width: 2.25rem;
-          height: 2.25rem;
-          min-width: 40px;
-          min-height: 40px;
+          font-size: 16px !important;
+          transform: translateZ(0);
+          -webkit-appearance: none;
+          appearance: none;
         }
       }
 
       /* Landscape mobile optimizations */
       @media (max-height: 500px) and (orientation: landscape) and (max-width: 768px) {
-        .chat-header {
-          padding: 0.5rem 0.75rem;
-        }
-
-        .header-info h3 {
-          font-size: 14px;
-        }
-
-        .header-info p {
-          font-size: 11px;
-        }
-
-        .chat-messages {
-          padding: 0.5rem 0.75rem;
-          gap: 12px;
-        }
-
-        .chat-input-container {
-          padding: 0.5rem 0.75rem
-            calc(0.5rem + env(safe-area-inset-bottom, 0px));
-        }
-
-        .chat-input-wrapper {
-          min-height: 2.25rem;
-          padding: 0.25rem;
-        }
-
-        .chat-input {
-          padding: 0.375rem 0.5rem;
-          max-height: 4rem;
-        }
-
-        .send-button {
-          width: 2rem;
-          height: 2rem;
+        .suggestion-buttons {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 0.25rem;
         }
       }
     </style>
   </head>
+  <body class="font-sans bg-slate-50 h-dvh flex flex-col m-0 p-0 overflow-hidden touch-manipulation antialiased fixed inset-0 w-full">
+    <div class="chat-container flex flex-col h-dvh max-w-full bg-white md:rounded-lg md:shadow-xl overflow-hidden relative w-full min-h-0">
+
+
+
+
+    </style>
+  </head>
   <body>
     <div class="chat-container">
-      <div class="chat-header">
-        <div class="avatar">
-          <i class="fas fa-comment-dots"></i>
+      <!-- Header: sticky at the top with gradient background -->
+      <div class="chat-header bg-gradient-to-br from-iuea-red to-iuea-red-dark text-white p-4 md:p-5 flex items-center gap-3 md:rounded-t-xl shadow-lg flex-shrink-0">
+        <div class="avatar w-10 h-10 rounded-full bg-white/20 flex items-center justify-center font-bold text-lg text-white">
+          <i class="fas fa-comment-dots text-xl"></i>
         </div>
-        <div class="header-info">
-          <h3>Miryam</h3>
-          <p>IUEA Admissions Assistant</p>
+        <div class="header-info flex-1">
+          <h3 class="text-base md:text-lg font-semibold mb-0.5">Miryam</h3>
+          <p class="text-xs md:text-sm opacity-90">IUEA Admissions Assistant</p>
         </div>
-        <div class="status-indicator" id="statusIndicator"></div>
-        <button class="close-button" id="closeButton" aria-label="Close chat">
+        <div class="status-indicator w-2 h-2 bg-green-500 rounded-full animate-pulse" id="statusIndicator"></div>
+        <button class="close-button w-8 h-8 border-0 bg-white/10 hover:bg-white/20 text-white rounded-full cursor-pointer flex items-center justify-center transition-all duration-200 hover:scale-110 ml-auto flex-shrink-0 min-w-[44px] min-h-[44px] md:min-w-[32px] md:min-h-[32px]" id="closeButton" aria-label="Close chat">
           <svg
             viewBox="0 0 24 24"
             fill="none"
             stroke="currentColor"
             stroke-width="2"
+            class="w-4 h-4"
           >
             <line x1="18" y1="6" x2="6" y2="18"></line>
             <line x1="6" y1="6" x2="18" y2="18"></line>
@@ -1325,27 +230,28 @@
         </button>
       </div>
 
-      <div class="chat-messages" id="chatMessages">
-        <div class="welcome-message">
-          <p>
+      <!-- Chat messages: scrollable area taking remaining height -->
+      <div class="chat-messages flex-1 overflow-y-auto p-4 md:p-5 flex flex-col gap-4 scroll-smooth hide-scrollbar min-h-0 ios-safe-area" id="chatMessages">
+        <div class="welcome-message text-center p-5 text-slate-500 text-sm">
+          <p class="mb-4">
             🤖 Hello! I'm Miryam, your IUEA admissions assistant. How can I help
             you today?
           </p>
-          <div class="suggestion-buttons">
+          <div class="suggestion-buttons flex flex-col gap-2 mt-4">
             <button
-              class="suggestion-button"
+              class="suggestion-button bg-white border border-iuea-red text-iuea-red py-2.5 px-4 rounded-full text-sm cursor-pointer transition-all duration-200 text-center hover:bg-iuea-red hover:text-white hover:-translate-y-0.5 min-h-[44px] md:min-h-[40px]"
               onclick="window.chatbot.sendSuggestion('What programs do you offer?')"
             >
               What programs do you offer?
             </button>
             <button
-              class="suggestion-button"
+              class="suggestion-button bg-white border border-iuea-red text-iuea-red py-2.5 px-4 rounded-full text-sm cursor-pointer transition-all duration-200 text-center hover:bg-iuea-red hover:text-white hover:-translate-y-0.5 min-h-[44px] md:min-h-[40px]"
               onclick="window.chatbot.sendSuggestion('How much are the tuition fees?')"
             >
               How much are the tuition fees?
             </button>
             <button
-              class="suggestion-button"
+              class="suggestion-button bg-white border border-iuea-red text-iuea-red py-2.5 px-4 rounded-full text-sm cursor-pointer transition-all duration-200 text-center hover:bg-iuea-red hover:text-white hover:-translate-y-0.5 min-h-[44px] md:min-h-[40px]"
               onclick="window.chatbot.sendSuggestion('How can I apply?')"
             >
               How can I apply?
@@ -1354,15 +260,16 @@
         </div>
       </div>
 
-      <div class="chat-input-container">
-        <div class="chat-input-wrapper">
+      <!-- Input area: sticky at the bottom with safe-area support -->
+      <div class="chat-input-container p-4 md:p-5 border-t border-slate-200 bg-white relative z-10 flex-shrink-0 sticky bottom-0 w-full box-border ios-safe-area shadow-lg md:shadow-none">
+        <div class="chat-input-wrapper flex gap-2 items-end bg-slate-50 rounded-3xl p-2 border border-slate-200 transition-all duration-200 min-h-[48px] focus-within:border-iuea-red focus-within:shadow-sm focus-within:shadow-iuea-red/10">
           <textarea
-            class="chat-input"
+            class="chat-input flex-1 border-0 outline-none bg-transparent py-2 px-3 text-sm resize-none max-h-24 md:max-h-32 min-h-[20px] font-inherit leading-5 overflow-y-auto appearance-none touch-manipulation rounded-2xl"
             id="messageInput"
             placeholder="Type your message..."
             rows="1"
           ></textarea>
-          <button class="send-button" id="sendButton" disabled>
+          <button class="send-button w-9 h-9 md:w-10 md:h-10 rounded-full border-0 bg-iuea-red text-white cursor-pointer flex items-center justify-center transition-all duration-200 flex-shrink-0 touch-manipulation disabled:bg-slate-300 disabled:cursor-not-allowed hover:enabled:bg-iuea-red-dark hover:enabled:scale-105 min-w-[44px] min-h-[44px] md:min-w-[36px] md:min-h-[36px]" id="sendButton" disabled>
             <svg
               width="16"
               height="16"
@@ -1370,6 +277,7 @@
               fill="none"
               stroke="currentColor"
               stroke-width="2"
+              class="w-4 h-4"
             >
               <line x1="22" y1="2" x2="11" y2="13"></line>
               <polygon points="22,2 15,22 11,13 2,9"></polygon>
@@ -1732,10 +640,18 @@
 
         addMessage(content, isUser) {
           const messageDiv = document.createElement("div");
-          messageDiv.className = `message ${isUser ? "user" : "ai"}`;
+          messageDiv.className = `message flex items-start gap-2 max-w-[85%] animate-[slideIn_0.3s_ease-out] ${
+            isUser 
+              ? "self-end flex-row-reverse max-w-[90%] md:max-w-[85%]" 
+              : "self-start"
+          }`;
 
           const messageContent = document.createElement("div");
-          messageContent.className = "message-content";
+          messageContent.className = `message-content py-3 px-4 rounded-2xl text-sm leading-5 break-words ${
+            isUser 
+              ? "bg-iuea-red text-white" 
+              : "bg-slate-100 text-slate-800"
+          }`;
 
           // Convert URLs, emails, and phone numbers to clickable links
           let processedContent = content;
@@ -1744,7 +660,10 @@
           processedContent = processedContent.replace(
             /https?:\/\/[^\s<>]+/g,
             function (url) {
-              return `<a href="#" onclick="openExternalLink('${url}'); return false;" style="color: #dc2626; text-decoration: underline; cursor: pointer;" title="Click to open ${url}">${url}</a>`;
+              const linkClass = isUser 
+                ? "text-white underline cursor-pointer hover:text-gray-200 hover:bg-white/20 transition-all duration-200 rounded px-1 py-0.5 -mx-1 -my-0.5 inline-block" 
+                : "text-red-600 underline cursor-pointer hover:text-red-800 hover:bg-red-50 transition-all duration-200 rounded px-1 py-0.5 -mx-1 -my-0.5 inline-block hover:-translate-y-0.5";
+              return `<a href="#" onclick="openExternalLink('${url}'); return false;" class="${linkClass}" title="Click to open ${url}">${url}</a>`;
             }
           );
 
@@ -1754,7 +673,10 @@
           processedContent = processedContent.replace(
             emailRegex,
             function (email) {
-              return `<a href="#" onclick="openExternalLink('mailto:${email}'); return false;" style="color: inherit; text-decoration: underline; cursor: pointer;" title="Click to email ${email}">${email}</a>`;
+              const linkClass = isUser 
+                ? "text-white underline cursor-pointer hover:text-gray-200 hover:bg-white/20 transition-all duration-200 rounded px-1 py-0.5 -mx-1 -my-0.5 inline-block" 
+                : "text-inherit underline cursor-pointer hover:bg-slate-200 transition-all duration-200 rounded px-1 py-0.5 -mx-1 -my-0.5 inline-block";
+              return `<a href="#" onclick="openExternalLink('mailto:${email}'); return false;" class="${linkClass}" title="Click to email ${email}">${email}</a>`;
             }
           );
 
@@ -1763,14 +685,17 @@
           processedContent = processedContent.replace(
             phoneRegex,
             function (phone) {
-              return `<a href="#" onclick="openExternalLink('tel:${phone}'); return false;" style="color: inherit; text-decoration: underline; cursor: pointer;" title="Click to call ${phone}">${phone}</a>`;
+              const linkClass = isUser 
+                ? "text-white underline cursor-pointer hover:text-gray-200 hover:bg-white/20 transition-all duration-200 rounded px-1 py-0.5 -mx-1 -my-0.5 inline-block" 
+                : "text-inherit underline cursor-pointer hover:bg-slate-200 transition-all duration-200 rounded px-1 py-0.5 -mx-1 -my-0.5 inline-block";
+              return `<a href="#" onclick="openExternalLink('tel:${phone}'); return false;" class="${linkClass}" title="Click to call ${phone}">${phone}</a>`;
             }
           );
 
           messageContent.innerHTML = processedContent;
 
           const messageTime = document.createElement("div");
-          messageTime.className = "message-time";
+          messageTime.className = "message-time text-xs text-slate-500 mt-1 text-center";
           messageTime.textContent = new Date().toLocaleTimeString([], {
             hour: "2-digit",
             minute: "2-digit",
@@ -1795,16 +720,16 @@
           this.updateSendButton();
 
           const typingDiv = document.createElement("div");
-          typingDiv.className = "typing-indicator";
+          typingDiv.className = "typing-indicator flex items-center gap-2 py-3 px-4 bg-slate-100 rounded-2xl max-w-[85%] mb-4";
           typingDiv.id = "typingIndicator";
 
           typingDiv.innerHTML = `
-                    <div class="typing-dots">
-                        <span></span>
-                        <span></span>
-                        <span></span>
+                    <div class="typing-dots flex gap-0.5">
+                        <span class="w-1.5 h-1.5 bg-slate-500 rounded-full animate-[typing_1.4s_infinite]"></span>
+                        <span class="w-1.5 h-1.5 bg-slate-500 rounded-full animate-[typing_1.4s_infinite] [animation-delay:0.2s]"></span>
+                        <span class="w-1.5 h-1.5 bg-slate-500 rounded-full animate-[typing_1.4s_infinite] [animation-delay:0.4s]"></span>
                     </div>
-                    <span style="font-size: 12px; color: #64748b; margin-left: 8px;">Miryam is typing...</span>
+                    <span class="text-xs text-slate-500 ml-2">Miryam is typing...</span>
                 `;
 
           this.chatMessages.appendChild(typingDiv);
@@ -1823,7 +748,7 @@
 
         showError(message) {
           const errorDiv = document.createElement("div");
-          errorDiv.className = "error-message";
+          errorDiv.className = "error-message bg-red-50 border border-red-200 text-red-600 py-3 px-4 rounded-lg mx-4 my-4 text-sm text-center";
           errorDiv.textContent = message;
 
           // Remove existing error messages
@@ -1843,8 +768,8 @@
 
         setConnectionStatus(connected) {
           this.isConnected = connected;
-          this.statusIndicator.className = `status-indicator ${
-            connected ? "" : "disconnected"
+          this.statusIndicator.className = `status-indicator w-2 h-2 rounded-full animate-pulse ${
+            connected ? "bg-green-500" : "bg-red-500"
           }`;
         }
 
@@ -1908,18 +833,18 @@
 
         // Create overlay
         const overlay = document.createElement("div");
-        overlay.className = "popup-overlay";
+        overlay.className = "popup-overlay fixed inset-0 bg-black/50 z-[9999]";
 
         // Create popup
         const popup = document.createElement("div");
-        popup.className = "link-popup";
+        popup.className = "link-popup fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-white border-2 border-iuea-red rounded-xl p-5 shadow-2xl z-[10000] max-w-sm w-[90%] md:w-[400px] font-inherit max-h-[80vh] overflow-y-auto";
         popup.innerHTML = `
-          <h3>Open Link</h3>
-          <p>Click the button below to copy this link, then paste it in a new browser tab:</p>
-          <div class="link-url">${url}</div>
-          <div class="popup-buttons">
-            <button class="copy-btn" onclick="copyLinkAndClose('${url}')">Copy Link</button>
-            <button class="close-btn" onclick="closeLinkPopup()">Close</button>
+          <h3 class="text-base md:text-lg font-semibold text-iuea-red mb-4">Open Link</h3>
+          <p class="text-sm text-slate-600 mb-3">Click the button below to copy this link, then paste it in a new browser tab:</p>
+          <div class="link-url bg-slate-50 border border-slate-200 rounded-md p-3 my-3 break-all text-xs md:text-sm text-slate-800">${url}</div>
+          <div class="popup-buttons flex gap-3 mt-4">
+            <button class="copy-btn flex-1 py-2 px-4 border-0 rounded-md cursor-pointer text-sm font-medium transition-all duration-200 bg-iuea-red text-white hover:bg-iuea-red-dark" onclick="copyLinkAndClose('${url}')">Copy Link</button>
+            <button class="close-btn flex-1 py-2 px-4 border-0 rounded-md cursor-pointer text-sm font-medium transition-all duration-200 bg-slate-100 text-slate-600 hover:bg-slate-200" onclick="closeLinkPopup()">Close</button>
           </div>
         `;
 
@@ -1937,12 +862,12 @@
           navigator.clipboard
             .writeText(url)
             .then(() => {
-              // Show success message briefly
+              // Copy link and show success feedback
               const copyBtn = document.querySelector(".copy-btn");
               if (copyBtn) {
                 const originalText = copyBtn.textContent;
                 copyBtn.textContent = "Copied!";
-                copyBtn.style.background = "#22c55e";
+                copyBtn.className = copyBtn.className.replace("bg-iuea-red hover:bg-iuea-red-dark", "bg-green-500");
 
                 setTimeout(() => {
                   closeLinkPopup();
@@ -1972,7 +897,7 @@
           const copyBtn = document.querySelector(".copy-btn");
           if (copyBtn) {
             copyBtn.textContent = "Copied!";
-            copyBtn.style.background = "#22c55e";
+            copyBtn.className = copyBtn.className.replace("bg-iuea-red hover:bg-iuea-red-dark", "bg-green-500");
           }
           setTimeout(closeLinkPopup, 1000);
         } catch (err) {
