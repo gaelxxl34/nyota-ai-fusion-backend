@@ -25,205 +25,156 @@
       };
     </script>
     <style>
-      /* CSS custom properties for dynamic viewport height */
+      /* ======= MOBILE KEYBOARD + VIEWPORT FIXES (added) ======= */
       :root {
-        --viewport-height: 100dvh;
+        /* dynamically updated via visualViewport */
+        --vh: 100dvh;
+        --footer-h: 72px; /* will be updated at runtime */
       }
 
-      /* Essential mobile viewport and safe area support */
-      html {
+      html, body {
         height: 100%;
-        height: var(--viewport-height);
-        overflow: hidden;
-      }
-
-      body {
-        height: 100%;
-        height: var(--viewport-height);
         margin: 0;
         padding: 0;
-        overflow: hidden;
         font-family: system-ui, -apple-system, sans-serif;
         background: #f8fafc;
+        /* keep body from scrolling; only messages scroll */
+        overflow: hidden;
       }
 
       .chat-container {
-        height: var(--viewport-height);
+        position: relative;
+        height: var(--vh);
+        max-height: var(--vh);
+        background: #fff;
       }
 
-      /* Safe area insets for iOS - properly positioned input */
+      .chat-messages {
+        -webkit-overflow-scrolling: touch;
+        overscroll-behavior: contain;
+      }
+
+      /* Hide scrollbars (nice touch) */
+      .hide-scrollbar::-webkit-scrollbar { display: none; }
+      .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+      /* Footer sticks on desktop, fixed on mobile to stay above keyboard */
+      .chat-input-container {
+        /* desktop/tablet default: sticky so it participates in layout */
+        position: sticky;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        z-index: 30;
+        background: #fff;
+      }
+
+      /* iOS safe area */
       @supports (padding: env(safe-area-inset-bottom)) {
         .safe-bottom {
           padding-bottom: calc(1rem + env(safe-area-inset-bottom));
         }
       }
 
-      /* iOS Safari specific viewport handling */
-      @supports (-webkit-touch-callout: none) {
-        :root {
-          --viewport-height: -webkit-fill-available;
+      /* iOS: prevent zoom on focus */
+      input, textarea {
+        font-size: 16px !important;
+        -webkit-appearance: none;
+        appearance: none;
+      }
+
+      /* Mobile: make footer fixed so it never hides under URL bar/keyboard */
+      @media (max-width: 768px) {
+        .chat-input-container {
+          position: fixed;
+          bottom: 0;
+          left: 0;
+          right: 0;
+          border-top: 1px solid rgb(226 232 240);
+          box-shadow: 0 -4px 16px rgba(0,0,0,0.04);
         }
 
-        html {
-          height: -webkit-fill-available;
-        }
-
-        body {
-          height: -webkit-fill-available;
+        /* Reserve space in the scroll area equal to footer height */
+        .chat-messages {
+          padding-bottom: calc(var(--footer-h) + 16px);
         }
 
         .chat-container {
-          height: -webkit-fill-available;
+          border-radius: 0;
+          max-height: var(--vh);
         }
 
-        /* Prevent zoom on input focus */
-        input,
-        textarea {
-          font-size: 16px !important;
-          -webkit-appearance: none;
-          appearance: none;
-        }
-      }
-
-      /* Smooth scrolling for chat messages */
-      .chat-messages {
-        -webkit-overflow-scrolling: touch;
-        overscroll-behavior: contain;
-      }
-
-      /* Hide scrollbars */
-      .hide-scrollbar::-webkit-scrollbar {
-        display: none;
-      }
-      .hide-scrollbar {
-        -ms-overflow-style: none;
-        scrollbar-width: none;
-      }
-
-      /* Animations */
-      @keyframes slideIn {
-        from {
-          opacity: 0;
-          transform: translateY(10px);
-        }
-        to {
-          opacity: 1;
-          transform: translateY(0);
-        }
-      }
-
-      @keyframes typing {
-        0%,
-        60%,
-        100% {
-          transform: translateY(0);
-          opacity: 0.5;
-        }
-        30% {
-          transform: translateY(-10px);
-          opacity: 1;
-        }
-      }
-
-      /* Mobile touch optimizations */
-      @media (max-width: 768px) {
         body {
-          -webkit-user-select: none;
-          user-select: none;
           -webkit-touch-callout: none;
           -webkit-tap-highlight-color: transparent;
         }
 
-        /* Allow text selection in messages and input */
         .message-content,
-        .chat-input {
-          -webkit-user-select: text;
-          user-select: text;
-        }
+        .chat-input { -webkit-user-select: text; user-select: text; }
+      }
 
-        /* Touch feedback for buttons */
-        .touch-button:active {
-          transform: scale(0.95);
-          transition: transform 0.1s ease;
-        }
-
-        /* Ensure chat container takes full viewport on mobile */
-        .chat-container {
-          border-radius: 0;
-          max-height: var(--viewport-height);
-        }
+      /* Smooth slide-in + typing dot anim */
+      @keyframes slideIn {
+        from { opacity: 0; transform: translateY(10px); }
+        to { opacity: 1; transform: translateY(0); }
+      }
+      @keyframes typing {
+        0%, 60%, 100% { transform: translateY(0); opacity: 0.5; }
+        30% { transform: translateY(-10px); opacity: 1; }
       }
     </style>
   </head>
   <body>
-    <!-- Main chat container using flexbox with dvh for modern viewport handling -->
-    <div
-      class="chat-container flex flex-col h-dvh max-w-full bg-white md:rounded-lg md:shadow-xl overflow-hidden relative"
-    >
-      <!-- Header: sticky at the top with gradient background -->
+    <!-- Main chat container -->
+    <div class="chat-container flex flex-col md:rounded-lg md:shadow-xl overflow-hidden">
+      <!-- Header -->
       <header
-        class="chat-header bg-gradient-to-br from-iuea-red to-iuea-red-dark text-white p-4 md:p-5 flex items-center gap-3 md:rounded-t-xl shadow-lg flex-shrink-0 sticky top-0 z-20"
+        class="bg-gradient-to-br from-iuea-red to-iuea-red-dark text-white p-4 md:p-5 flex items-center gap-3 md:rounded-t-xl shadow-lg flex-shrink-0 sticky top-0 z-20"
       >
         <div
-          class="avatar w-10 h-10 rounded-full bg-white/20 flex items-center justify-center font-bold text-lg text-white"
+          class="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center font-bold text-lg text-white"
         >
           <i class="fas fa-comment-dots text-xl"></i>
         </div>
-        <div class="header-info flex-1 min-w-0">
-          <h3 class="text-base md:text-lg font-semibold mb-0.5 truncate">
-            Miryam
-          </h3>
-          <p class="text-xs md:text-sm opacity-90 truncate">
-            IUEA Admissions Assistant
-          </p>
+        <div class="flex-1 min-w-0">
+          <h3 class="text-base md:text-lg font-semibold mb-0.5 truncate">Miryam</h3>
+          <p class="text-xs md:text-sm opacity-90 truncate">IUEA Admissions Assistant</p>
         </div>
-        <div
-          class="status-indicator w-2 h-2 bg-green-500 rounded-full animate-pulse flex-shrink-0"
-          id="statusIndicator"
-        ></div>
+        <div class="w-2 h-2 bg-green-500 rounded-full animate-pulse flex-shrink-0" id="statusIndicator"></div>
         <button
-          class="close-button touch-button w-10 h-10 border-0 bg-white/10 hover:bg-white/20 text-white rounded-full cursor-pointer flex items-center justify-center transition-all duration-200 hover:scale-110 flex-shrink-0"
-          id="closeButton"
-          aria-label="Close chat"
+          class="w-10 h-10 bg-white/10 hover:bg-white/20 text-white rounded-full flex items-center justify-center transition-all duration-200 hover:scale-110 flex-shrink-0"
+          id="closeButton" aria-label="Close chat"
         >
-          <svg
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            class="w-4 h-4"
-          >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="w-4 h-4">
             <line x1="18" y1="6" x2="6" y2="18"></line>
             <line x1="6" y1="6" x2="18" y2="18"></line>
           </svg>
         </button>
       </header>
 
-      <!-- Chat messages: flex-1 takes remaining space, scrollable -->
+      <!-- Messages (scrolls) -->
       <main
-        class="chat-messages flex-1 overflow-y-auto p-4 md:p-5 flex flex-col gap-4 scroll-smooth hide-scrollbar min-h-0"
         id="chatMessages"
+        class="flex-1 overflow-y-auto p-4 md:p-5 flex flex-col gap-4 scroll-smooth hide-scrollbar min-h-0"
       >
+        <!-- SUGGESTIONS (kept) -->
         <div class="welcome-message text-center p-5 text-slate-500 text-sm">
-          <p class="mb-4">
-            🤖 Hello! I'm Miryam, your IUEA admissions assistant. How can I help
-            you today?
-          </p>
-          <div class="suggestion-buttons flex flex-col gap-3 mt-4 md:gap-2">
+          <p class="mb-4">🤖 Hello! I'm Miryam, your IUEA admissions assistant. How can I help you today?</p>
+          <div class="flex flex-col gap-3 mt-4 md:gap-2">
             <button
-              class="suggestion-button touch-button bg-white border border-iuea-red text-iuea-red py-3 px-4 rounded-full text-sm cursor-pointer transition-all duration-200 text-center hover:bg-iuea-red hover:text-white hover:-translate-y-0.5 active:scale-95"
+              class="bg-white border border-iuea-red text-iuea-red py-3 px-4 rounded-full text-sm hover:bg-iuea-red hover:text-white transition-all"
               onclick="window.chatbot.sendSuggestion('What programs do you offer?')"
             >
               What programs do you offer?
             </button>
             <button
-              class="suggestion-button touch-button bg-white border border-iuea-red text-iuea-red py-3 px-4 rounded-full text-sm cursor-pointer transition-all duration-200 text-center hover:bg-iuea-red hover:text-white hover:-translate-y-0.5 active:scale-95"
+              class="bg-white border border-iuea-red text-iuea-red py-3 px-4 rounded-full text-sm hover:bg-iuea-red hover:text-white transition-all"
               onclick="window.chatbot.sendSuggestion('How much are the tuition fees?')"
             >
               How much are the tuition fees?
             </button>
             <button
-              class="suggestion-button touch-button bg-white border border-iuea-red text-iuea-red py-3 px-4 rounded-full text-sm cursor-pointer transition-all duration-200 text-center hover:bg-iuea-red hover:text-white hover:-translate-y-0.5 active:scale-95"
+              class="bg-white border border-iuea-red text-iuea-red py-3 px-4 rounded-full text-sm hover:bg-iuea-red hover:text-white transition-all"
               onclick="window.chatbot.sendSuggestion('How can I apply?')"
             >
               How can I apply?
@@ -232,33 +183,26 @@
         </div>
       </main>
 
-      <!-- Input area: sticky bottom with safe-area support -->
+      <!-- Input (fixed on mobile, sticky desktop) -->
       <footer
-        class="chat-input-container sticky bottom-0 p-4 md:p-5 border-t border-slate-200 bg-white z-30 flex-shrink-0 safe-bottom shadow-lg md:shadow-none"
+        class="chat-input-container p-4 md:p-5 border-t border-slate-200 bg-white z-30 safe-bottom"
+        id="chatFooter"
       >
         <div
           class="chat-input-wrapper flex gap-2 items-end bg-slate-50 rounded-3xl p-2 border border-slate-200 transition-all duration-200 focus-within:border-iuea-red focus-within:shadow-sm focus-within:shadow-iuea-red/10"
         >
           <textarea
-            class="chat-input flex-1 border-0 outline-none bg-transparent py-2 px-3 text-base resize-none max-h-24 md:max-h-32 min-h-[20px] font-inherit leading-5 overflow-y-auto rounded-2xl placeholder:text-slate-500"
+            class="chat-input flex-1 border-0 outline-none bg-transparent py-2 px-3 text-base resize-none max-h-24 md:max-h-32 min-h-[20px] leading-5 overflow-y-auto rounded-2xl placeholder:text-slate-500"
             id="messageInput"
             placeholder="Type your message..."
             rows="1"
           ></textarea>
           <button
-            class="send-button touch-button w-10 h-10 md:w-11 md:h-11 rounded-full border-0 bg-iuea-red text-white cursor-pointer flex items-center justify-center transition-all duration-200 flex-shrink-0 disabled:bg-slate-300 disabled:cursor-not-allowed hover:enabled:bg-iuea-red-dark hover:enabled:scale-105 active:scale-95"
+            class="w-10 h-10 md:w-11 md:h-11 rounded-full border-0 bg-iuea-red text-white flex items-center justify-center transition-all duration-200 flex-shrink-0 disabled:bg-slate-300 disabled:cursor-not-allowed hover:enabled:bg-iuea-red-dark hover:enabled:scale-105 active:scale-95"
             id="sendButton"
             disabled
           >
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              class="w-4 h-4"
-            >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="w-4 h-4">
               <line x1="22" y1="2" x2="11" y2="13"></line>
               <polygon points="22,2 15,22 11,13 2,9"></polygon>
             </svg>
@@ -280,114 +224,57 @@
           this.chatMessages = document.getElementById("chatMessages");
           this.statusIndicator = document.getElementById("statusIndicator");
           this.closeButton = document.getElementById("closeButton");
+          this.chatFooter = document.getElementById("chatFooter");
 
           this.init();
         }
 
         getApiUrl() {
-          // Try to get API URL from URL params first
+          // Get from query param if provided by WordPress wrapper
           const urlParams = new URLSearchParams(window.location.search);
           const apiUrl = urlParams.get("apiUrl");
+          if (apiUrl) return apiUrl;
 
-          if (apiUrl) {
-            return apiUrl;
-          }
-
-          // Auto-detect from current page origin
-          const origin = window.location.origin;
-          return `${origin}/api/chatbot`;
+          // Fallback to same-origin default
+          return `${window.location.origin}/api/chatbot`;
         }
 
         async init() {
           this.setupEventListeners();
           await this.initializeChat();
           this.messageInput.focus();
-
-          // Enhanced mobile viewport handling
-          this.setupMobileViewportHandling();
+          this.setupViewportFixes();     // <-- mobile keyboard/URL bar handling
+          this.measureFooter();          // <-- compute --footer-h
         }
 
-        setupMobileViewportHandling() {
-          // Modern approach using Visual Viewport API for better mobile keyboard handling
-          if (window.visualViewport) {
-            let initialHeight = window.visualViewport.height;
-
-            const handleViewportChange = () => {
-              const currentHeight = window.visualViewport.height;
-              const keyboardHeight = initialHeight - currentHeight;
-              const isKeyboardVisible = keyboardHeight > 100;
-
-              if (isKeyboardVisible) {
-                // Keyboard is visible - adjust container to fit viewport
-                document.documentElement.style.setProperty(
-                  "--viewport-height",
-                  `${currentHeight}px`
-                );
-                this.chatMessages.style.paddingBottom = "1rem";
-
-                // Ensure messages stay scrolled to bottom
-                requestAnimationFrame(() => {
-                  this.scrollToBottom();
-                });
-              } else {
-                // Keyboard hidden - reset to full height
-                document.documentElement.style.setProperty(
-                  "--viewport-height",
-                  "100dvh"
-                );
-                this.chatMessages.style.paddingBottom = "";
-              }
-            };
-
-            // Listen for viewport changes
-            window.visualViewport.addEventListener(
-              "resize",
-              handleViewportChange
-            );
-
-            // Initial setup
-            document.documentElement.style.setProperty(
-              "--viewport-height",
-              "100dvh"
-            );
-          }
-
-          // Fallback for older browsers
-          let lastHeight = window.innerHeight;
-          const handleResize = () => {
-            const currentHeight = window.innerHeight;
-            const heightDiff = lastHeight - currentHeight;
-
-            if (heightDiff > 100) {
-              // Keyboard likely visible
-              document.documentElement.style.setProperty(
-                "--viewport-height",
-                `${currentHeight}px`
-              );
-            } else if (heightDiff < -50) {
-              // Keyboard likely hidden
-              document.documentElement.style.setProperty(
-                "--viewport-height",
-                "100dvh"
-              );
-            }
-
-            lastHeight = currentHeight;
+        setupViewportFixes() {
+          const setVH = () => {
+            const h = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+            document.documentElement.style.setProperty("--vh", h + "px");
           };
 
-          window.addEventListener("resize", handleResize);
+          setVH();
+          window.addEventListener("resize", setVH);
+          window.addEventListener("orientationchange", () => setTimeout(setVH, 300));
 
-          // Handle orientation changes
-          window.addEventListener("orientationchange", () => {
-            setTimeout(() => {
-              document.documentElement.style.setProperty(
-                "--viewport-height",
-                "100dvh"
-              );
-              lastHeight = window.innerHeight;
+          if (window.visualViewport) {
+            window.visualViewport.addEventListener("resize", () => {
+              setVH();
+              // keep latest messages in view when keyboard toggles
               this.scrollToBottom();
-            }, 500);
-          });
+            }, { passive: true });
+          }
+        }
+
+        measureFooter() {
+          const update = () => {
+            const footerH = this.chatFooter ? this.chatFooter.offsetHeight : 72;
+            document.documentElement.style.setProperty("--footer-h", footerH + "px");
+          };
+          update();
+          window.addEventListener("resize", update);
+          // re-measure when textarea grows/shrinks
+          new ResizeObserver(update).observe(this.chatFooter);
         }
 
         setupEventListeners() {
@@ -405,56 +292,37 @@
             this.updateSendButton();
           });
 
-          // Enhanced mobile focus handling for better keyboard UX
+          // Keep header/content visible on focus (no page scroll jump)
           this.messageInput.addEventListener("focus", () => {
-            // Smooth scroll to ensure input visibility
-            setTimeout(() => {
-              this.messageInput.scrollIntoView({
-                behavior: "smooth",
-                block: "end",
-              });
-              this.scrollToBottom();
-            }, 300);
-          });
-
-          this.messageInput.addEventListener("blur", () => {
-            // Small delay to allow for input switching
-            setTimeout(() => {
-              this.scrollToBottom();
-            }, 100);
-          });
-
-          // Close button functionality
-          this.closeButton.addEventListener("click", () => {
-            this.closeChat();
-          });
-
-          // Handle escape key to close chat
-          document.addEventListener("keydown", (e) => {
-            if (e.key === "Escape") {
-              this.closeChat();
-            }
-          });
-
-          // Auto-resize textarea
-          this.autoResize();
-        }
-
-        autoResize() {
-          // Reset height to get accurate scrollHeight
-          this.messageInput.style.height = "auto";
-
-          // Calculate new height based on content
-          const maxHeight = 120; // Consistent max height
-          const newHeight = Math.min(this.messageInput.scrollHeight, maxHeight);
-          this.messageInput.style.height = newHeight + "px";
-
-          // Ensure input visibility after resize
-          if (document.activeElement === this.messageInput) {
             setTimeout(() => {
               this.scrollToBottom();
             }, 50);
-          }
+          });
+
+          this.messageInput.addEventListener("blur", () => {
+            setTimeout(() => {
+              this.scrollToBottom();
+            }, 50);
+          });
+
+          this.closeButton.addEventListener("click", () => this.closeChat());
+
+          document.addEventListener("keydown", (e) => {
+            if (e.key === "Escape") this.closeChat();
+          });
+
+          // Init textarea size & button state
+          this.autoResize();
+          this.updateSendButton();
+        }
+
+        autoResize() {
+          const el = this.messageInput;
+          el.style.height = "auto";
+          const max = 120;
+          el.style.height = Math.min(el.scrollHeight, max) + "px";
+          // footer height changed, re-measure reserved space
+          this.measureFooter();
         }
 
         updateSendButton() {
@@ -466,9 +334,7 @@
           try {
             const response = await fetch(`${this.apiUrl}/init`, {
               method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-              },
+              headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
                 userInfo: {
                   userAgent: navigator.userAgent,
@@ -477,22 +343,14 @@
                 },
               }),
             });
-
             const data = await response.json();
+            if (!data.success) throw new Error(data.error || "Failed to initialize chat");
 
-            if (data.success) {
-              this.sessionId = data.sessionId;
-              // Don't add the AI's welcome message - keep the HTML welcome with suggestions
-              // this.addMessage(data.message, false);
-              this.setConnectionStatus(true);
-            } else {
-              throw new Error(data.error || "Failed to initialize chat");
-            }
-          } catch (error) {
-            console.error("Error initializing chat:", error);
-            this.showError(
-              "Failed to connect to chat service. Please refresh the page and try again."
-            );
+            this.sessionId = data.sessionId;
+            this.setConnectionStatus(true);
+          } catch (err) {
+            console.error("Error initializing chat:", err);
+            this.showError("Failed to connect to chat service. Please refresh the page and try again.");
             this.setConnectionStatus(false);
           }
         }
@@ -501,129 +359,97 @@
           const message = this.messageInput.value.trim();
           if (!message || this.isTyping || !this.sessionId) return;
 
-          // Add user message to UI
+          // UI: user bubble
           this.addMessage(message, true);
           this.messageInput.value = "";
           this.autoResize();
           this.updateSendButton();
 
-          // Show typing indicator
+          // typing indicator
           this.showTypingIndicator();
 
           try {
             const response = await fetch(`${this.apiUrl}/message`, {
               method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-              },
+              headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
                 sessionId: this.sessionId,
-                message: message,
-                userInfo: {
-                  timestamp: new Date().toISOString(),
-                },
+                message,
+                userInfo: { timestamp: new Date().toISOString() },
               }),
             });
-
             const data = await response.json();
+            this.hideTypingIndicator();
 
-            if (data.success) {
-              // Hide typing indicator
-              this.hideTypingIndicator();
+            if (!data.success) throw new Error(data.error || "Failed to send message");
 
-              // Add AI response
-              this.addMessage(data.response, false);
-
-              this.setConnectionStatus(true);
-            } else {
-              throw new Error(data.error || "Failed to send message");
-            }
-          } catch (error) {
-            console.error("Error sending message:", error);
+            // UI: AI response
+            this.addMessage(data.response, false);
+            this.setConnectionStatus(true);
+          } catch (err) {
+            console.error("Error sending message:", err);
             this.hideTypingIndicator();
             this.showError("Failed to send message. Please try again.");
             this.setConnectionStatus(false);
           }
         }
 
-        sendSuggestion(suggestionText) {
-          this.messageInput.value = suggestionText;
+        sendSuggestion(text) {
+          this.messageInput.value = text;
           this.sendMessage();
         }
 
         addMessage(content, isUser) {
-          const messageDiv = document.createElement("div");
-          messageDiv.className = `message flex items-start gap-2 max-w-[85%] animate-[slideIn_0.3s_ease-out] ${
-            isUser
-              ? "self-end flex-row-reverse max-w-[90%] md:max-w-[85%]"
-              : "self-start"
+          const wrap = document.createElement("div");
+          wrap.className = `message flex items-start gap-2 max-w-[85%] animate-[slideIn_0.3s_ease-out] ${
+            isUser ? "self-end flex-row-reverse max-w-[90%] md:max-w-[85%]" : "self-start"
           }`;
 
-          const messageContent = document.createElement("div");
-          messageContent.className = `message-content py-3 px-4 rounded-2xl text-sm leading-5 break-words ${
+          const bubble = document.createElement("div");
+          bubble.className = `message-content py-3 px-4 rounded-2xl text-sm leading-5 break-words ${
             isUser ? "bg-iuea-red text-white" : "bg-slate-100 text-slate-800"
           }`;
 
-          // Convert URLs, emails, and phone numbers to clickable links
-          let processedContent = content;
-
-          // Simple URL conversion - make URLs clickable
-          processedContent = processedContent.replace(
-            /https?:\/\/[^\s<>]+/g,
-            function (url) {
-              const linkClass = isUser
-                ? "text-white underline cursor-pointer hover:text-gray-200 hover:bg-white/20 transition-all duration-200 rounded px-1 py-0.5 -mx-1 -my-0.5 inline-block"
-                : "text-red-600 underline cursor-pointer hover:text-red-800 hover:bg-red-50 transition-all duration-200 rounded px-1 py-0.5 -mx-1 -my-0.5 inline-block hover:-translate-y-0.5";
-              return `<a href="#" onclick="openExternalLink('${url}'); return false;" class="${linkClass}" title="Click to open ${url}">${url}</a>`;
+          let processed = content;
+          // URLs
+          processed = processed.replace(/https?:\/\/[^\s<>]+/g, (url) => {
+            const cls = isUser
+              ? "text-white underline hover:text-gray-200 hover:bg-white/20 rounded px-1 py-0.5 -mx-1 -my-0.5 inline-block"
+              : "text-red-600 underline hover:text-red-800 hover:bg-red-50 rounded px-1 py-0.5 -mx-1 -my-0.5 inline-block";
+            return `<a href="#" onclick="openExternalLink('${url}'); return false;" class="${cls}" title="Open ${url}">${url}</a>`;
+          });
+          // Emails
+          processed = processed.replace(
+            /([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/g,
+            (email) => {
+              const cls = isUser
+                ? "text-white underline hover:text-gray-200 hover:bg-white/20 rounded px-1 py-0.5 -mx-1 -my-0.5 inline-block"
+                : "underline hover:bg-slate-200 rounded px-1 py-0.5 -mx-1 -my-0.5 inline-block";
+              return `<a href="#" onclick="openExternalLink('mailto:${email}'); return false;" class="${cls}" title="Email ${email}">${email}</a>`;
             }
           );
-
-          // Convert email addresses to clickable mailto links
-          const emailRegex =
-            /([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/g;
-          processedContent = processedContent.replace(
-            emailRegex,
-            function (email) {
-              const linkClass = isUser
-                ? "text-white underline cursor-pointer hover:text-gray-200 hover:bg-white/20 transition-all duration-200 rounded px-1 py-0.5 -mx-1 -my-0.5 inline-block"
-                : "text-inherit underline cursor-pointer hover:bg-slate-200 transition-all duration-200 rounded px-1 py-0.5 -mx-1 -my-0.5 inline-block";
-              return `<a href="#" onclick="openExternalLink('mailto:${email}'); return false;" class="${linkClass}" title="Click to email ${email}">${email}</a>`;
-            }
-          );
-
-          // Convert phone numbers to clickable tel links
-          const phoneRegex = /(\+?\d{10,15})/g;
-          processedContent = processedContent.replace(
-            phoneRegex,
-            function (phone) {
-              const linkClass = isUser
-                ? "text-white underline cursor-pointer hover:text-gray-200 hover:bg-white/20 transition-all duration-200 rounded px-1 py-0.5 -mx-1 -my-0.5 inline-block"
-                : "text-inherit underline cursor-pointer hover:bg-slate-200 transition-all duration-200 rounded px-1 py-0.5 -mx-1 -my-0.5 inline-block";
-              return `<a href="#" onclick="openExternalLink('tel:${phone}'); return false;" class="${linkClass}" title="Click to call ${phone}">${phone}</a>`;
-            }
-          );
-
-          messageContent.innerHTML = processedContent;
-
-          const messageTime = document.createElement("div");
-          messageTime.className =
-            "message-time text-xs text-slate-500 mt-1 text-center";
-          messageTime.textContent = new Date().toLocaleTimeString([], {
-            hour: "2-digit",
-            minute: "2-digit",
+          // Phones
+          processed = processed.replace(/(\+?\d{10,15})/g, (phone) => {
+            const cls = isUser
+              ? "text-white underline hover:text-gray-200 hover:bg-white/20 rounded px-1 py-0.5 -mx-1 -my-0.5 inline-block"
+              : "underline hover:bg-slate-200 rounded px-1 py-0.5 -mx-1 -my-0.5 inline-block";
+            return `<a href="#" onclick="openExternalLink('tel:${phone}'); return false;" class="${cls}" title="Call ${phone}">${phone}</a>`;
           });
 
-          messageDiv.appendChild(messageContent);
-          messageDiv.appendChild(messageTime);
+          bubble.innerHTML = processed;
 
-          // Remove welcome message if it exists
-          const welcomeMessage =
-            this.chatMessages.querySelector(".welcome-message");
-          if (welcomeMessage) {
-            welcomeMessage.remove();
-          }
+          const time = document.createElement("div");
+          time.className = "text-xs text-slate-500 mt-1 text-center";
+          time.textContent = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
-          this.chatMessages.appendChild(messageDiv);
+          wrap.appendChild(bubble);
+          wrap.appendChild(time);
+
+          // remove welcome once first message appears
+          const welcome = this.chatMessages.querySelector(".welcome-message");
+          if (welcome) welcome.remove();
+
+          this.chatMessages.appendChild(wrap);
           this.scrollToBottom();
         }
 
@@ -631,242 +457,145 @@
           this.isTyping = true;
           this.updateSendButton();
 
-          const typingDiv = document.createElement("div");
-          typingDiv.className =
-            "typing-indicator flex items-center gap-2 py-3 px-4 bg-slate-100 rounded-2xl max-w-[85%] mb-4";
-          typingDiv.id = "typingIndicator";
-
-          typingDiv.innerHTML = `
-                    <div class="typing-dots flex gap-0.5">
-                        <span class="w-1.5 h-1.5 bg-slate-500 rounded-full animate-[typing_1.4s_infinite]"></span>
-                        <span class="w-1.5 h-1.5 bg-slate-500 rounded-full animate-[typing_1.4s_infinite] [animation-delay:0.2s]"></span>
-                        <span class="w-1.5 h-1.5 bg-slate-500 rounded-full animate-[typing_1.4s_infinite] [animation-delay:0.4s]"></span>
-                    </div>
-                    <span class="text-xs text-slate-500 ml-2">Miryam is typing...</span>
-                `;
-
-          this.chatMessages.appendChild(typingDiv);
+          const typing = document.createElement("div");
+          typing.id = "typingIndicator";
+          typing.className = "flex items-center gap-2 py-3 px-4 bg-slate-100 rounded-2xl max-w-[85%] mb-4";
+          typing.innerHTML = `
+            <div class="flex gap-0.5">
+              <span class="w-1.5 h-1.5 bg-slate-500 rounded-full animate-[typing_1.4s_infinite]"></span>
+              <span class="w-1.5 h-1.5 bg-slate-500 rounded-full animate-[typing_1.4s_infinite] [animation-delay:0.2s]"></span>
+              <span class="w-1.5 h-1.5 bg-slate-500 rounded-full animate-[typing_1.4s_infinite] [animation-delay:0.4s]"></span>
+            </div>
+            <span class="text-xs text-slate-500 ml-2">Miryam is typing...</span>
+          `;
+          this.chatMessages.appendChild(typing);
           this.scrollToBottom();
         }
 
         hideTypingIndicator() {
           this.isTyping = false;
           this.updateSendButton();
-
-          const typingIndicator = document.getElementById("typingIndicator");
-          if (typingIndicator) {
-            typingIndicator.remove();
-          }
+          const el = document.getElementById("typingIndicator");
+          if (el) el.remove();
         }
 
-        showError(message) {
-          const errorDiv = document.createElement("div");
-          errorDiv.className =
+        showError(msg) {
+          const div = document.createElement("div");
+          div.className =
             "error-message bg-red-50 border border-red-200 text-red-600 py-3 px-4 rounded-lg mx-4 my-4 text-sm text-center";
-          errorDiv.textContent = message;
-
-          // Remove existing error messages
-          const existingErrors = document.querySelectorAll(".error-message");
-          existingErrors.forEach((error) => error.remove());
-
-          this.chatMessages.appendChild(errorDiv);
+          div.textContent = msg;
+          document.querySelectorAll(".error-message").forEach((e) => e.remove());
+          this.chatMessages.appendChild(div);
           this.scrollToBottom();
-
-          // Auto-remove error after 5 seconds
-          setTimeout(() => {
-            if (errorDiv.parentNode) {
-              errorDiv.remove();
-            }
-          }, 5000);
+          setTimeout(() => { if (div.parentNode) div.remove(); }, 5000);
         }
 
-        setConnectionStatus(connected) {
-          this.isConnected = connected;
-          this.statusIndicator.className = `status-indicator w-2 h-2 rounded-full animate-pulse ${
-            connected ? "bg-green-500" : "bg-red-500"
-          }`;
+        setConnectionStatus(ok) {
+          this.isConnected = ok;
+          this.statusIndicator.className =
+            "w-2 h-2 rounded-full animate-pulse " + (ok ? "bg-green-500" : "bg-red-500");
         }
 
         scrollToBottom() {
+          // small delay for layout to settle (textarea resize, footer measure, etc.)
           setTimeout(() => {
             this.chatMessages.scrollTop = this.chatMessages.scrollHeight;
-          }, 100);
+          }, 60);
         }
 
         closeChat() {
-          // Send message to parent window to close the chat
           if (window.parent !== window) {
             window.parent.postMessage({ type: "closeChat" }, "*");
           }
         }
       }
 
-      // Function to handle external links in cross-origin environment
+      // External link helper (kept for WordPress wrapper to intercept)
       function openExternalLink(url) {
-        console.log("Attempting to open external link:", url);
-
         try {
-          // First, always try to communicate with parent window
           if (window.parent && window.parent !== window) {
-            window.parent.postMessage(
-              {
-                type: "openUrl",
-                url: url,
-              },
-              "*"
-            );
-            console.log("Sent openUrl message to parent");
-
-            // Also try opening directly as a backup after a short delay
-            setTimeout(() => {
-              // Show user-friendly popup as fallback since direct opening might be blocked
-              console.log("Showing fallback popup for external link");
-              showLinkPopup(url);
-            }, 1000);
-
-            return; // Let parent handle it primarily
+            window.parent.postMessage({ type: "openUrl", url }, "*");
+            setTimeout(() => showLinkPopup(url), 800);
+            return;
           }
-
-          // If no parent window detected, show the popup immediately
-          console.log("No parent window detected, showing link popup");
           showLinkPopup(url);
-        } catch (error) {
-          console.error("Error in openExternalLink:", error);
-          // Always fall back to popup
+        } catch (e) {
+          console.error(e);
           showLinkPopup(url);
         }
       }
 
-      // Function to show a user-friendly link popup
       function showLinkPopup(url) {
-        // Remove any existing popup
-        const existingPopup = document.querySelector(".link-popup");
-        const existingOverlay = document.querySelector(".popup-overlay");
-        if (existingPopup) existingPopup.remove();
-        if (existingOverlay) existingOverlay.remove();
+        document.querySelector(".link-popup")?.remove();
+        document.querySelector(".popup-overlay")?.remove();
 
-        // Create overlay
         const overlay = document.createElement("div");
         overlay.className = "popup-overlay fixed inset-0 bg-black/50 z-[9999]";
-
-        // Create popup
         const popup = document.createElement("div");
         popup.className =
-          "link-popup fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-white border-2 border-iuea-red rounded-xl p-5 shadow-2xl z-[10000] max-w-sm w-[90%] md:w-[400px] font-inherit max-h-[80vh] overflow-y-auto";
+          "link-popup fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-white border-2 border-iuea-red rounded-xl p-5 shadow-2xl z-[10000] max-w-sm w-[90%] md:w-[400px] font-inherit max-h-[80vh] overflow-y-auto";
         popup.innerHTML = `
           <h3 class="text-base md:text-lg font-semibold text-iuea-red mb-4">Open Link</h3>
-          <p class="text-sm text-slate-600 mb-3">Click the button below to copy this link, then paste it in a new browser tab:</p>
-          <div class="link-url bg-slate-50 border border-slate-200 rounded-md p-3 my-3 break-all text-xs md:text-sm text-slate-800">${url}</div>
-          <div class="popup-buttons flex gap-3 mt-4">
-            <button class="copy-btn flex-1 py-2 px-4 border-0 rounded-md cursor-pointer text-sm font-medium transition-all duration-200 bg-iuea-red text-white hover:bg-iuea-red-dark" onclick="copyLinkAndClose('${url}')">Copy Link</button>
-            <button class="close-btn flex-1 py-2 px-4 border-0 rounded-md cursor-pointer text-sm font-medium transition-all duration-200 bg-slate-100 text-slate-600 hover:bg-slate-200" onclick="closeLinkPopup()">Close</button>
+          <p class="text-sm text-slate-600 mb-3">Click to copy, then paste in a new tab:</p>
+          <div class="bg-slate-50 border border-slate-200 rounded-md p-3 my-3 break-all text-xs md:text-sm text-slate-800">${url}</div>
+          <div class="flex gap-3 mt-4">
+            <button class="copy-btn flex-1 py-2 px-4 rounded-md text-sm bg-iuea-red text-white hover:bg-iuea-red-dark">Copy Link</button>
+            <button class="close-btn flex-1 py-2 px-4 rounded-md text-sm bg-slate-100 text-slate-600 hover:bg-slate-200">Close</button>
           </div>
         `;
-
-        // Add to document
         document.body.appendChild(overlay);
         document.body.appendChild(popup);
 
-        // Close on overlay click
         overlay.addEventListener("click", closeLinkPopup);
+        popup.querySelector(".close-btn").addEventListener("click", closeLinkPopup);
+        popup.querySelector(".copy-btn").addEventListener("click", () => copyLinkAndClose(url));
       }
 
-      // Function to copy link and close popup
       function copyLinkAndClose(url) {
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-          navigator.clipboard
-            .writeText(url)
-            .then(() => {
-              // Copy link and show success feedback
-              const copyBtn = document.querySelector(".copy-btn");
-              if (copyBtn) {
-                const originalText = copyBtn.textContent;
-                copyBtn.textContent = "Copied!";
-                copyBtn.className = copyBtn.className.replace(
-                  "bg-iuea-red hover:bg-iuea-red-dark",
-                  "bg-green-500"
-                );
-
-                setTimeout(() => {
-                  closeLinkPopup();
-                }, 1000);
-              }
-            })
-            .catch(() => {
-              // Fallback to selection method
-              copyViaSelection(url);
-            });
+        if (navigator.clipboard?.writeText) {
+          navigator.clipboard.writeText(url).then(() => {
+            const btn = document.querySelector(".copy-btn");
+            if (btn) {
+              btn.textContent = "Copied!";
+              btn.classList.add("bg-green-500"); btn.classList.remove("bg-iuea-red");
+            }
+            setTimeout(closeLinkPopup, 800);
+          }).catch(() => copyViaSelection(url));
         } else {
           copyViaSelection(url);
         }
       }
-
-      // Function to copy via text selection fallback
       function copyViaSelection(url) {
-        const textArea = document.createElement("textarea");
-        textArea.value = url;
-        textArea.style.position = "absolute";
-        textArea.style.left = "-9999px";
-        document.body.appendChild(textArea);
-        textArea.select();
-
-        try {
-          document.execCommand("copy");
-          const copyBtn = document.querySelector(".copy-btn");
-          if (copyBtn) {
-            copyBtn.textContent = "Copied!";
-            copyBtn.className = copyBtn.className.replace(
-              "bg-iuea-red hover:bg-iuea-red-dark",
-              "bg-green-500"
-            );
-          }
-          setTimeout(closeLinkPopup, 1000);
-        } catch (err) {
-          alert("Please manually copy this link: " + url);
-          closeLinkPopup();
-        } finally {
-          document.body.removeChild(textArea);
-        }
+        const ta = document.createElement("textarea");
+        ta.value = url; ta.style.position = "absolute"; ta.style.left = "-9999px";
+        document.body.appendChild(ta); ta.select();
+        try { document.execCommand("copy"); } catch {}
+        document.body.removeChild(ta);
+        closeLinkPopup();
       }
-
-      // Function to close link popup
       function closeLinkPopup() {
-        const popup = document.querySelector(".link-popup");
-        const overlay = document.querySelector(".popup-overlay");
-        if (popup) popup.remove();
-        if (overlay) overlay.remove();
+        document.querySelector(".link-popup")?.remove();
+        document.querySelector(".popup-overlay")?.remove();
       }
 
-      // Initialize chatbot when DOM is ready
+      // Init
       document.addEventListener("DOMContentLoaded", () => {
         window.chatbot = new IUEAChatbot();
       });
 
-      // Update container height using CSS custom property for smooth transitions
+      // Keep CSS var synced with visual viewport too
       if (window.visualViewport) {
-        const updateHeight = () => {
-          document.documentElement.style.setProperty(
-            "--viewport-height",
-            `${window.visualViewport.height}px`
-          );
+        const update = () => {
+          document.documentElement.style.setProperty("--vh", `${window.visualViewport.height}px`);
         };
-
-        window.visualViewport.addEventListener("resize", updateHeight);
-        updateHeight();
+        window.visualViewport.addEventListener("resize", update);
+        update();
       }
-
-      // Handle orientation changes
       window.addEventListener("orientationchange", () => {
         setTimeout(() => {
-          document.documentElement.style.setProperty(
-            "--viewport-height",
-            "100dvh"
-          );
-          const chatMessages = document.getElementById("chatMessages");
-          if (chatMessages && window.chatbot) {
-            window.chatbot.scrollToBottom();
-          }
-        }, 500);
+          document.documentElement.style.setProperty("--vh", "100dvh");
+          window.chatbot?.scrollToBottom();
+        }, 400);
       });
     </script>
   </body>

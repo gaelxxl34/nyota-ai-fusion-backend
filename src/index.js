@@ -65,6 +65,9 @@ function startServer() {
   // Serve static files for chatbot widget
   app.use("/chatbot", express.static(path.join(__dirname, "../public")));
 
+  // Serve demo.html and other public files at root level
+  app.use(express.static(path.join(__dirname, "../public")));
+
   // Middleware
   app.use(
     cors({
@@ -77,22 +80,32 @@ function startServer() {
       credentials: true,
     })
   );
-  // File upload middleware
+  // File upload middleware - only for routes that actually need file uploads
   app.use(
+    /^\/api\/(applications|files|admin|super-admin)/,
     fileUpload({
       limits: { fileSize: 500 * 1024 * 1024 }, // 500MB limit
       useTempFiles: true,
       tempFileDir: "/tmp/",
-      debug: process.env.NODE_ENV === "development",
+      debug: false, // Disable debug to reduce console noise
     })
   );
   // Ensure JSON and URL-encoded middleware are configured correctly for webhooks
   app.use(express.json({ limit: "500mb", strict: false })); // Use strict:false to accept malformed JSON
   app.use(express.urlencoded({ extended: true, limit: "500mb" }));
 
-  // Production logging middleware - only log in development
+  // Production logging middleware - only log important requests, not routine API calls
   if (process.env.NODE_ENV === "development") {
     app.use((req, res, next) => {
+      // Skip logging for noisy routes
+      if (
+        req.path.includes("notifications") ||
+        req.path.includes("__nextjs_original-stack-frames") ||
+        req.path.includes("sse") ||
+        req.path.includes("health")
+      ) {
+        return next();
+      }
       logger.debug(`${req.method} ${req.path}`);
       next();
     });
@@ -284,6 +297,16 @@ function startServer() {
         },
       });
     }
+  });
+
+  // Handle missing notifications endpoint (to prevent frontend 404s)
+  app.get("/api/notifications/sse", (req, res) => {
+    res.status(200).json({ message: "SSE endpoint not implemented yet" });
+  });
+
+  // Handle NextJS stack frame requests (development)
+  app.post("/__nextjs_original-stack-frames", (req, res) => {
+    res.status(200).json({ frames: [] });
   });
 
   // Start server
