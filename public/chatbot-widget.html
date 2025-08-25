@@ -149,6 +149,13 @@
           font-size: 16px !important;
         } /* prevent iOS zoom on focus */
 
+        /* Ensure input field stays visible on mobile */
+        #messageInput:focus {
+          transform: translateY(0);
+          position: relative;
+          z-index: 1000;
+        }
+
         /* Improve touch responsiveness on mobile */
         .chat-messages {
           touch-action: pan-y pinch-zoom;
@@ -490,7 +497,32 @@
 
           // Handle focus/blur for better mobile experience
           this.messageInput.addEventListener("focus", () => {
-            // Small delay to ensure keyboard is shown
+            // Immediate scroll to ensure input is visible
+            setTimeout(() => {
+              this.messageInput.scrollIntoView({
+                behavior: "smooth",
+                block: "center",
+                inline: "nearest",
+              });
+            }, 100);
+
+            // Additional delay for keyboard animation
+            setTimeout(() => {
+              this.messageInput.scrollIntoView({
+                behavior: "smooth",
+                block: "center",
+                inline: "nearest",
+              });
+            }, 300);
+
+            // Final positioning after keyboard settles
+            setTimeout(() => {
+              this.ensureBottomVisible();
+            }, 600);
+          });
+
+          this.messageInput.addEventListener("blur", () => {
+            // Reset scroll position when keyboard disappears
             setTimeout(() => this.ensureBottomVisible(), 300);
           });
 
