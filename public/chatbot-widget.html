@@ -10,61 +10,50 @@
   <script>
     tailwind.config = {
       theme: {
-        extend: {
-          colors: { "iuea-red": "#8b0000", "iuea-red-dark": "#660000" }
-        }
+        extend: { colors: { "iuea-red":"#8b0000", "iuea-red-dark":"#660000" } }
       }
     }
   </script>
 
   <style>
     :root{
-      /* visible viewport height (updated in JS) */
-      --vh: 100dvh;
-      /* footer height (measured) */
-      --footer-h: 72px;
-      /* keyboard/URL bar overlap (computed) */
-      --kb-overlap: 0px;
-      /* safe area */
-      --safe-bottom: 0px;
+      --vh: 100dvh;            /* visible viewport height (updated in JS) */
+      --footer-h: 72px;        /* measured footer height */
+      --kb-overlap: 0px;       /* keyboard/URL bar overlap */
+      --safe-bottom: 0px;      /* notch safe area */
     }
     @supports (height: 100svh) { :root{ --vh: 100svh; } }
     @supports (padding: env(safe-area-inset-bottom)) { :root{ --safe-bottom: env(safe-area-inset-bottom); } }
 
-    /* page */
-    html, body { height:100%; margin:0; padding:0; background:#f8fafc;
+    html, body {
+      height:100%; margin:0; padding:0;
+      background:#f8fafc;
       font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
-      overflow:hidden; -webkit-text-size-adjust:100%;
+      overflow:hidden; /* only messages scroll */
+      -webkit-text-size-adjust:100%;
     }
 
-    /* chat root uses ONLY the visible viewport height */
-    .chat-root{
+    .chat-root {
       height:var(--vh); max-height:var(--vh);
       background:#fff; display:flex; flex-direction:column; overflow:hidden;
     }
 
-    /* header stays pinned inside widget, not page */
-    .chat-header{ position:sticky; top:0; z-index:20; }
+    .chat-header { position:sticky; top:0; z-index:20; }
 
-    /* message list is the ONLY scrollable area */
     .chat-messages{
-      flex:1 1 auto; min-height:0;    /* min-height:0 is CRITICAL to avoid truncation in flex */
+      flex:1 1 auto; min-height:0; /* CRITICAL to avoid truncation in flex */
       overflow-y:auto; overscroll-behavior:contain; -webkit-overflow-scrolling:touch;
-      /* tiny bottom pad on desktop so last line breathes above sticky footer */
-      padding-bottom:12px;
+      padding-bottom:12px; /* desktop breathing room above sticky footer */
     }
     .hide-scrollbar::-webkit-scrollbar{display:none}
     .hide-scrollbar{scrollbar-width:none; -ms-overflow-style:none}
 
-    /* footer: sticky on desktop/tablet (participates in layout) */
     .chat-footer{
-      position:sticky; bottom:0; z-index:30; background:#fff; border-top:1px solid rgb(226 232 240);
-      /* safe area padding for notches (works desktop too; harmless) */
+      position:sticky; bottom:0; z-index:30; background:#fff;
+      border-top:1px solid rgb(226 232 240);
       padding-bottom: calc(1rem + var(--safe-bottom));
     }
 
-    /* MOBILE: footer is fixed and translated by keyboard overlap;
-       message list reserves EXACT space for footer + overlap */
     @media (max-width: 768px){
       .chat-footer{
         position:fixed; left:0; right:0; bottom:0;
@@ -72,14 +61,12 @@
         box-shadow: 0 -4px 16px rgba(0,0,0,.06);
       }
       .chat-messages{
-        /* reserve the footer + keyboard overlap so nothing is hidden/truncated */
         padding-bottom: calc(var(--footer-h) + var(--kb-overlap) + var(--safe-bottom) + 12px);
       }
       .chat-root{ border-radius:0; }
       input, textarea{ font-size:16px !important; } /* prevent iOS zoom */
     }
 
-    /* subtle motion */
     @keyframes slideIn { from{opacity:0; transform:translateY(10px)} to{opacity:1; transform:translateY(0)} }
     @keyframes typing { 0%,60%,100%{transform:translateY(0);opacity:.5} 30%{transform:translateY(-10px);opacity:1} }
   </style>
@@ -116,8 +103,7 @@
             onclick="window.chatbot.sendSuggestion('How can I apply?')">How can I apply?</button>
         </div>
       </div>
-
-      <!-- scroll-to-bottom anchor -->
+      <!-- anchor for fast bottom scroll -->
       <div id="bottomSentinel"></div>
     </main>
 
@@ -137,16 +123,14 @@
   </div>
 
   <script>
-    /* ---------- Cross-device viewport & keyboard handling (iOS + Android + desktop) ---------- */
-    const isMobile = window.matchMedia('(max-width: 768px)');
+    /* ----------------- viewport & keyboard (cross-device) ----------------- */
+    const isMobileMQ = window.matchMedia('(max-width: 768px)');
     const chatFooterEl   = document.getElementById('chatFooter');
     const chatMessagesEl = document.getElementById('chatMessages');
     const bottomSentinel = document.getElementById('bottomSentinel');
 
-    // For older Android fallback when VisualViewport is missing:
-    let baselineInnerHeight = window.innerHeight;
-
-    function setVar(name, val){ document.documentElement.style.setProperty(name, val); }
+    let baselineInnerHeight = window.innerHeight; // Android fallback
+    function setVar(n,v){ document.documentElement.style.setProperty(n, v); }
     function measureFooter(){ setVar('--footer-h', (chatFooterEl?.offsetHeight || 72) + 'px'); }
     function updateVH(){
       const vv = window.visualViewport;
@@ -156,25 +140,40 @@
     function updateKbOverlap(){
       let overlap = 0;
       const vv = window.visualViewport;
-      if (isMobile.matches){
+      if (isMobileMQ.matches){
         if (vv){
-          // robust across iOS/Android
           overlap = window.innerHeight - (vv.height + vv.offsetTop);
         } else {
-          // Android WebView fallback: detect keyboard by innerHeight drop
           const diff = baselineInnerHeight - window.innerHeight;
-          overlap = diff > 80 ? diff : 0; // threshold avoids false positives
+          overlap = diff > 80 ? diff : 0;
         }
       }
       setVar('--kb-overlap', Math.max(0, Math.round(overlap)) + 'px');
     }
-    function scrollToBottom(){
-      // scroll the sentinel into view so we never stop mid-text
-      bottomSentinel?.scrollIntoView({ block: 'end' });
+
+    /* ----------------- smart stick-to-bottom auto-scroll ------------------ */
+    // We only auto-scroll if the user is near the bottom already
+    let stickToBottom = true;
+    const NEAR_BOTTOM_PX = 120;
+
+    function isNearBottom(){
+      const distance = chatMessagesEl.scrollHeight - chatMessagesEl.scrollTop - chatMessagesEl.clientHeight;
+      return distance <= NEAR_BOTTOM_PX;
+    }
+    function updateStickFlag(){
+      // Throttle via rAF to keep scrolling smooth
+      if (updateStickFlag._raf) cancelAnimationFrame(updateStickFlag._raf);
+      updateStickFlag._raf = requestAnimationFrame(()=>{
+        stickToBottom = isNearBottom();
+      });
+    }
+    function scrollToBottom(force=false){
+      if (!force && !stickToBottom) return; // respect user scroll position
+      bottomSentinel?.scrollIntoView({block:'end'});
     }
 
     function wireViewport(){
-      updateVH(); updateKbOverlap(); measureFooter(); scrollToBottom();
+      updateVH(); updateKbOverlap(); measureFooter(); scrollToBottom(true);
 
       window.addEventListener('resize', () => { updateVH(); updateKbOverlap(); measureFooter(); scrollToBottom(); });
       window.addEventListener('orientationchange', () => {
@@ -189,9 +188,12 @@
       if (window.ResizeObserver){
         new ResizeObserver(()=>{ measureFooter(); scrollToBottom(); }).observe(chatFooterEl);
       }
+
+      // Track user scroll to toggle stick-to-bottom
+      chatMessagesEl.addEventListener('scroll', updateStickFlag, {passive:true});
     }
 
-    /* --------------------------------- Chatbot logic --------------------------------- */
+    /* ------------------------------ Chatbot ------------------------------- */
     class IUEAChatbot{
       constructor(){
         this.apiUrl = this.getApiUrl();
@@ -200,48 +202,43 @@
 
         this.messageInput = document.getElementById('messageInput');
         this.sendButton   = document.getElementById('sendButton');
-        this.chatMessages = document.getElementById('chatMessages');
+        this.chatMessages = chatMessagesEl;
         this.statusDot    = document.getElementById('statusIndicator');
         this.closeButton  = document.getElementById('closeButton');
 
         this.init();
       }
-
       getApiUrl(){
         const apiUrl = new URLSearchParams(window.location.search).get('apiUrl');
         return apiUrl || `${window.location.origin}/api/chatbot`;
       }
-
       async init(){
         this.bindEvents();
-        wireViewport();                        // <- keyboard + viewport fix
+        wireViewport();
         await this.initializeChat();
         this.messageInput.focus();
       }
-
       bindEvents(){
         this.sendButton.addEventListener('click', ()=>this.sendMessage());
         this.messageInput.addEventListener('keydown', (e)=>{
           if (e.key === 'Enter' && !e.shiftKey){ e.preventDefault(); this.sendMessage(); }
         });
-        this.messageInput.addEventListener('input', ()=>{
-          this.autoResize(); this.updateSendState();
-        });
-        this.messageInput.addEventListener('focus', scrollToBottom);
-        this.messageInput.addEventListener('blur',  scrollToBottom);
+        this.messageInput.addEventListener('input', ()=>{ this.autoResize(); this.updateSendState(); });
+        this.messageInput.addEventListener('focus', ()=>scrollToBottom());
+        this.messageInput.addEventListener('blur',  ()=>scrollToBottom());
         this.closeButton.addEventListener('click', ()=>this.closeChat());
         document.addEventListener('keydown', (e)=>{ if(e.key==='Escape') this.closeChat(); });
 
         this.autoResize(); this.updateSendState();
       }
-
       autoResize(){
         const el = this.messageInput;
         el.style.height = 'auto';
         el.style.height = Math.min(el.scrollHeight, 140) + 'px';
         measureFooter();
+        // Keep view stable only if user is at the bottom
+        scrollToBottom();
       }
-
       updateSendState(){
         const can = this.messageInput.value.trim().length > 0;
         this.sendButton.disabled = !can || this.isTyping;
@@ -281,7 +278,8 @@
           const d = await r.json();
           this.hideTyping();
           if(!d.success) throw new Error(d.error || 'Send failed');
-          this.addMessage(d.response, false);
+          // Force scroll to bottom for a new incoming message
+          this.addMessage(d.response, false, /*forceScroll*/true);
           this.setOnline(true);
         }catch(e){
           console.error(e);
@@ -293,14 +291,13 @@
 
       sendSuggestion(s){ this.messageInput.value = s; this.sendMessage(); }
 
-      addMessage(content, isUser){
+      addMessage(content, isUser, forceScroll=false){
         const wrap = document.createElement('div');
         wrap.className = `flex items-start gap-2 max-w-[85%] animate-[slideIn_.22s_ease-out] ${isUser?'self-end flex-row-reverse max-w-[90%] md:max-w-[85%]':'self-start'}`;
 
         const bubble = document.createElement('div');
         bubble.className = `py-3 px-4 rounded-2xl text-sm leading-5 break-words ${isUser?'bg-iuea-red text-white':'bg-slate-100 text-slate-800'}`;
 
-        // linkify (urls, emails, phones)
         let html = content;
         html = html.replace(/https?:\/\/[^\s<>]+/g,(u)=>`<a href="#" onclick="openExternalLink('${u}');return false;" class="${isUser?'text-white':'text-red-600'} underline">${u}</a>`);
         html = html.replace(/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/g,(e)=>`<a href="#" onclick="openExternalLink('mailto:${e}');return false;" class="underline">${e}</a>`);
@@ -314,11 +311,11 @@
 
         wrap.appendChild(bubble); wrap.appendChild(time);
 
-        // remove welcome on first message
         this.chatMessages.querySelector('.welcome-message')?.remove();
-
         this.chatMessages.appendChild(wrap);
-        scrollToBottom();
+
+        // Only force when needed (new inbound message). Otherwise respect user position.
+        scrollToBottom(!!forceScroll);
       }
 
       showTyping(){
@@ -334,7 +331,7 @@
           </div>
           <span class="text-xs text-slate-500 ml-2">Miryam is typing...</span>`;
         this.chatMessages.appendChild(el);
-        scrollToBottom();
+        scrollToBottom(); /* only if near bottom */
       }
       hideTyping(){ this.isTyping=false; this.updateSendState(); document.getElementById('typingIndicator')?.remove(); }
 
@@ -344,16 +341,15 @@
         el.className = 'error-message bg-red-50 border border-red-200 text-red-600 py-3 px-4 rounded-lg mx-4 my-4 text-sm text-center';
         el.textContent = msg;
         this.chatMessages.appendChild(el);
-        scrollToBottom();
+        scrollToBottom(); /* only if near bottom */
         setTimeout(()=>el.remove(), 5000);
       }
 
       setOnline(ok){ this.statusDot.className = 'w-2 h-2 rounded-full animate-pulse ' + (ok?'bg-green-500':'bg-red-500'); }
-
       closeChat(){ if (window.parent !== window) window.parent.postMessage({type:'closeChat'}, '*'); }
     }
 
-    // delegate URL opening to WordPress wrapper when possible
+    // Let the WP wrapper open URLs (popups allowed), else fallback
     function openExternalLink(url){
       try{
         if (window.parent && window.parent !== window){
@@ -364,7 +360,6 @@
       window.open(url, '_blank', 'noopener,noreferrer');
     }
 
-    // init
     document.addEventListener('DOMContentLoaded', ()=>{ window.chatbot = new IUEAChatbot(); });
   </script>
 </body>
