@@ -268,6 +268,15 @@ function startServer() {
     logger.warn("Chatbot routes not loaded:", error.message);
   }
 
+  // Meta Conversions API test routes
+  try {
+    const metaTestRoutes = require("./routes/meta-test.routes");
+    app.use("/api/meta", metaTestRoutes);
+    logger.info("Meta Conversions API test routes loaded");
+  } catch (error) {
+    logger.warn("Meta test routes not loaded:", error.message);
+  }
+
   // Health check endpoint
   app.get("/health", async (req, res) => {
     try {

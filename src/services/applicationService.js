@@ -10,6 +10,7 @@ const {
 } = require("../models/application.model");
 
 const { LEAD_STATUSES } = require("../config/lead.constants");
+const metaConversionsApi = require("./metaConversionsApi.service");
 
 class ApplicationService {
   constructor(firestore, leadService, whatsappMessageService, storageService) {
@@ -19,6 +20,7 @@ class ApplicationService {
     this.collection = "applications";
     this.storageService = storageService;
     this.storageBasePath = "applications"; // Base path for application files in storage
+    this.metaConversions = metaConversionsApi;
 
     if (!this.storageService) {
       throw new Error("StorageService is required for ApplicationService");
@@ -1551,6 +1553,45 @@ IUEA Admissions Team`;
           );
           // Don't throw error here as application update was successful
           // We just log the warning that lead sync failed
+        }
+
+        // 🎯 TRACK CONVERSION TO META - This is where the magic happens!
+        try {
+          console.log(
+            `📱 Tracking conversion to Meta for status: ${newStatus}`
+          );
+
+          // Special logging for ENROLLED status (our ultimate goal!)
+          if (newStatus === "ENROLLED") {
+            console.log(
+              `🎉 STUDENT ENROLLED! Sending highest value conversion to Meta...`
+            );
+            await this.metaConversions.sendEnrollmentConversion({
+              leadId: application.leadId,
+              applicationId: applicationId,
+              email: application.email,
+              phone: application.phoneNumber,
+              firstName: application.name?.split(" ")[0],
+              lastName: application.name?.split(" ").slice(1).join(" "),
+            });
+          } else {
+            // Track other status changes
+            await this.metaConversions.sendConversionEvent({
+              leadId: application.leadId,
+              applicationId: applicationId,
+              status: newStatus,
+              email: application.email,
+              phone: application.phoneNumber,
+              firstName: application.name?.split(" ")[0],
+              lastName: application.name?.split(" ").slice(1).join(" "),
+            });
+          }
+        } catch (metaError) {
+          console.error(
+            `⚠️ Failed to send Meta conversion for application ${applicationId}:`,
+            metaError.message
+          );
+          // Don't throw error to avoid breaking main flow
         }
       } else {
         console.log(

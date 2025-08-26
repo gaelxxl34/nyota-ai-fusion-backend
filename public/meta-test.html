@@ -1,0 +1,901 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Meta Conversions API Test Center</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+          sans-serif;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        min-height: 100vh;
+        padding: 20px;
+      }
+
+      .container {
+        max-width: 1200px;
+        margin: 0 auto;
+        background: white;
+        border-radius: 20px;
+        box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+        overflow: hidden;
+      }
+
+      .header {
+        background: linear-gradient(135deg, #1877f2, #42b883);
+        color: white;
+        padding: 30px;
+        text-align: center;
+      }
+
+      .header h1 {
+        font-size: 2.5em;
+        margin-bottom: 10px;
+        font-weight: 700;
+      }
+
+      .header p {
+        font-size: 1.1em;
+        opacity: 0.9;
+      }
+
+      .content {
+        padding: 40px;
+      }
+
+      .test-section {
+        background: #f8f9fa;
+        border-radius: 15px;
+        padding: 30px;
+        margin-bottom: 30px;
+        border-left: 5px solid #1877f2;
+      }
+
+      .test-section h2 {
+        color: #333;
+        margin-bottom: 20px;
+        font-size: 1.5em;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .form-group {
+        margin-bottom: 20px;
+      }
+
+      .form-row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 20px;
+        margin-bottom: 20px;
+      }
+
+      label {
+        display: block;
+        margin-bottom: 8px;
+        font-weight: 600;
+        color: #555;
+      }
+
+      input,
+      select {
+        width: 100%;
+        padding: 12px 16px;
+        border: 2px solid #e1e5e9;
+        border-radius: 8px;
+        font-size: 16px;
+        transition: border-color 0.3s ease;
+      }
+
+      input:focus,
+      select:focus {
+        outline: none;
+        border-color: #1877f2;
+        box-shadow: 0 0 0 3px rgba(24, 119, 242, 0.1);
+      }
+
+      .btn {
+        background: linear-gradient(135deg, #1877f2, #42b883);
+        color: white;
+        border: none;
+        padding: 15px 30px;
+        border-radius: 8px;
+        font-size: 16px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+      }
+
+      .btn:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 10px 20px rgba(24, 119, 242, 0.3);
+      }
+
+      .btn:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+        transform: none;
+      }
+
+      .btn-secondary {
+        background: linear-gradient(135deg, #6c757d, #495057);
+      }
+
+      .btn-success {
+        background: linear-gradient(135deg, #28a745, #20c997);
+      }
+
+      .result-box {
+        margin-top: 20px;
+        padding: 20px;
+        border-radius: 10px;
+        font-family: "Courier New", monospace;
+        font-size: 14px;
+        white-space: pre-wrap;
+        max-height: 300px;
+        overflow-y: auto;
+      }
+
+      .result-success {
+        background: #d4edda;
+        border: 1px solid #c3e6cb;
+        color: #155724;
+      }
+
+      .result-error {
+        background: #f8d7da;
+        border: 1px solid #f5c6cb;
+        color: #721c24;
+      }
+
+      .loading {
+        display: inline-block;
+        width: 20px;
+        height: 20px;
+        border: 3px solid #ffffff;
+        border-radius: 50%;
+        border-top-color: transparent;
+        animation: spin 1s ease-in-out infinite;
+      }
+
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
+      .status-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 15px;
+        margin-bottom: 20px;
+      }
+
+      .status-card {
+        background: white;
+        border: 2px solid #e1e5e9;
+        border-radius: 10px;
+        padding: 15px;
+        text-align: center;
+        cursor: pointer;
+        transition: all 0.3s ease;
+      }
+
+      .status-card:hover {
+        border-color: #1877f2;
+        transform: translateY(-2px);
+      }
+
+      .status-card.selected {
+        border-color: #1877f2;
+        background: #f0f8ff;
+      }
+
+      .status-value {
+        font-size: 1.5em;
+        font-weight: bold;
+        color: #1877f2;
+        margin-bottom: 5px;
+      }
+
+      .status-name {
+        font-size: 0.9em;
+        color: #666;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+      }
+
+      .emoji {
+        font-size: 1.5em;
+        margin-right: 10px;
+      }
+
+      .info-box {
+        background: #e3f2fd;
+        border: 1px solid #bbdefb;
+        border-radius: 8px;
+        padding: 15px;
+        margin-bottom: 20px;
+        color: #1565c0;
+      }
+
+      .meta-pixel-info {
+        background: #f3e5f5;
+        border: 1px solid #e1bee7;
+        color: #7b1fa2;
+      }
+
+      /* Event Buttons Styling */
+      .event-buttons-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        gap: 15px;
+        margin-bottom: 20px;
+      }
+
+      .event-btn {
+        display: flex;
+        align-items: center;
+        gap: 15px;
+        padding: 20px;
+        text-align: left;
+        min-height: 80px;
+        position: relative;
+        overflow: hidden;
+      }
+
+      .event-btn .event-icon {
+        font-size: 2em;
+        width: 50px;
+        text-align: center;
+      }
+
+      .event-btn .event-info {
+        flex: 1;
+      }
+
+      .event-btn .event-name {
+        font-size: 1.1em;
+        font-weight: 700;
+        margin-bottom: 5px;
+      }
+
+      .event-btn .event-value {
+        font-size: 0.9em;
+        opacity: 0.8;
+        font-weight: 400;
+      }
+
+      .event-btn .event-loading {
+        position: absolute;
+        right: 20px;
+        top: 50%;
+        transform: translateY(-50%);
+        width: 20px;
+        height: 20px;
+        border: 3px solid #ffffff;
+        border-radius: 50%;
+        border-top-color: transparent;
+        animation: spin 1s ease-in-out infinite;
+      }
+
+      /* Individual Event Button Colors */
+      .event-btn.interested {
+        background: linear-gradient(135deg, #17a2b8, #20c997);
+      }
+
+      .event-btn.applied {
+        background: linear-gradient(135deg, #007bff, #6610f2);
+      }
+
+      .event-btn.in-review {
+        background: linear-gradient(135deg, #ffc107, #fd7e14);
+      }
+
+      .event-btn.qualified {
+        background: linear-gradient(135deg, #28a745, #20c997);
+      }
+
+      .event-btn.admitted {
+        background: linear-gradient(135deg, #6f42c1, #e83e8c);
+      }
+
+      .event-btn.enrolled {
+        background: linear-gradient(135deg, #dc3545, #fd7e14);
+        border: 3px solid #fff;
+        box-shadow: 0 0 20px rgba(220, 53, 69, 0.3);
+      }
+
+      .event-btn:hover {
+        transform: translateY(-3px);
+        box-shadow: 0 15px 30px rgba(0, 0, 0, 0.2);
+      }
+
+      .event-btn:disabled {
+        transform: none;
+        opacity: 0.7;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="header">
+        <h1>🎯 Meta Conversions API Test Center</h1>
+        <p>
+          Test your student enrollment tracking integration with Meta Business
+        </p>
+      </div>
+
+      <div class="content">
+        <!-- Connection Test Section -->
+        <div class="test-section">
+          <h2><span class="emoji">🔗</span>Connection Test</h2>
+          <div class="info-box">
+            <strong>Test your Meta Pixel connection</strong><br />
+            This will verify that your Pixel ID and Access Token are working
+            correctly.
+          </div>
+          <button class="btn btn-secondary" onclick="testConnection()">
+            <span
+              id="connectionLoading"
+              class="loading"
+              style="display: none"
+            ></span>
+            Test Connection
+          </button>
+          <div id="connectionResult"></div>
+        </div>
+
+        <!-- Student Information Form -->
+        <div class="test-section">
+          <h2><span class="emoji">👤</span>Student Information</h2>
+          <div class="info-box">
+            Fill in student details below. This data will be hashed before
+            sending to Meta for privacy.
+          </div>
+          <form id="studentForm">
+            <div class="form-row">
+              <div class="form-group">
+                <label for="firstName">First Name</label>
+                <input type="text" id="firstName" value="John" required />
+              </div>
+              <div class="form-group">
+                <label for="lastName">Last Name</label>
+                <input type="text" id="lastName" value="Doe" required />
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label for="email">Email Address</label>
+                <input
+                  type="email"
+                  id="email"
+                  value="john.doe@example.com"
+                  required
+                />
+              </div>
+              <div class="form-group">
+                <label for="phone">Phone Number</label>
+                <input type="tel" id="phone" value="+256700000000" required />
+              </div>
+            </div>
+          </form>
+        </div>
+
+        <!-- Enrollment Test Section -->
+        <div class="test-section">
+          <h2><span class="emoji">🎓</span>Test Enrollment Conversion</h2>
+          <div class="info-box meta-pixel-info">
+            <strong>🎯 Highest Value Event ($2000)</strong><br />
+            This sends a "Purchase" event to Meta representing a student
+            enrollment - your ultimate conversion goal!
+          </div>
+          <button class="btn btn-success" onclick="testEnrollment()">
+            <span
+              id="enrollmentLoading"
+              class="loading"
+              style="display: none"
+            ></span>
+            🎉 Send Enrollment Conversion
+          </button>
+          <div id="enrollmentResult"></div>
+        </div>
+
+        <!-- Individual Event Test Buttons -->
+        <div class="test-section">
+          <h2><span class="emoji">🚀</span>Quick Event Tests</h2>
+          <div class="info-box">
+            Click any button below to instantly test that specific conversion
+            event with the student data above.
+          </div>
+
+          <div class="event-buttons-grid">
+            <button
+              class="btn event-btn interested"
+              onclick="testSpecificEvent('INTERESTED')"
+            >
+              <span class="event-icon">👀</span>
+              <div class="event-info">
+                <div class="event-name">Interested</div>
+                <div class="event-value">$10 • Lead</div>
+              </div>
+              <span class="event-loading" style="display: none"></span>
+            </button>
+
+            <button
+              class="btn event-btn applied"
+              onclick="testSpecificEvent('APPLIED')"
+            >
+              <span class="event-icon">📝</span>
+              <div class="event-info">
+                <div class="event-name">Applied</div>
+                <div class="event-value">$200 • SubmitApplication</div>
+              </div>
+              <span class="event-loading" style="display: none"></span>
+            </button>
+
+            <button
+              class="btn event-btn in-review"
+              onclick="testSpecificEvent('IN_REVIEW')"
+            >
+              <span class="event-icon">🔍</span>
+              <div class="event-info">
+                <div class="event-name">In Review</div>
+                <div class="event-value">$100 • ApplicationInReview</div>
+              </div>
+              <span class="event-loading" style="display: none"></span>
+            </button>
+
+            <button
+              class="btn event-btn qualified"
+              onclick="testSpecificEvent('QUALIFIED')"
+            >
+              <span class="event-icon">✅</span>
+              <div class="event-info">
+                <div class="event-name">Qualified</div>
+                <div class="event-value">$500 • QualifiedLead</div>
+              </div>
+              <span class="event-loading" style="display: none"></span>
+            </button>
+
+            <button
+              class="btn event-btn admitted"
+              onclick="testSpecificEvent('ADMITTED')"
+            >
+              <span class="event-icon">🎉</span>
+              <div class="event-info">
+                <div class="event-name">Admitted</div>
+                <div class="event-value">$1000 • Admitted</div>
+              </div>
+              <span class="event-loading" style="display: none"></span>
+            </button>
+
+            <button
+              class="btn event-btn enrolled"
+              onclick="testSpecificEvent('ENROLLED')"
+            >
+              <span class="event-icon">🎓</span>
+              <div class="event-info">
+                <div class="event-name">Enrolled</div>
+                <div class="event-value">$2000 • Purchase</div>
+              </div>
+              <span class="event-loading" style="display: none"></span>
+            </button>
+          </div>
+
+          <div id="quickTestResult"></div>
+        </div>
+
+        <!-- Test All Events Section -->
+        <div class="test-section">
+          <h2><span class="emoji">🎯</span>Test All Events at Once</h2>
+          <div class="info-box">
+            Send all event types to Meta in sequence. This helps you see the
+            complete student journey in Events Manager.
+          </div>
+          <button class="btn btn-success" onclick="testAllEvents()">
+            <span
+              id="allEventsLoading"
+              class="loading"
+              style="display: none"
+            ></span>
+            🚀 Send All Events (Complete Journey)
+          </button>
+          <div id="allEventsResult"></div>
+        </div>
+
+        <!-- Status Conversion Test Section -->
+        <div class="test-section">
+          <h2><span class="emoji">📊</span>Test Status Conversions</h2>
+          <div class="info-box">
+            Test different stages of the student journey. Each status has a
+            different value and event type in Meta.
+          </div>
+
+          <div class="status-grid">
+            <div
+              class="status-card"
+              data-status="INTERESTED"
+              onclick="selectStatus('INTERESTED')"
+            >
+              <div class="status-value">$10</div>
+              <div class="status-name">Interested</div>
+            </div>
+            <div
+              class="status-card"
+              data-status="APPLIED"
+              onclick="selectStatus('APPLIED')"
+            >
+              <div class="status-value">$200</div>
+              <div class="status-name">Applied</div>
+            </div>
+            <div
+              class="status-card"
+              data-status="IN_REVIEW"
+              onclick="selectStatus('IN_REVIEW')"
+            >
+              <div class="status-value">$100</div>
+              <div class="status-name">In Review</div>
+            </div>
+            <div
+              class="status-card selected"
+              data-status="QUALIFIED"
+              onclick="selectStatus('QUALIFIED')"
+            >
+              <div class="status-value">$500</div>
+              <div class="status-name">Qualified</div>
+            </div>
+            <div
+              class="status-card"
+              data-status="ADMITTED"
+              onclick="selectStatus('ADMITTED')"
+            >
+              <div class="status-value">$1000</div>
+              <div class="status-name">Admitted</div>
+            </div>
+          </div>
+
+          <input type="hidden" id="selectedStatus" value="QUALIFIED" />
+
+          <button class="btn" onclick="testStatusConversion()">
+            <span
+              id="statusLoading"
+              class="loading"
+              style="display: none"
+            ></span>
+            Send Status Conversion
+          </button>
+          <div id="statusResult"></div>
+        </div>
+
+        <!-- Meta Verification Section -->
+        <div class="test-section">
+          <h2><span class="emoji">📱</span>Verify in Meta Events Manager</h2>
+          <div class="info-box meta-pixel-info">
+            <strong>Your Pixel ID: 248693181482452</strong><br />
+            After sending test events, check your Meta Events Manager to see
+            them appear:
+            <br /><br />
+            1. Go to
+            <a
+              href="https://business.facebook.com/events_manager"
+              target="_blank"
+              >Meta Events Manager</a
+            ><br />
+            2. Select your Pixel (248693181482452)<br />
+            3. Go to "Test Events" tab<br />
+            4. Look for events within 1-2 minutes
+          </div>
+          <button class="btn btn-secondary" onclick="openMetaEventsManager()">
+            📱 Open Meta Events Manager
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      // API base URL
+      const API_BASE = "http://localhost:3000/api/meta";
+
+      // Test connection to Meta API
+      async function testConnection() {
+        const button = document.querySelector('[onclick="testConnection()"]');
+        const loading = document.getElementById("connectionLoading");
+        const result = document.getElementById("connectionResult");
+
+        loading.style.display = "inline-block";
+        button.disabled = true;
+        result.innerHTML = "";
+
+        try {
+          const response = await fetch(`${API_BASE}/test-meta-connection`);
+          const data = await response.json();
+
+          result.innerHTML = `<div class="result-box result-success">${JSON.stringify(
+            data,
+            null,
+            2
+          )}</div>`;
+        } catch (error) {
+          result.innerHTML = `<div class="result-box result-error">Error: ${error.message}</div>`;
+        } finally {
+          loading.style.display = "none";
+          button.disabled = false;
+        }
+      }
+
+      // Test enrollment conversion
+      async function testEnrollment() {
+        const button = document.querySelector('[onclick="testEnrollment()"]');
+        const loading = document.getElementById("enrollmentLoading");
+        const result = document.getElementById("enrollmentResult");
+
+        loading.style.display = "inline-block";
+        button.disabled = true;
+        result.innerHTML = "";
+
+        const studentData = {
+          firstName: document.getElementById("firstName").value,
+          lastName: document.getElementById("lastName").value,
+          email: document.getElementById("email").value,
+          phone: document.getElementById("phone").value,
+        };
+
+        try {
+          const response = await fetch(
+            `${API_BASE}/test-enrollment-conversion`,
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify(studentData),
+            }
+          );
+
+          const data = await response.json();
+          result.innerHTML = `<div class="result-box result-success">${JSON.stringify(
+            data,
+            null,
+            2
+          )}</div>`;
+        } catch (error) {
+          result.innerHTML = `<div class="result-box result-error">Error: ${error.message}</div>`;
+        } finally {
+          loading.style.display = "none";
+          button.disabled = false;
+        }
+      }
+
+      // Test specific event type
+      async function testSpecificEvent(eventType) {
+        const button = document.querySelector(
+          `[onclick="testSpecificEvent('${eventType}')"]`
+        );
+        const loading = button.querySelector(".event-loading");
+        const result = document.getElementById("quickTestResult");
+
+        loading.style.display = "block";
+        button.disabled = true;
+
+        // Clear previous results
+        result.innerHTML = "";
+
+        const studentData = {
+          status: eventType,
+          firstName: document.getElementById("firstName").value,
+          lastName: document.getElementById("lastName").value,
+          email: document.getElementById("email").value,
+          phone: document.getElementById("phone").value,
+        };
+
+        try {
+          const response = await fetch(`${API_BASE}/test-status-conversion`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify(studentData),
+          });
+
+          const data = await response.json();
+
+          if (data.success) {
+            result.innerHTML = `<div class="result-box result-success">
+                              ✅ ${eventType} event sent successfully!
+
+      Event Details:
+      • Event Type: ${eventType}
+      • Meta Event Name: ${getMetaEventName(eventType)}
+      • Value: ${getEventValue(eventType)}
+      • Lead ID: ${data.testData.leadId}
+      • Email (hashed): ${data.testData.email}
+      • Phone (hashed): ${data.testData.phone}
+
+      Response from Meta:
+      ${JSON.stringify(data.result, null, 2)}
+
+      🔍 Check your Meta Events Manager now!
+                          </div>`;
+          } else {
+            result.innerHTML = `<div class="result-box result-error">
+                              ❌ Failed to send ${eventType} event
+
+      Error: ${data.message || "Unknown error"}
+                          </div>`;
+          }
+        } catch (error) {
+          result.innerHTML = `<div class="result-box result-error">
+                          ❌ Network Error: ${error.message}
+                      </div>`;
+        } finally {
+          loading.style.display = "none";
+          button.disabled = false;
+        }
+      }
+
+      // Test all events in sequence
+      async function testAllEvents() {
+        const button = document.querySelector('[onclick="testAllEvents()"]');
+        const loading = document.getElementById("allEventsLoading");
+        const result = document.getElementById("allEventsResult");
+
+        loading.style.display = "inline-block";
+        button.disabled = true;
+        result.innerHTML =
+          '<div class="result-box result-success">🚀 Sending all events to Meta...</div>';
+
+        try {
+          const response = await fetch(`${API_BASE}/test-all-events`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              firstName: document.getElementById("firstName").value,
+              lastName: document.getElementById("lastName").value,
+              email: document.getElementById("email").value,
+              phone: document.getElementById("phone").value,
+            }),
+          });
+
+          const data = await response.json();
+
+          if (data.success) {
+            let resultHtml =
+              '<div class="result-box result-success">✅ All events sent successfully!\n\n';
+
+            data.results.forEach((eventResult) => {
+              const status = eventResult.success ? "✅" : "❌";
+              resultHtml += `${status} ${eventResult.status} (${getEventValue(
+                eventResult.status
+              )})\n`;
+            });
+
+            resultHtml +=
+              "\n🔍 Check your Meta Events Manager - you should see all events appearing!\n";
+            resultHtml += "\nFull Response:\n" + JSON.stringify(data, null, 2);
+            resultHtml += "</div>";
+
+            result.innerHTML = resultHtml;
+          } else {
+            result.innerHTML = `<div class="result-box result-error">❌ Error: ${data.message}</div>`;
+          }
+        } catch (error) {
+          result.innerHTML = `<div class="result-box result-error">❌ Network Error: ${error.message}</div>`;
+        } finally {
+          loading.style.display = "none";
+          button.disabled = false;
+        }
+      }
+
+      // Helper functions
+      function getMetaEventName(status) {
+        const eventMap = {
+          INTERESTED: "ViewContent",
+          APPLIED: "CompleteRegistration",
+          IN_REVIEW: "ApplicationInReview",
+          QUALIFIED: "Lead",
+          ADMITTED: "Subscribe",
+          ENROLLED: "Purchase",
+        };
+        return eventMap[status] || "Lead";
+      }
+
+      function getEventValue(status) {
+        const valueMap = {
+          INTERESTED: "$10",
+          APPLIED: "$200",
+          IN_REVIEW: "$100",
+          QUALIFIED: "$500",
+          ADMITTED: "$1000",
+          ENROLLED: "$2000",
+        };
+        return valueMap[status] || "$0";
+      }
+
+      // Select status for testing (for the status grid)
+      function selectStatus(status) {
+        // Remove selected class from all cards
+        document.querySelectorAll(".status-card").forEach((card) => {
+          card.classList.remove("selected");
+        });
+
+        // Add selected class to clicked card
+        document
+          .querySelector(`[data-status="${status}"]`)
+          .classList.add("selected");
+        document.getElementById("selectedStatus").value = status;
+      }
+
+      // Test status conversion (for the status grid)
+      async function testStatusConversion() {
+        const button = document.querySelector(
+          '[onclick="testStatusConversion()"]'
+        );
+        const loading = document.getElementById("statusLoading");
+        const result = document.getElementById("statusResult");
+
+        loading.style.display = "inline-block";
+        button.disabled = true;
+        result.innerHTML = "";
+
+        const studentData = {
+          status: document.getElementById("selectedStatus").value,
+          firstName: document.getElementById("firstName").value,
+          lastName: document.getElementById("lastName").value,
+          email: document.getElementById("email").value,
+          phone: document.getElementById("phone").value,
+        };
+
+        try {
+          const response = await fetch(`${API_BASE}/test-status-conversion`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify(studentData),
+          });
+
+          const data = await response.json();
+          result.innerHTML = `<div class="result-box result-success">${JSON.stringify(
+            data,
+            null,
+            2
+          )}</div>`;
+        } catch (error) {
+          result.innerHTML = `<div class="result-box result-error">Error: ${error.message}</div>`;
+        } finally {
+          loading.style.display = "none";
+          button.disabled = false;
+        }
+      }
+
+      // Open Meta Events Manager
+      function openMetaEventsManager() {
+        window.open("https://business.facebook.com/events_manager", "_blank");
+      }
+
+      // Auto-fill with realistic test data
+      document.addEventListener("DOMContentLoaded", function () {
+        const now = new Date();
+        document.getElementById("firstName").value = "Test";
+        document.getElementById("lastName").value = "Student";
+        document.getElementById(
+          "email"
+        ).value = `test.student.${now.getTime()}@iuea.ac.ug`;
+        document.getElementById("phone").value = "+256700000000";
+      });
+    </script>
+  </body>
+</html>
