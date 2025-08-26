@@ -62,7 +62,7 @@ router.post("/test-enrollment-conversion", async (req, res) => {
 
     res.json({
       success: true,
-      message: "🎉 Test ENROLLMENT conversion sent to Meta! ($2000 value)",
+      message: "🎉 Test ENROLLMENT conversion sent to Meta! ($15 value)",
       testData,
       result,
     });
@@ -114,12 +114,12 @@ router.post("/test-status-conversion", async (req, res) => {
     const result = await metaConversionsApi.sendConversionEvent(testData);
 
     const valueMap = {
-      INTERESTED: "$10",
-      APPLIED: "$200",
-      IN_REVIEW: "$100",
-      QUALIFIED: "$500",
-      ADMITTED: "$1000",
-      ENROLLED: "$2000",
+      INTERESTED: "$1",
+      APPLIED: "$3",
+      IN_REVIEW: "$2",
+      QUALIFIED: "$5",
+      ADMITTED: "$10",
+      ENROLLED: "$15",
     };
 
     res.json({

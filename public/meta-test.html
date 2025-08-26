@@ -396,7 +396,7 @@
         <div class="test-section">
           <h2><span class="emoji">🎓</span>Test Enrollment Conversion</h2>
           <div class="info-box meta-pixel-info">
-            <strong>🎯 Highest Value Event ($2000)</strong><br />
+            <strong>🎯 Highest Value Event ($15)</strong><br />
             This sends a "Purchase" event to Meta representing a student
             enrollment - your ultimate conversion goal!
           </div>
@@ -427,7 +427,7 @@
               <span class="event-icon">👀</span>
               <div class="event-info">
                 <div class="event-name">Interested</div>
-                <div class="event-value">$10 • Lead</div>
+                <div class="event-value">$1 • Lead</div>
               </div>
               <span class="event-loading" style="display: none"></span>
             </button>
@@ -439,7 +439,7 @@
               <span class="event-icon">📝</span>
               <div class="event-info">
                 <div class="event-name">Applied</div>
-                <div class="event-value">$200 • SubmitApplication</div>
+                <div class="event-value">$3 • SubmitApplication</div>
               </div>
               <span class="event-loading" style="display: none"></span>
             </button>
@@ -451,7 +451,7 @@
               <span class="event-icon">🔍</span>
               <div class="event-info">
                 <div class="event-name">In Review</div>
-                <div class="event-value">$100 • ApplicationInReview</div>
+                <div class="event-value">$2 • ApplicationInReview</div>
               </div>
               <span class="event-loading" style="display: none"></span>
             </button>
@@ -463,7 +463,7 @@
               <span class="event-icon">✅</span>
               <div class="event-info">
                 <div class="event-name">Qualified</div>
-                <div class="event-value">$500 • QualifiedLead</div>
+                <div class="event-value">$5 • QualifiedLead</div>
               </div>
               <span class="event-loading" style="display: none"></span>
             </button>
@@ -475,7 +475,7 @@
               <span class="event-icon">🎉</span>
               <div class="event-info">
                 <div class="event-name">Admitted</div>
-                <div class="event-value">$1000 • Admitted</div>
+                <div class="event-value">$10 • Admitted</div>
               </div>
               <span class="event-loading" style="display: none"></span>
             </button>
@@ -487,7 +487,7 @@
               <span class="event-icon">🎓</span>
               <div class="event-info">
                 <div class="event-name">Enrolled</div>
-                <div class="event-value">$2000 • Purchase</div>
+                <div class="event-value">$15 • Purchase</div>
               </div>
               <span class="event-loading" style="display: none"></span>
             </button>
@@ -528,7 +528,7 @@
               data-status="INTERESTED"
               onclick="selectStatus('INTERESTED')"
             >
-              <div class="status-value">$10</div>
+              <div class="status-value">$1</div>
               <div class="status-name">Interested</div>
             </div>
             <div
@@ -536,7 +536,7 @@
               data-status="APPLIED"
               onclick="selectStatus('APPLIED')"
             >
-              <div class="status-value">$200</div>
+              <div class="status-value">$3</div>
               <div class="status-name">Applied</div>
             </div>
             <div
@@ -544,7 +544,7 @@
               data-status="IN_REVIEW"
               onclick="selectStatus('IN_REVIEW')"
             >
-              <div class="status-value">$100</div>
+              <div class="status-value">$2</div>
               <div class="status-name">In Review</div>
             </div>
             <div
@@ -552,7 +552,7 @@
               data-status="QUALIFIED"
               onclick="selectStatus('QUALIFIED')"
             >
-              <div class="status-value">$500</div>
+              <div class="status-value">$5</div>
               <div class="status-name">Qualified</div>
             </div>
             <div
@@ -560,7 +560,7 @@
               data-status="ADMITTED"
               onclick="selectStatus('ADMITTED')"
             >
-              <div class="status-value">$1000</div>
+              <div class="status-value">$10</div>
               <div class="status-name">Admitted</div>
             </div>
           </div>
@@ -814,12 +814,12 @@
 
       function getEventValue(status) {
         const valueMap = {
-          INTERESTED: "$10",
-          APPLIED: "$200",
-          IN_REVIEW: "$100",
-          QUALIFIED: "$500",
-          ADMITTED: "$1000",
-          ENROLLED: "$2000",
+          INTERESTED: "$1",
+          APPLIED: "$3",
+          IN_REVIEW: "$2",
+          QUALIFIED: "$5",
+          ADMITTED: "$10",
+          ENROLLED: "$15",
         };
         return valueMap[status] || "$0";
       }
