@@ -1443,6 +1443,7 @@ class LeadService {
   /**
    * Get leads submitted by a specific user (for "For You" tab)
    * This includes both direct lead submissions and leads associated with applications submitted by the user
+   * Enhanced to handle multiple submittedBy formats (email, name, displayName, username)
    */
   async getLeadsBySubmitter(userEmail, options = {}) {
     try {
@@ -1456,40 +1457,119 @@ class LeadService {
 
       console.log(`🔍 Fetching leads submitted by: ${userEmail}`);
 
-      // Step 1: Get leads directly submitted by the user
-      let leadQuery = this.db
-        .collection(this.collection)
-        .where("submittedBy.email", "==", userEmail);
+      // Step 1: Get user information to build multiple identifier queries
+      let userInfo = null;
+      try {
+        const userSnapshot = await this.db
+          .collection("users")
+          .where("email", "==", userEmail)
+          .limit(1)
+          .get();
 
-      // Add status filter if provided
-      if (status) {
-        leadQuery = leadQuery.where("status", "==", status);
+        if (!userSnapshot.empty) {
+          userInfo = userSnapshot.docs[0].data();
+        }
+      } catch (error) {
+        console.warn(
+          `⚠️ Could not fetch user info for ${userEmail}:`,
+          error.message
+        );
       }
 
-      // Order by creation date (newest first) - ensure consistency
-      const validSortFields = [
-        "createdAt",
-        "updatedAt",
-        "lastInteractionAt",
-        "status",
+      // Step 2: Build list of possible submittedBy identifiers for this user
+      const possibleIdentifiers = new Set([userEmail]); // Always include email
+
+      if (userInfo) {
+        // Add various name formats
+        if (userInfo.name) possibleIdentifiers.add(userInfo.name);
+        if (userInfo.displayName) possibleIdentifiers.add(userInfo.displayName);
+        if (userInfo.email) {
+          possibleIdentifiers.add(userInfo.email.split("@")[0]); // username part
+        }
+      }
+
+      // Add role-based identifiers (common patterns from DataCenter)
+      const commonRoles = [
+        "marketingAgent",
+        "admissionAgent",
+        "admin",
+        "admissionAdmin",
       ];
-      const sortField = validSortFields.includes(sortBy) ? sortBy : "createdAt";
-      const sortDirection = sortOrder.toLowerCase() === "asc" ? "asc" : "desc";
-
-      leadQuery = leadQuery.orderBy(sortField, sortDirection);
-
-      const leadSnapshot = await leadQuery.get();
-      const directLeads = [];
-      leadSnapshot.forEach((doc) => {
-        const lead = this._normalizeLead(doc.id, doc.data());
-        directLeads.push(lead);
+      commonRoles.forEach((role) => {
+        possibleIdentifiers.add(`${role}-staff`);
       });
 
       console.log(
-        `📋 Found ${directLeads.length} direct leads submitted by ${userEmail}`
+        `🔍 Searching for leads with submittedBy identifiers:`,
+        Array.from(possibleIdentifiers)
       );
 
-      // Step 2: Get applications submitted by the user that have associated leadId
+      // Step 3: Get leads directly submitted by the user using multiple queries
+      const directLeads = [];
+      const seenLeadIds = new Set(); // To avoid duplicates
+
+      // Query 1: Legacy format - submittedBy.email
+      try {
+        let emailQuery = this.db
+          .collection(this.collection)
+          .where("submittedBy.email", "==", userEmail);
+
+        if (status) {
+          emailQuery = emailQuery.where("status", "==", status);
+        }
+
+        const emailSnapshot = await emailQuery.get();
+        emailSnapshot.forEach((doc) => {
+          if (!seenLeadIds.has(doc.id)) {
+            const lead = this._normalizeLead(doc.id, doc.data());
+            directLeads.push(lead);
+            seenLeadIds.add(doc.id);
+          }
+        });
+
+        console.log(
+          `📋 Found ${emailSnapshot.size} leads with submittedBy.email = ${userEmail}`
+        );
+      } catch (error) {
+        console.warn(`⚠️ Error querying by submittedBy.email:`, error.message);
+      }
+
+      // Query 2: New format - submittedBy as string
+      for (const identifier of possibleIdentifiers) {
+        try {
+          let stringQuery = this.db
+            .collection(this.collection)
+            .where("submittedBy", "==", identifier);
+
+          if (status) {
+            stringQuery = stringQuery.where("status", "==", status);
+          }
+
+          const stringSnapshot = await stringQuery.get();
+          stringSnapshot.forEach((doc) => {
+            if (!seenLeadIds.has(doc.id)) {
+              const lead = this._normalizeLead(doc.id, doc.data());
+              directLeads.push(lead);
+              seenLeadIds.add(doc.id);
+            }
+          });
+
+          if (stringSnapshot.size > 0) {
+            console.log(
+              `📋 Found ${stringSnapshot.size} leads with submittedBy = "${identifier}"`
+            );
+          }
+        } catch (error) {
+          console.warn(
+            `⚠️ Error querying by submittedBy = "${identifier}":`,
+            error.message
+          );
+        }
+      }
+
+      console.log(`📋 Total direct leads found: ${directLeads.length}`);
+
+      // Step 4: Get applications submitted by the user that have associated leadId
       const applicationQuery = this.db
         .collection("applications")
         .where("submittedBy.email", "==", userEmail)
@@ -1508,7 +1588,7 @@ class LeadService {
         `📋 Found ${leadIdsFromApplications.length} applications with leadIds submitted by ${userEmail}`
       );
 
-      // Step 3: Get leads associated with these applications
+      // Step 5: Get leads associated with these applications
       const applicationLinkedLeads = [];
       if (leadIdsFromApplications.length > 0) {
         // Get each lead by ID
@@ -1523,12 +1603,10 @@ class LeadService {
 
               // Apply status filter if provided
               if (!status || lead.status === status) {
-                // Only add if not already in direct leads
-                const alreadyExists = directLeads.find(
-                  (existingLead) => existingLead.id === lead.id
-                );
-                if (!alreadyExists) {
+                // Only add if not already in direct leads (avoid duplicates)
+                if (!seenLeadIds.has(lead.id)) {
                   applicationLinkedLeads.push(lead);
+                  seenLeadIds.add(lead.id);
                 }
               }
             }
@@ -1544,10 +1622,19 @@ class LeadService {
         `📋 Found ${applicationLinkedLeads.length} additional leads from applications submitted by ${userEmail}`
       );
 
-      // Step 4: Combine and sort all leads
+      // Step 6: Combine and sort all leads
       const allLeads = [...directLeads, ...applicationLinkedLeads];
 
       // Sort by the specified field and direction
+      const validSortFields = [
+        "createdAt",
+        "updatedAt",
+        "lastInteractionAt",
+        "status",
+      ];
+      const sortField = validSortFields.includes(sortBy) ? sortBy : "createdAt";
+      const sortDirection = sortOrder.toLowerCase() === "asc" ? "asc" : "desc";
+
       allLeads.sort((a, b) => {
         let valueA, valueB;
 
