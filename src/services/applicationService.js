@@ -830,11 +830,53 @@ class ApplicationService {
         }
       }
 
+      // 7. Send welcome email notification
+      let emailResult = null;
+      try {
+        console.log(`📧 Sending welcome email to ${applicationData.email}...`);
+
+        const applicationEmailService = require("./applicationEmailService");
+        emailResult =
+          await applicationEmailService.sendApplicationReceivedNotification({
+            applicantEmail: applicationData.email,
+            applicantName: applicationData.name,
+            courseName: this._getProgramName(applicationData.preferredProgram),
+            applicationId: docRef.id,
+            preferredIntake: applicationData.preferredIntake,
+            modeOfStudy: applicationData.modeOfStudy,
+          });
+
+        if (emailResult.success) {
+          console.log(
+            `✅ Welcome email sent successfully to ${applicationData.email}`
+          );
+
+          // Update application to mark email as sent
+          await this.db.collection(this.collection).doc(docRef.id).update({
+            welcomeEmailSent: true,
+            updatedAt: new Date(),
+          });
+        } else {
+          console.log(
+            `⚠️ Welcome email failed for ${applicationData.email}: ${emailResult.error}`
+          );
+        }
+      } catch (emailError) {
+        console.error("❌ Failed to send welcome email:", emailError);
+        emailResult = {
+          success: false,
+          error: emailError.message,
+          provider: "unknown",
+        };
+        // Don't fail the entire application process if email fails
+      }
+
       return {
         success: true,
         application: savedApplication,
         lead: lead,
         whatsappMessage: whatsappResult,
+        emailMessage: emailResult,
       };
     } catch (error) {
       console.error("❌ Error submitting application:", error);
@@ -2004,42 +2046,59 @@ IUEA Admissions Team`;
         ...applicationDoc,
       };
 
-      // 6. Send email notification for manual application
+      // 6. Send welcome email notification for manual application
+      let emailResult = null;
       try {
         const applicationEmailService = require("./applicationEmailService");
 
         console.log(
-          `📧 Sending email notification for manual application to ${applicationData.email}`
+          `📧 Sending welcome email notification for manual application to ${applicationData.email}`
         );
 
-        await applicationEmailService.sendStatusChangeNotification({
-          applicantEmail: applicationData.email,
-          applicantName: applicationData.name,
-          courseName:
-            this._getProgramName(applicationData.preferredProgram) ||
-            "Your Application",
-          status: "applied",
-          additionalInfo:
-            "Thank you for applying! Your application has been received and is being processed. You will receive updates on your application status via email.",
-        });
+        emailResult =
+          await applicationEmailService.sendApplicationReceivedNotification({
+            applicantEmail: applicationData.email,
+            applicantName: applicationData.name,
+            courseName: this._getProgramName(applicationData.preferredProgram),
+            applicationId: applicationId,
+            preferredIntake: applicationData.preferredIntake,
+            modeOfStudy: applicationData.modeOfStudy,
+          });
 
-        console.log(
-          `✅ Email notification sent successfully to ${applicationData.email}`
-        );
+        if (emailResult.success) {
+          console.log(
+            `✅ Welcome email sent successfully to ${applicationData.email}`
+          );
+
+          // Update application to mark email as sent
+          await docRef.update({
+            welcomeEmailSent: true,
+            updatedAt: new Date(),
+          });
+        } else {
+          console.log(
+            `⚠️ Welcome email failed for ${applicationData.email}: ${emailResult.error}`
+          );
+        }
       } catch (emailError) {
         console.error(
-          "❌ Failed to send email notification for manual application:",
+          "❌ Failed to send welcome email notification for manual application:",
           emailError
         );
+        emailResult = {
+          success: false,
+          error: emailError.message,
+          provider: "unknown",
+        };
         // Don't fail the application submission if email fails
       }
 
-      // 7. No WhatsApp message for manual applications
+      // 7. No WhatsApp message for manual applications (unless specifically requested)
       return {
         application: savedApplication,
         lead,
         whatsappResult: { skipped: true, reason: "Manual application" },
-        emailSent: true,
+        emailMessage: emailResult,
       };
     } catch (error) {
       console.error("❌ Error submitting manual application:", error);

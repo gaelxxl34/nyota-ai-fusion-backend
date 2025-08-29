@@ -7,6 +7,7 @@ const express = require("express");
 const ApplicationService = require("../services/applicationService");
 const applicationEmailService = require("../services/applicationEmailService");
 const { APPLICATION_STATUSES } = require("../models/application.model");
+const { authenticateUser } = require("../middleware/auth.middleware");
 
 const router = express.Router();
 
@@ -38,6 +39,513 @@ const initializeApplicationService = (
   );
   console.log("✅ Application service initialized with Firebase Storage");
 };
+
+/**
+ * Send welcome notifications after application submission - Simple API for Student Portal
+ * POST /api/applications/send-notifications
+ */
+router.post(
+  "/send-notifications",
+  ensureApplicationService,
+  async (req, res) => {
+    try {
+      const { email, phoneNumber, name, program, intake, modeOfStudy } =
+        req.body;
+
+      // Validate required fields
+      if (!email) {
+        return res.status(400).json({
+          success: false,
+          error: "Email is required",
+        });
+      }
+
+      if (!name) {
+        return res.status(400).json({
+          success: false,
+          error: "Name is required",
+        });
+      }
+
+      const results = {
+        email: null,
+        whatsapp: null,
+      };
+
+      // Send welcome email
+      try {
+        console.log(`📧 Sending welcome email to ${email}...`);
+
+        const emailResult =
+          await applicationEmailService.sendApplicationReceivedNotification({
+            applicantEmail: email,
+            applicantName: name,
+            courseName: program || "Your Selected Program",
+            applicationId: "PENDING", // Since this is called from student portal before app is saved
+            preferredIntake: intake,
+            modeOfStudy: modeOfStudy,
+          });
+
+        results.email = emailResult;
+
+        if (emailResult.success) {
+          console.log(`✅ Welcome email sent successfully to ${email}`);
+        } else {
+          console.log(
+            `⚠️ Welcome email failed for ${email}: ${emailResult.error}`
+          );
+        }
+      } catch (emailError) {
+        console.error("❌ Error sending welcome email:", emailError);
+        results.email = {
+          success: false,
+          error: emailError.message,
+          provider: "unknown",
+        };
+      }
+
+      // Send WhatsApp message if phone number is provided
+      if (phoneNumber) {
+        try {
+          console.log(`📱 Sending WhatsApp message to ${phoneNumber}...`);
+
+          // Clean phone number (remove non-numeric characters)
+          const cleanPhoneNumber = phoneNumber.replace(/[^\d]/g, "");
+
+          // Use the application_received template for WhatsApp
+          const templatePayload = {
+            messaging_product: "whatsapp",
+            to: cleanPhoneNumber,
+            type: "template",
+            template: {
+              name: "application_received",
+              language: { code: "en_US" },
+            },
+          };
+
+          // Enhanced metadata for better conversation tracking
+          const messageMetadata = {
+            messageType: "application_confirmation",
+            contactName: name,
+            program: program,
+            source: "STUDENT_PORTAL_NOTIFICATION_ENDPOINT",
+            timestamp: new Date().toISOString(),
+          };
+
+          // Get WhatsApp service instance
+          const whatsappResult =
+            await applicationService.whatsappService.sendTemplateMessage(
+              cleanPhoneNumber,
+              templatePayload,
+              messageMetadata
+            );
+
+          results.whatsapp = whatsappResult;
+
+          if (whatsappResult.success) {
+            console.log(
+              `✅ WhatsApp message sent successfully to ${phoneNumber}`
+            );
+          } else {
+            console.log(
+              `⚠️ WhatsApp message failed for ${phoneNumber}: ${whatsappResult.error}`
+            );
+          }
+        } catch (whatsappError) {
+          console.error("❌ Error sending WhatsApp message:", whatsappError);
+          results.whatsapp = {
+            success: false,
+            error: whatsappError.message,
+          };
+        }
+      } else {
+        results.whatsapp = {
+          success: false,
+          error: "No phone number provided",
+          skipped: true,
+        };
+      }
+
+      // Determine overall success
+      const emailSuccess = results.email?.success;
+      const whatsappSuccess =
+        results.whatsapp?.success || results.whatsapp?.skipped;
+
+      res.json({
+        success: emailSuccess && whatsappSuccess,
+        message: "Welcome notifications processed",
+        applicant: {
+          name,
+          email,
+          phoneNumber,
+          program,
+        },
+        results,
+      });
+    } catch (error) {
+      console.error("❌ Error sending welcome notifications:", error);
+      res.status(500).json({
+        success: false,
+        error: error.message,
+      });
+    }
+  }
+);
+
+/**
+ * Send application submission notifications (Email + WhatsApp) - For Student Portal
+ * POST /api/applications/notify-application-submitted
+ */
+router.post(
+  "/notify-application-submitted",
+  ensureApplicationService,
+  async (req, res) => {
+    try {
+      const { applicationId, phoneNumber, email } = req.body;
+
+      console.log(`📧 Processing application submission notifications:`, {
+        applicationId,
+        phoneNumber,
+        email,
+      });
+
+      // Validate required fields
+      if (!applicationId) {
+        return res.status(400).json({
+          success: false,
+          error: "Application ID is required",
+        });
+      }
+
+      if (!email) {
+        return res.status(400).json({
+          success: false,
+          error: "Email is required",
+        });
+      }
+
+      if (!phoneNumber) {
+        return res.status(400).json({
+          success: false,
+          error: "Phone number is required",
+        });
+      }
+
+      // Get application details
+      let application = null;
+      try {
+        application = await applicationService.getApplicationById(
+          applicationId
+        );
+      } catch (error) {
+        console.warn(
+          `⚠️ Could not fetch application ${applicationId}:`,
+          error.message
+        );
+        // Continue with provided data even if application fetch fails
+      }
+
+      const results = {
+        email: null,
+        whatsapp: null,
+      };
+
+      // Use application data if available, otherwise use provided data
+      const applicantName = application?.name || "New Applicant";
+      const preferredProgram =
+        application?.preferredProgram || "Your Selected Program";
+      const preferredIntake = application?.preferredIntake || "";
+      const modeOfStudy = application?.modeOfStudy || "";
+
+      // Send application received email
+      try {
+        console.log(`📧 Sending application received email to ${email}...`);
+
+        const emailResult =
+          await applicationEmailService.sendApplicationReceivedNotification({
+            applicantEmail: email,
+            applicantName: applicantName,
+            courseName: preferredProgram,
+            applicationId: applicationId,
+            preferredIntake: preferredIntake,
+            modeOfStudy: modeOfStudy,
+          });
+
+        results.email = emailResult;
+
+        if (emailResult.success) {
+          console.log(
+            `✅ Application received email sent successfully to ${email}`
+          );
+        } else {
+          console.log(
+            `⚠️ Application received email failed for ${email}: ${emailResult.error}`
+          );
+        }
+      } catch (emailError) {
+        console.error(
+          "❌ Error sending application received email:",
+          emailError
+        );
+        results.email = {
+          success: false,
+          error: emailError.message,
+          provider: "unknown",
+        };
+      }
+
+      // Send WhatsApp message
+      try {
+        console.log(`📱 Sending WhatsApp message to ${phoneNumber}...`);
+
+        // Clean phone number (remove non-numeric characters)
+        const cleanPhoneNumber = phoneNumber.replace(/[^\d]/g, "");
+
+        // Use the application_received template for WhatsApp
+        const templatePayload = {
+          messaging_product: "whatsapp",
+          to: cleanPhoneNumber,
+          type: "template",
+          template: {
+            name: "application_received",
+            language: { code: "en_US" },
+          },
+        };
+
+        // Enhanced metadata for better conversation tracking
+        const messageMetadata = {
+          leadId: application?.leadId,
+          applicationId: applicationId,
+          messageType: "application_confirmation",
+          contactName: applicantName,
+          program: preferredProgram,
+          source: "STUDENT_PORTAL_APPLICATION_SUBMISSION",
+          timestamp: new Date().toISOString(),
+        };
+
+        // Get WhatsApp service instance
+        const whatsappResult =
+          await applicationService.whatsappService.sendTemplateMessage(
+            cleanPhoneNumber,
+            templatePayload,
+            messageMetadata
+          );
+
+        results.whatsapp = whatsappResult;
+
+        if (whatsappResult.success) {
+          console.log(
+            `✅ WhatsApp message sent successfully to ${phoneNumber}`
+          );
+        } else {
+          console.log(
+            `⚠️ WhatsApp message failed for ${phoneNumber}: ${whatsappResult.error}`
+          );
+        }
+      } catch (whatsappError) {
+        console.error("❌ Error sending WhatsApp message:", whatsappError);
+        results.whatsapp = {
+          success: false,
+          error: whatsappError.message,
+        };
+      }
+
+      // Determine overall success
+      const emailSuccess = results.email?.success;
+      const whatsappSuccess = results.whatsapp?.success;
+
+      res.json({
+        success: emailSuccess || whatsappSuccess, // Success if at least one notification sent
+        message: "Application submission notifications processed",
+        applicationId: applicationId,
+        applicant: {
+          name: applicantName,
+          email: email,
+          phoneNumber: phoneNumber,
+          program: preferredProgram,
+        },
+        results,
+      });
+    } catch (error) {
+      console.error(
+        "❌ Error processing application submission notifications:",
+        error
+      );
+      res.status(500).json({
+        success: false,
+        error: error.message,
+      });
+    }
+  }
+);
+
+/**
+ * Send welcome email and WhatsApp message after application submission
+ * POST /api/applications/send-welcome-notifications
+ */
+router.post(
+  "/send-welcome-notifications",
+  ensureApplicationService,
+  async (req, res) => {
+    try {
+      const { applicationId, email, phoneNumber } = req.body;
+
+      if (!applicationId && !email) {
+        return res.status(400).json({
+          success: false,
+          error: "Either applicationId or email is required",
+        });
+      }
+
+      let application = null;
+
+      // Get application by ID or email
+      if (applicationId) {
+        application = await applicationService.getApplicationById(
+          applicationId
+        );
+      } else if (email) {
+        const applications = await applicationService.getApplicationsByEmail(
+          email
+        );
+        if (applications && applications.length > 0) {
+          application = applications[0]; // Get the most recent application
+        }
+      }
+
+      if (!application) {
+        return res.status(404).json({
+          success: false,
+          error: "Application not found",
+        });
+      }
+
+      const results = {
+        email: null,
+        whatsapp: null,
+      };
+
+      // Send welcome email
+      try {
+        console.log(`📧 Sending welcome email to ${application.email}...`);
+
+        const emailResult =
+          await applicationEmailService.sendApplicationReceivedNotification({
+            applicantEmail: application.email,
+            applicantName: application.name,
+            courseName: application.preferredProgram || "Your Selected Program",
+            applicationId: application.id,
+            preferredIntake: application.preferredIntake,
+            modeOfStudy: application.modeOfStudy,
+          });
+
+        results.email = emailResult;
+
+        if (emailResult.success) {
+          console.log(
+            `✅ Welcome email sent successfully to ${application.email}`
+          );
+        } else {
+          console.log(
+            `⚠️ Welcome email failed for ${application.email}: ${emailResult.error}`
+          );
+        }
+      } catch (emailError) {
+        console.error("❌ Error sending welcome email:", emailError);
+        results.email = {
+          success: false,
+          error: emailError.message,
+          provider: "unknown",
+        };
+      }
+
+      // Send WhatsApp message if phone number is available
+      const targetPhoneNumber = phoneNumber || application.phoneNumber;
+      if (targetPhoneNumber) {
+        try {
+          console.log(`📱 Sending WhatsApp message to ${targetPhoneNumber}...`);
+
+          // Use the application_received template for WhatsApp
+          const templatePayload = {
+            messaging_product: "whatsapp",
+            to: targetPhoneNumber.replace(/[^\d]/g, ""), // Remove non-numeric characters
+            type: "template",
+            template: {
+              name: "application_received",
+              language: { code: "en_US" },
+            },
+          };
+
+          // Enhanced metadata for better conversation tracking
+          const messageMetadata = {
+            leadId: application.leadId,
+            applicationId: application.id,
+            messageType: "application_confirmation",
+            contactName: application.name,
+            program: application.preferredProgram,
+            source: "APPLICATION_WELCOME_ENDPOINT",
+          };
+
+          // Get WhatsApp service instance
+          const whatsappResult =
+            await applicationService.whatsappService.sendTemplateMessage(
+              targetPhoneNumber.replace(/[^\d]/g, ""),
+              templatePayload,
+              messageMetadata
+            );
+
+          results.whatsapp = whatsappResult;
+
+          if (whatsappResult.success) {
+            console.log(
+              `✅ WhatsApp message sent successfully to ${targetPhoneNumber}`
+            );
+          } else {
+            console.log(
+              `⚠️ WhatsApp message failed for ${targetPhoneNumber}: ${whatsappResult.error}`
+            );
+          }
+        } catch (whatsappError) {
+          console.error("❌ Error sending WhatsApp message:", whatsappError);
+          results.whatsapp = {
+            success: false,
+            error: whatsappError.message,
+          };
+        }
+      } else {
+        results.whatsapp = {
+          success: false,
+          error: "No phone number available",
+          skipped: true,
+        };
+      }
+
+      // Determine overall success
+      const emailSuccess = results.email?.success || results.email?.skipped;
+      const whatsappSuccess =
+        results.whatsapp?.success || results.whatsapp?.skipped;
+
+      res.json({
+        success: emailSuccess && whatsappSuccess,
+        message: "Welcome notifications processed",
+        application: {
+          id: application.id,
+          name: application.name,
+          email: application.email,
+          phoneNumber: application.phoneNumber,
+          preferredProgram: application.preferredProgram,
+        },
+        results,
+      });
+    } catch (error) {
+      console.error("❌ Error sending welcome notifications:", error);
+      res.status(500).json({
+        success: false,
+        error: error.message,
+      });
+    }
+  }
+);
 
 /**
  * Submit a new application
@@ -102,6 +610,7 @@ router.post("/submit", ensureApplicationService, async (req, res) => {
       application: result.application,
       lead: result.lead,
       whatsappMessage: result.whatsappMessage,
+      emailMessage: result.emailMessage,
     });
   } catch (error) {
     console.error("❌ Error submitting application:", error);
@@ -331,6 +840,7 @@ router.post("/submit-manual", ensureApplicationService, async (req, res) => {
       message: "Manual application submitted successfully",
       application: result.application,
       lead: result.lead,
+      emailMessage: result.emailMessage,
     });
   } catch (error) {
     console.error("❌ Error submitting manual application:", error);

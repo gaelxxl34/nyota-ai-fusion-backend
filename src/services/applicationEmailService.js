@@ -290,6 +290,244 @@ International University of East Africa
   }
 
   /**
+   * Send application received confirmation email to applicant
+   * @param {Object} applicationData - Application data
+   * @param {string} applicationData.applicantEmail - Applicant's email
+   * @param {string} applicationData.applicantName - Applicant's name
+   * @param {string} applicationData.courseName - Course name
+   * @param {string} applicationData.applicationId - Application ID
+   * @param {string} applicationData.preferredIntake - Preferred intake
+   * @param {string} applicationData.modeOfStudy - Mode of study
+   */
+  async sendApplicationReceivedNotification(applicationData) {
+    try {
+      const {
+        applicantEmail,
+        applicantName,
+        courseName,
+        applicationId,
+        preferredIntake,
+        modeOfStudy,
+      } = applicationData;
+
+      // Build HTML email content with IUEA branding and logo
+      const htmlContent = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="UTF-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>Application Received - IUEA</title>
+        </head>
+        <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f8f9fa;">
+          <div style="background-color: white; border-radius: 10px; overflow: hidden; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
+            
+            <!-- Header with IUEA Logo and Branding -->
+            <div style="background: linear-gradient(135deg, #7a0000 0%, #a00000 100%); color: white; padding: 30px 20px; text-align: center;">
+              <div style="background-color: white; border-radius: 8px; width: 160px; height: 100px; margin: 0 auto 20px; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);">
+                <img src="https://nyotatranslate.com/iuea-Logo.png" alt="IUEA Logo" style="width: 85px; height: 85px; object-fit: contain; display: block;" />
+              </div>
+              <h1 style="margin: 0; font-size: 28px; font-weight: bold;">International University of East Africa</h1>
+              <p style="margin: 10px 0 0; font-size: 16px; opacity: 0.9;">technological university of choice • Learning to Succeed</p>
+            </div>
+
+            <!-- Main Content -->
+            <div style="padding: 40px 30px;">
+              <h2 style="color: #7a0000; margin: 0 0 20px; font-size: 24px; text-align: center;">🎓 Application Received Successfully!</h2>
+              
+              <p style="font-size: 18px; margin-bottom: 20px;">Dear <strong>${applicantName}</strong>,</p>
+              
+              <div style="background: linear-gradient(135deg, #28a745 0%, #20c997 100%); color: white; padding: 20px; border-radius: 8px; text-align: center; margin: 20px 0;">
+                <h3 style="margin: 0; font-size: 20px;">✅ Thank you for applying to IUEA!</h3>
+                <p style="margin: 10px 0 0; font-size: 16px;">We've received your application and we're excited to have you take this big step toward your academic journey with us.</p>
+              </div>
+
+              <!-- Application Details -->
+              <div style="background-color: #f8f9fa; padding: 25px; border-radius: 8px; margin: 25px 0; border-left: 4px solid #7a0000;">
+                <h4 style="color: #7a0000; margin: 0 0 15px; font-size: 18px;">📋 Application Details</h4>
+                <table style="width: 100%; border-collapse: collapse;">
+                  <tr>
+                    <td style="padding: 8px 0; font-weight: bold; color: #555;">Program:</td>
+                    <td style="padding: 8px 0; color: #333;">${courseName}</td>
+                  </tr>
+                  ${
+                    preferredIntake
+                      ? `
+                  <tr>
+                    <td style="padding: 8px 0; font-weight: bold; color: #555;">Preferred Intake:</td>
+                    <td style="padding: 8px 0; color: #333;">${preferredIntake}</td>
+                  </tr>
+                  `
+                      : ""
+                  }
+                  ${
+                    modeOfStudy
+                      ? `
+                  <tr>
+                    <td style="padding: 8px 0; font-weight: bold; color: #555;">Mode of Study:</td>
+                    <td style="padding: 8px 0; color: #333;">${modeOfStudy}</td>
+                  </tr>
+                  `
+                      : ""
+                  }
+                  <tr>
+                    <td style="padding: 8px 0; font-weight: bold; color: #555;">Submission Date:</td>
+                    <td style="padding: 8px 0; color: #333;">${new Date().toLocaleDateString(
+                      "en-US",
+                      {
+                        year: "numeric",
+                        month: "long",
+                        day: "numeric",
+                      }
+                    )}</td>
+                  </tr>
+                </table>
+              </div>
+
+              <!-- Next Steps -->
+              <div style="background-color: #e8f4fd; border: 1px solid #bee5eb; padding: 20px; border-radius: 8px; margin: 25px 0;">
+                <h4 style="color: #0c5460; margin: 0 0 15px; font-size: 18px;">🔄 What Happens Next?</h4>
+                <ol style="color: #0c5460; margin: 0; padding-left: 20px;">
+                  <li style="margin-bottom: 10px;">Our admissions team is currently reviewing your application</li>
+                  <li style="margin-bottom: 10px;">We'll be in touch shortly with the next steps</li>
+                  <li style="margin-bottom: 10px;">You may be contacted for additional documents or an interview</li>
+                  <li style="margin-bottom: 10px;">Check your email regularly for updates</li>
+                </ol>
+              </div>
+
+              <!-- Support Message -->
+              <div style="background-color: #fff3cd; border: 1px solid #ffeaa7; padding: 20px; border-radius: 8px; margin: 25px 0;">
+                <h4 style="color: #856404; margin: 0 0 10px; font-size: 16px;">😊 Need Assistance?</h4>
+                <p style="color: #856404; margin: 0; font-size: 15px;">If you have any questions or need assistance, let me know how I can support you.</p>
+              </div>
+
+              <!-- Portal Access -->
+              <div style="text-align: center; margin: 30px 0; padding: 25px; background: linear-gradient(135deg, #007bff 0%, #0056b3 100%); border-radius: 8px;">
+                <h4 style="color: white; margin: 0 0 15px; font-size: 18px;">🌍 Welcome to the IUEA Family! ✨</h4>
+                <p style="color: white; margin: 0 0 20px; font-size: 15px;">Track your application status and access important updates</p>
+                <a href="https://applicant.iuea.ac.ug/" style="background-color: white; color: #007bff; padding: 15px 30px; text-decoration: none; border-radius: 5px; font-size: 16px; font-weight: bold; display: inline-block; transition: all 0.3s ease;">Access Application Portal</a>
+              </div>
+            </div>
+
+            <!-- Footer -->
+            <div style="background-color: #f8f9fa; padding: 30px 20px; text-align: center; border-top: 1px solid #dee2e6;">
+              <h4 style="color: #7a0000; margin: 0 0 15px; font-size: 18px;">📞 Contact Information</h4>
+              <div style="margin-bottom: 20px;">
+                <p style="margin: 5px 0; color: #666;">📧 Email: <a href="mailto:apply@iuea.ac.ug" style="color: #7a0000; text-decoration: none;">apply@iuea.ac.ug</a></p>
+                <p style="margin: 5px 0; color: #666;">📱 Phone: <a href="tel:+256790002000" style="color: #7a0000; text-decoration: none;">+256 790 002 000</a></p>
+                <p style="margin: 5px 0; color: #666;">🌐 Website: <a href="https://www.iuea.ac.ug" style="color: #7a0000; text-decoration: none;">www.iuea.ac.ug</a></p>
+                <p style="margin: 5px 0; color: #666;">📍 Ggaba Road, Kansanga, Kampala, Uganda</p>
+              </div>
+              
+              <div style="margin: 20px 0; padding-top: 20px; border-top: 1px solid #dee2e6;">
+                <p style="color: #666; font-size: 16px; margin: 0; font-weight: bold;">Best regards,</p>
+                <p style="color: #7a0000; font-size: 18px; margin: 5px 0; font-weight: bold;">IUEA Admissions Team</p>
+                <p style="color: #666; font-size: 14px; margin: 0;">International University of East Africa</p>
+              </div>
+            </div>
+          </div>
+        </body>
+        </html>
+      `;
+
+      // Text version for email clients that don't support HTML
+      const textContent = `
+INTERNATIONAL UNIVERSITY OF EAST AFRICA
+Application Received Successfully!
+
+Dear ${applicantName},
+
+Thank you for applying to IUEA! 🎓
+
+We've received your application and we're excited to have you take this big step toward your academic journey with us. ✅
+
+APPLICATION DETAILS:
+- Program: ${courseName}
+${preferredIntake ? `- Preferred Intake: ${preferredIntake}` : ""}
+${modeOfStudy ? `- Mode of Study: ${modeOfStudy}` : ""}
+- Submission Date: ${new Date().toLocaleDateString("en-US", {
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+      })}
+
+WHAT HAPPENS NEXT?
+1. Our admissions team is currently reviewing your application
+2. We'll be in touch shortly with the next steps
+3. You may be contacted for additional documents or an interview
+4. Check your email regularly for updates
+
+In the meantime, if you have any questions or need assistance, let me know how I can support you. 😊
+
+Welcome to the IUEA family! 🌍✨
+
+APPLICATION PORTAL:
+Track your application status and access important updates at: https://applicant.iuea.ac.ug/
+
+CONTACT INFORMATION:
+- Email: apply@iuea.ac.ug
+- Phone: +256 790 002 000
+- Website: www.iuea.ac.ug
+- Address: Ggaba Road, Kansanga, Kampala, Uganda
+
+Best regards,
+IUEA Admissions Team
+International University of East Africa
+      `;
+
+      const emailOptions = {
+        to: applicantEmail,
+        subject: `🎓 Application Received - Welcome to IUEA! - ${courseName}`,
+        html: htmlContent,
+        text: textContent,
+      };
+
+      const result = await emailService.sendEmail(emailOptions);
+
+      if (result.success) {
+        logger.info(
+          `✅ Application received email sent successfully to ${applicantEmail}`,
+          {
+            applicantEmail,
+            applicationId,
+            courseName,
+            messageId: result.messageId,
+            provider: result.provider,
+          }
+        );
+      } else if (result.skipped) {
+        logger.warn(
+          `Email service not available, application received notification skipped`,
+          {
+            applicantEmail,
+            applicationId,
+            courseName,
+            reason: result.error,
+          }
+        );
+      } else {
+        logger.error(`Failed to send application received email`, {
+          applicantEmail,
+          applicationId,
+          courseName,
+          error: result.error,
+          provider: result.provider,
+        });
+      }
+
+      return result;
+    } catch (error) {
+      logger.error("Failed to send application received email:", error);
+      return {
+        success: false,
+        error: error.message,
+        provider: "unknown",
+        skipped: false,
+      };
+    }
+  }
+
+  /**
    * Send bulk status notifications to multiple applicants
    * @param {Array} applications - Array of application data objects
    */
