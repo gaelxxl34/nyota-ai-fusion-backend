@@ -861,4 +861,334 @@ router.get("/analytics/performance", async (req, res) => {
   }
 });
 
+// ========== LEAD FORMS MANAGEMENT ROUTES ==========
+
+// Get all lead forms
+router.get("/lead-forms", async (req, res) => {
+  try {
+    const db = admin.firestore();
+    const formsSnapshot = await db.collection("leadForms").get();
+
+    const forms = formsSnapshot.docs.map((doc) => ({
+      id: doc.id,
+      ...doc.data(),
+    }));
+
+    res.json({
+      success: true,
+      forms,
+      total: forms.length,
+    });
+  } catch (error) {
+    console.error("Error fetching lead forms:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch lead forms",
+      error: error.message,
+    });
+  }
+});
+
+// Create new lead form
+router.post("/lead-forms", async (req, res) => {
+  try {
+    const {
+      name,
+      description,
+      fields,
+      metaConfig,
+      webhookUrl,
+      isActive,
+      campaignId,
+      adsetId,
+      formId,
+    } = req.body;
+
+    if (!name || !fields || !Array.isArray(fields)) {
+      return res.status(400).json({
+        success: false,
+        message: "Name and fields are required",
+      });
+    }
+
+    const db = admin.firestore();
+
+    const formData = {
+      name,
+      description: description || "",
+      fields,
+      metaConfig: metaConfig || {},
+      webhookUrl: webhookUrl || "",
+      isActive: isActive !== undefined ? isActive : true,
+      campaignId: campaignId || "",
+      adsetId: adsetId || "",
+      formId: formId || "",
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      createdBy: req.user.uid,
+      leadCount: 0,
+      conversionRate: 0,
+    };
+
+    const formRef = await db.collection("leadForms").add(formData);
+
+    res.json({
+      success: true,
+      message: "Lead form created successfully",
+      form: {
+        id: formRef.id,
+        ...formData,
+      },
+    });
+  } catch (error) {
+    console.error("Error creating lead form:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to create lead form",
+      error: error.message,
+    });
+  }
+});
+
+// Update lead form
+router.put("/lead-forms/:formId", async (req, res) => {
+  try {
+    const { formId } = req.params;
+    const {
+      name,
+      description,
+      fields,
+      metaConfig,
+      webhookUrl,
+      isActive,
+      campaignId,
+      adsetId,
+      formId: metaFormId,
+    } = req.body;
+
+    const db = admin.firestore();
+    const formRef = db.collection("leadForms").doc(formId);
+    const formDoc = await formRef.get();
+
+    if (!formDoc.exists) {
+      return res.status(404).json({
+        success: false,
+        message: "Lead form not found",
+      });
+    }
+
+    const updateData = {
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      updatedBy: req.user.uid,
+    };
+
+    if (name) updateData.name = name;
+    if (description !== undefined) updateData.description = description;
+    if (fields) updateData.fields = fields;
+    if (metaConfig) updateData.metaConfig = metaConfig;
+    if (webhookUrl !== undefined) updateData.webhookUrl = webhookUrl;
+    if (isActive !== undefined) updateData.isActive = isActive;
+    if (campaignId !== undefined) updateData.campaignId = campaignId;
+    if (adsetId !== undefined) updateData.adsetId = adsetId;
+    if (metaFormId !== undefined) updateData.formId = metaFormId;
+
+    await formRef.update(updateData);
+
+    const updatedForm = await formRef.get();
+
+    res.json({
+      success: true,
+      message: "Lead form updated successfully",
+      form: {
+        id: formId,
+        ...updatedForm.data(),
+      },
+    });
+  } catch (error) {
+    console.error("Error updating lead form:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to update lead form",
+      error: error.message,
+    });
+  }
+});
+
+// Delete lead form
+router.delete("/lead-forms/:formId", async (req, res) => {
+  try {
+    const { formId } = req.params;
+
+    const db = admin.firestore();
+    const formRef = db.collection("leadForms").doc(formId);
+    const formDoc = await formRef.get();
+
+    if (!formDoc.exists) {
+      return res.status(404).json({
+        success: false,
+        message: "Lead form not found",
+      });
+    }
+
+    await formRef.delete();
+
+    res.json({
+      success: true,
+      message: "Lead form deleted successfully",
+    });
+  } catch (error) {
+    console.error("Error deleting lead form:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to delete lead form",
+      error: error.message,
+    });
+  }
+});
+
+// Get lead form statistics
+router.get("/lead-forms/:formId/stats", async (req, res) => {
+  try {
+    const { formId } = req.params;
+    const { timeRange = "30" } = req.query; // days
+
+    const db = admin.firestore();
+    const formRef = db.collection("leadForms").doc(formId);
+    const formDoc = await formRef.get();
+
+    if (!formDoc.exists) {
+      return res.status(404).json({
+        success: false,
+        message: "Lead form not found",
+      });
+    }
+
+    const daysAgo = new Date();
+    daysAgo.setDate(daysAgo.getDate() - parseInt(timeRange));
+
+    // Get leads for this form
+    const leadsQuery = await db
+      .collection("leads")
+      .where("formId", "==", formId)
+      .where("createdAt", ">=", daysAgo)
+      .get();
+
+    const leads = leadsQuery.docs.map((doc) => doc.data());
+
+    // Calculate stats
+    const totalLeads = leads.length;
+    const statusCounts = {};
+    const dailyLeads = {};
+
+    leads.forEach((lead) => {
+      const status = lead.status || "NEW";
+      statusCounts[status] = (statusCounts[status] || 0) + 1;
+
+      const date =
+        lead.createdAt?.toDate?.()?.toISOString?.()?.split("T")[0] || "unknown";
+      dailyLeads[date] = (dailyLeads[date] || 0) + 1;
+    });
+
+    const convertedLeads = leads.filter((lead) =>
+      ["APPLIED", "ADMITTED", "ENROLLED"].includes(lead.status)
+    ).length;
+
+    const conversionRate =
+      totalLeads > 0 ? ((convertedLeads / totalLeads) * 100).toFixed(2) : 0;
+
+    res.json({
+      success: true,
+      stats: {
+        totalLeads,
+        convertedLeads,
+        conversionRate: parseFloat(conversionRate),
+        statusCounts,
+        dailyLeads,
+        timeRange: parseInt(timeRange),
+      },
+    });
+  } catch (error) {
+    console.error("Error fetching lead form stats:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch lead form statistics",
+      error: error.message,
+    });
+  }
+});
+
+// Test Meta webhook connection for a specific form
+router.post("/lead-forms/:formId/test-webhook", async (req, res) => {
+  try {
+    const { formId } = req.params;
+
+    const db = admin.firestore();
+    const formRef = db.collection("leadForms").doc(formId);
+    const formDoc = await formRef.get();
+
+    if (!formDoc.exists) {
+      return res.status(404).json({
+        success: false,
+        message: "Lead form not found",
+      });
+    }
+
+    const formData = formDoc.data();
+
+    // Create a test lead payload based on form fields
+    const testPayload = {
+      entry: [
+        {
+          id: "test_page_id",
+          time: Date.now(),
+          changes: [
+            {
+              field: "leadgen",
+              value: {
+                leadgen_id: `test_lead_${Date.now()}`,
+                created_time: Math.floor(Date.now() / 1000),
+                page_id: "test_page_id",
+                form_id: formData.formId || "test_form_id",
+                adgroup_id: formData.adsetId || "test_adset_id",
+                campaign_id: formData.campaignId || "test_campaign_id",
+              },
+            },
+          ],
+        },
+      ],
+    };
+
+    // Mock field data based on form configuration
+    const mockFieldData = formData.fields.map((field) => ({
+      name: field.name,
+      values: [
+        field.name === "email" ? "test@example.com" : `Test ${field.name}`,
+      ],
+    }));
+
+    console.log(`🧪 Testing webhook for form ${formId}:`, {
+      payload: testPayload,
+      fieldData: mockFieldData,
+      webhookUrl: formData.webhookUrl,
+    });
+
+    res.json({
+      success: true,
+      message: "Webhook test completed successfully",
+      testData: {
+        payload: testPayload,
+        mockFieldData,
+        webhookUrl: formData.webhookUrl,
+      },
+    });
+  } catch (error) {
+    console.error("Error testing webhook:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to test webhook",
+      error: error.message,
+    });
+  }
+});
+
 module.exports = router;

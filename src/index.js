@@ -277,6 +277,15 @@ function startServer() {
     logger.warn("Meta test routes not loaded:", error.message);
   }
 
+  // Welcome message routes
+  try {
+    const welcomeRoutes = require("./routes/welcome.routes");
+    app.use("/api/welcome", welcomeRoutes);
+    logger.info("Welcome message routes loaded");
+  } catch (error) {
+    logger.warn("Welcome routes not loaded:", error.message);
+  }
+
   // Health check endpoint
   app.get("/health", async (req, res) => {
     try {

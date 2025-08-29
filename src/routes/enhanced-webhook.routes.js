@@ -482,6 +482,437 @@ router.post("/google-ads", validateWebhookSource, async (req, res) => {
 });
 
 /**
+ * Test endpoint for Meta Lead Ads webhook
+ */
+router.post("/test-meta-lead-ads", validateWebhookSource, async (req, res) => {
+  try {
+    ensureServices();
+
+    logger.info("🧪 Testing Meta Lead Ads webhook processing...");
+
+    // Simulate a Meta Lead Ads webhook payload
+    const testLeadData = {
+      id: "test_lead_" + Date.now(),
+      created_time: new Date().toISOString(),
+      field_data: [
+        { name: "first_name", values: ["John"] },
+        { name: "last_name", values: ["Doe"] },
+        { name: "email", values: ["john.doe@example.com"] },
+        { name: "phone_number", values: ["+256700123456"] },
+        {
+          name: "program_interested_in",
+          values: ["Bachelor of Information Technology"],
+        },
+        { name: "country", values: ["Uganda"] },
+        { name: "city", values: ["Kampala"] },
+      ],
+      form_id: "test_form_123",
+      campaign_id: "test_campaign_123",
+      ad_id: "test_ad_123",
+      adset_id: "test_adset_123",
+    };
+
+    // Process the test lead using the same function as real webhooks
+    await processMetaLead(testLeadData, testLeadData.id);
+
+    res.status(200).json({
+      success: true,
+      message: "✅ Meta Lead Ads webhook test completed successfully!",
+      testData: testLeadData,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    logger.error("❌ Meta Lead Ads webhook test failed:", error);
+    res.status(500).json({
+      success: false,
+      message: "Meta Lead Ads webhook test failed",
+      error: error.message,
+    });
+  }
+});
+
+/**
+ * Process Meta Lead Ads webhook (Facebook/Instagram Lead Generation)
+ * This handles leads specifically from Meta Lead Ads campaigns
+ */
+router.get("/meta-lead-ads", (req, res) => {
+  // Facebook webhook verification
+  const VERIFY_TOKEN =
+    process.env.META_WEBHOOK_VERIFY_TOKEN || "your_verify_token";
+
+  const mode = req.query["hub.mode"];
+  const token = req.query["hub.verify_token"];
+  const challenge = req.query["hub.challenge"];
+
+  logger.info("Meta Lead Ads webhook verification:", {
+    mode,
+    token,
+    challenge,
+  });
+
+  if (mode === "subscribe" && token === VERIFY_TOKEN) {
+    logger.info("✅ Meta Lead Ads webhook verified successfully");
+    res.status(200).send(challenge);
+  } else {
+    logger.error("❌ Meta Lead Ads webhook verification failed");
+    res.sendStatus(403);
+  }
+});
+
+/**
+ * Meta Ads webhook verification endpoint
+ * This handles webhook verification for Meta Ads campaigns
+ */
+router.get("/meta-ads", (req, res) => {
+  // Facebook webhook verification
+  const VERIFY_TOKEN =
+    process.env.META_WEBHOOK_VERIFY_TOKEN || "NYOTA_META_VERIFY_2025";
+
+  const mode = req.query["hub.mode"];
+  const token = req.query["hub.verify_token"];
+  const challenge = req.query["hub.challenge"];
+
+  logger.info("Meta Ads webhook verification:", {
+    mode,
+    token,
+    challenge,
+  });
+
+  if (mode === "subscribe" && token === VERIFY_TOKEN) {
+    logger.info("✅ Meta Ads webhook verified successfully");
+    res.status(200).send(challenge);
+  } else {
+    logger.error("❌ Meta Ads webhook verification failed");
+    res.sendStatus(403);
+  }
+});
+
+router.post("/meta-lead-ads", validateWebhookSource, async (req, res) => {
+  try {
+    ensureServices();
+
+    logger.info(
+      "📱 Meta Lead Ads webhook received:",
+      JSON.stringify(req.body, null, 2)
+    );
+
+    const data = req.body;
+
+    // Validate Meta webhook structure
+    if (!data.entry || !Array.isArray(data.entry)) {
+      logger.warn("Invalid Meta webhook payload - missing entry array");
+      return res.status(200).send("OK"); // Always return 200 to Meta
+    }
+
+    // Process each entry
+    for (const entry of data.entry) {
+      if (!entry.changes || !Array.isArray(entry.changes)) {
+        logger.warn("Invalid entry - missing changes array");
+        continue;
+      }
+
+      // Process each change
+      for (const change of entry.changes) {
+        if (change.field !== "leadgen") {
+          logger.info(`Skipping non-leadgen change: ${change.field}`);
+          continue;
+        }
+
+        const leadgenId = change.value?.leadgen_id;
+        if (!leadgenId) {
+          logger.warn("Missing leadgen_id in change value");
+          continue;
+        }
+
+        logger.info(`🎯 Processing Meta Lead Ad: ${leadgenId}`);
+
+        try {
+          // Fetch lead data from Meta Graph API
+          const leadData = await fetchMetaLeadData(leadgenId);
+
+          if (!leadData) {
+            logger.error(`Failed to fetch lead data for ${leadgenId}`);
+            continue;
+          }
+
+          // Process the lead data
+          await processMetaLead(leadData, leadgenId);
+        } catch (leadError) {
+          logger.error(`Error processing lead ${leadgenId}:`, leadError);
+          // Continue processing other leads even if one fails
+        }
+      }
+    }
+
+    // Always return 200 to Meta to confirm receipt
+    res.status(200).send("OK");
+  } catch (error) {
+    logger.error("❌ Error processing Meta Lead Ads webhook:", error);
+    // Always return 200 to Meta even on error to prevent retries
+    res.status(200).send("OK");
+  }
+});
+
+/**
+ * Fetch lead data from Meta Graph API
+ */
+async function fetchMetaLeadData(leadgenId) {
+  try {
+    const axios = require("axios");
+    const accessToken = process.env.META_ACCESS_TOKEN;
+
+    if (!accessToken) {
+      throw new Error("META_ACCESS_TOKEN not configured");
+    }
+
+    const url = `https://graph.facebook.com/v18.0/${leadgenId}`;
+    const response = await axios.get(url, {
+      params: {
+        access_token: accessToken,
+        fields: "id,created_time,field_data,form_id,campaign_id,ad_id,adset_id",
+      },
+    });
+
+    logger.info(`✅ Fetched lead data for ${leadgenId}:`, response.data);
+    return response.data;
+  } catch (error) {
+    logger.error(
+      `❌ Failed to fetch lead data for ${leadgenId}:`,
+      error.response?.data || error.message
+    );
+    return null;
+  }
+}
+
+/**
+ * Process Meta lead data and create/update lead in CRM
+ */
+async function processMetaLead(leadData, leadgenId) {
+  try {
+    // Extract field data from Meta lead
+    const fieldData = leadData.field_data || [];
+    const extractedData = {};
+    const allFieldData = {}; // Store ALL fields for complete data capture
+
+    // Convert Meta field data to key-value pairs - capture EVERYTHING
+    fieldData.forEach((field) => {
+      const name = field.name?.toLowerCase();
+      const originalName = field.name; // Keep original field name
+      const values = field.values || [];
+
+      if (values.length > 0) {
+        extractedData[name] = values[0]; // Take first value
+        allFieldData[originalName] = values; // Store all values with original field name
+      }
+    });
+
+    logger.info("📋 Extracted Meta lead data:", extractedData);
+    logger.info("📋 All Meta field data captured:", allFieldData);
+
+    // Map Meta fields to our CRM fields - flexible mapping for any field structure
+    const firstName =
+      extractedData.first_name ||
+      extractedData.firstname ||
+      extractedData.name?.split(" ")[0] ||
+      "";
+    const lastName =
+      extractedData.last_name ||
+      extractedData.lastname ||
+      extractedData.name?.split(" ").slice(1).join(" ") ||
+      "";
+    const email =
+      extractedData.email ||
+      extractedData.email_address ||
+      extractedData.e_mail ||
+      "";
+    const phone =
+      extractedData.phone_number ||
+      extractedData.phone ||
+      extractedData.mobile ||
+      extractedData.whatsapp ||
+      "";
+    const program =
+      extractedData.program_interested_in ||
+      extractedData.program_of_interest ||
+      extractedData.course ||
+      extractedData.program ||
+      "";
+    const country =
+      extractedData.country ||
+      extractedData.country_of_residence ||
+      extractedData.nationality ||
+      "";
+    const city = extractedData.city || extractedData.location || "";
+
+    // Additional flexible field mapping - capture any other common fields
+    const age = extractedData.age || "";
+    const gender = extractedData.gender || "";
+    const education =
+      extractedData.education || extractedData.education_level || "";
+    const experience =
+      extractedData.experience || extractedData.work_experience || "";
+    const company = extractedData.company || extractedData.employer || "";
+    const budget =
+      extractedData.budget || extractedData.investment_budget || "";
+    const timeline = extractedData.timeline || extractedData.start_date || "";
+
+    const name =
+      `${firstName} ${lastName}`.trim() ||
+      extractedData.full_name ||
+      extractedData.name ||
+      "Unknown";
+
+    // PRIMARY FOCUS: Email duplicate checking
+    if (!email) {
+      logger.error(
+        `❌ Meta lead ${leadgenId} has no email - skipping (email is required for duplicate checking)`
+      );
+      return;
+    }
+
+    // Normalize phone number
+    let normalizedPhone = null;
+    if (phone && phone.trim()) {
+      normalizedPhone = phone.toString().replace(/^\+/, "").replace(/\D/g, "");
+    }
+
+    // Check for existing lead - EMAIL FIRST for duplicate prevention
+    let existingLead = null;
+    let actionTaken = "";
+
+    // PRIMARY: Check by email first (main duplicate prevention)
+    existingLead = await leadService.findLeadByEmail(email);
+
+    // SECONDARY: If no email match, check by phone (only if phone exists)
+    if (!existingLead && normalizedPhone) {
+      existingLead = await leadService.findLeadByPhone(normalizedPhone);
+    }
+
+    let leadId;
+    let statusNote = "";
+
+    if (existingLead) {
+      // Update existing lead with additional Meta Lead Ads data
+      leadId = existingLead;
+      actionTaken = "updated_existing_lead";
+      statusNote = `Updated existing lead with Meta Lead Ad inquiry (duplicate email: ${email})`;
+
+      // Add comprehensive interaction with ALL captured data
+      await leadService.addInteraction(existingLead.id, {
+        type: "META_LEAD_AD",
+        content: `New lead from Meta Lead Ads - ${
+          program ? `interested in ${program}` : "program inquiry"
+        }`,
+        channel: "META_LEAD_ADS",
+        automated: true,
+        direction: "incoming",
+        metadata: {
+          leadgenId,
+          program,
+          country,
+          city,
+          age,
+          gender,
+          education,
+          experience,
+          company,
+          budget,
+          timeline,
+          source: "Meta Lead Ads",
+          formId: leadData.form_id,
+          campaignId: leadData.campaign_id,
+          adId: leadData.ad_id,
+          adsetId: leadData.adset_id,
+          createdTime: leadData.created_time,
+          allFieldData: allFieldData, // Store ALL captured field data
+          extractedData: extractedData, // Store processed data
+          rawData: leadData,
+        },
+      });
+
+      // Update lead record with any new information
+      const updateData = {
+        lastContactDate: admin.firestore.FieldValue.serverTimestamp(),
+        lastContactSource: "Meta Lead Ads",
+      };
+
+      // Add phone if not present
+      if (normalizedPhone && !existingLead.phone) {
+        updateData.phone = normalizedPhone;
+      }
+
+      // Add any missing fields
+      if (program && !existingLead.program) updateData.program = program;
+      if (country && !existingLead.country) updateData.country = country;
+      if (city && !existingLead.city) updateData.city = city;
+
+      await leadService.updateLead(existingLead.id, updateData);
+    } else {
+      // Create new lead record with ALL captured data
+      const newLeadData = {
+        firstName,
+        lastName,
+        name,
+        email,
+        phone: normalizedPhone || phone,
+        program,
+        country,
+        city,
+        age,
+        gender,
+        education,
+        experience,
+        company,
+        budget,
+        timeline,
+        status: "CONTACTED",
+        source: LEAD_SOURCES.META_ADS,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        metaLeadAdsData: {
+          leadgenId,
+          formId: leadData.form_id,
+          campaignId: leadData.campaign_id,
+          adId: leadData.ad_id,
+          adsetId: leadData.adset_id,
+          createdTime: leadData.created_time,
+          allFieldData: allFieldData, // Store ALL original field data
+          extractedData: extractedData, // Store processed field data
+          rawFieldData: fieldData,
+        },
+      };
+
+      leadId = await leadService.createLead(newLeadData, LEAD_SOURCES.META_ADS);
+      actionTaken = "created_new_lead";
+      statusNote =
+        "New lead created from Meta Lead Ads with complete data capture";
+    }
+
+    // Send WhatsApp message if phone available
+    if (normalizedPhone) {
+      await sendWhatsAppTemplate(normalizedPhone, {
+        leadId: leadId?.id || leadId,
+        contactName: name,
+        source: "Meta Lead Ads",
+        messageType: "whatsapp_validation",
+        programInterest: program,
+        leadgenId: leadgenId,
+      });
+      statusNote += " (WhatsApp validation sent)";
+    }
+
+    logger.info(`✅ Meta Lead Ad processed successfully:`, {
+      leadgenId,
+      actionTaken,
+      leadId: leadId?.id || leadId,
+      contact: `${name} (${email || phone})`,
+    });
+  } catch (error) {
+    logger.error(`❌ Error processing Meta lead ${leadgenId}:`, error);
+    throw error;
+  }
+}
+
+/**
  * Process Meta (Facebook) Ads webhook (simplified)
  */
 router.post("/meta-ads", validateWebhookSource, async (req, res) => {
@@ -540,7 +971,7 @@ router.post("/meta-ads", validateWebhookSource, async (req, res) => {
         },
       });
     } else {
-      const leadData = {
+      const newLeadData = {
         firstName,
         lastName,
         name,
@@ -548,10 +979,10 @@ router.post("/meta-ads", validateWebhookSource, async (req, res) => {
         phone: normalizedPhone || phone,
         program,
         country,
-        status: "CONTACTED",
+        status: "INTERESTED",
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
       };
-      leadId = await leadService.createLead(leadData, LEAD_SOURCES.META_ADS);
+      leadId = await leadService.createLead(newLeadData, LEAD_SOURCES.META_ADS);
       actionTaken = "created_new_lead";
       statusNote =
         "New lead created from Meta Ads contact form (user initiated contact)";
@@ -1243,7 +1674,7 @@ router.post("/meta-ads", validateWebhookSource, async (req, res) => {
         phone: normalizedPhone || phone,
         program,
         country,
-        status: "CONTACTED", // User initiated contact via Meta Ads form
+        status: "INTERESTED", // User initiated contact via Meta Ads form
         source: LEAD_SOURCES.META_ADS,
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
         // Store original Meta Ads data for reference
