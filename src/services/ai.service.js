@@ -345,6 +345,11 @@ class AIService {
     leadStatus = null
   ) {
     try {
+      console.log(`🤖 AI generating response for: "${userMessage}"`);
+      console.log(
+        `📚 Conversation history length: ${conversationHistory.length}`
+      );
+
       // 1. Build the recent‐conversation context
       let contextPrompt = "";
       if (conversationHistory.length > 0) {
@@ -360,6 +365,9 @@ class AIService {
           }
         });
         contextPrompt += "\n";
+        console.log(`💬 Context prompt: ${contextPrompt}`);
+      } else {
+        console.log(`📭 No conversation history available`);
       }
 
       // 2. Start the system prompt with current date

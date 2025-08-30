@@ -676,11 +676,22 @@ Welcome to the IUEA family! 🌍✨`;
       this.broadcastAITyping(phoneNumber, profileName, true);
 
       // Fetch recent messages for context (last 3 messages)
+      // Get recent conversation context for AI
       const recentMessages =
         await this.conversationService.getRecentMessagesForContext(phoneNumber);
       console.log(
         `📚 Got ${recentMessages.length} recent messages for AI context`
       );
+
+      // Debug: Log the conversation history structure
+      if (recentMessages.length > 0) {
+        console.log(`🔍 Sample message structure:`, {
+          hasMessage: !!recentMessages[0].message,
+          hasSenderName: !!recentMessages[0].sender_name,
+          hasIsFromUser: typeof recentMessages[0].is_from_user !== "undefined",
+          sample: recentMessages[0],
+        });
+      }
 
       // Get lead status for this contact
       const leadStatus = await this.getLeadStatus(phoneNumber);
@@ -691,12 +702,11 @@ Welcome to the IUEA family! 🌍✨`;
       );
 
       // Generate AI response with context and lead status
-      const aiResponse = await aiService.generateResponse(messageContent, {
-        phoneNumber: phoneNumber,
-        profileName: profileName,
-        conversationHistory: recentMessages,
-        leadStatus: leadStatus,
-      });
+      const aiResponse = await aiService.generateResponse(
+        messageContent,
+        recentMessages, // Pass conversation history as second parameter
+        leadStatus // Pass lead status as third parameter
+      );
 
       if (aiResponse) {
         // Stop typing indicator

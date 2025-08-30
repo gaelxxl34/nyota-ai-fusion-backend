@@ -79,34 +79,51 @@ class ApplicationEmailService {
           style: "background-color: #007bff; color: white;",
         };
 
-      // Build HTML email content
+      // Build HTML email content with modern IUEA branding
       let htmlContent = `
-                <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-                    <div style="text-align: center; margin-bottom: 30px;">
-                        <h1 style="color: #333; margin-bottom: 10px;">IUEA - International University of East Africa</h1>
-                        <p style="color: #666; margin: 0;">Application Status Update</p>
-                    </div>
-                    
-                    <div style="background-color: #f8f9fa; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
-                        <h2 style="color: #333; margin-top: 0;">Dear ${applicantName},</h2>
-                        <p style="color: #666; line-height: 1.6;">
-                            We are writing to inform you about an update regarding your application for 
-                            <strong>${courseName}</strong>.
-                        </p>
-                    </div>
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="UTF-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>${statusInfo.subject} - IUEA</title>
+        </head>
+        <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f8f9fa;">
+          <div style="background-color: white; border-radius: 10px; overflow: hidden; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
+            
+            <!-- Header with IUEA Logo and Branding -->
+            <div style="background: linear-gradient(135deg, #7a0000 0%, #a00000 100%); color: white; padding: 30px 20px; text-align: center;">
+              <div style="background-color: white; border-radius: 8px; width: 160px; height: 100px; margin: 0 auto 20px; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);">
+                <img src="https://nyotatranslate.com/iuea-Logo.png" alt="IUEA Logo" style="width: 85px; height: 85px; object-fit: contain; display: block;" />
+              </div>
+              <h1 style="margin: 0; font-size: 28px; font-weight: bold;">International University of East Africa</h1>
+              <p style="margin: 10px 0 0; font-size: 16px; opacity: 0.9;">Application Status Update</p>
+            </div>
 
-                    <div style="text-align: center; margin: 30px 0;">
-                        <div style="display: inline-block; padding: 15px 30px; border-radius: 5px; ${
-                          statusInfo.style
-                        }">
-                            <h3 style="margin: 0; font-size: 18px;">Status: ${status.toUpperCase()}</h3>
-                        </div>
-                    </div>
+            <!-- Main Content -->
+            <div style="padding: 40px 30px;">
+              <h2 style="color: #333; margin: 0 0 20px; font-size: 22px;">Dear ${applicantName},</h2>
+              
+              <p style="color: #666; line-height: 1.6; font-size: 16px; margin-bottom: 25px;">
+                We are writing to inform you about an important update regarding your application for 
+                <strong style="color: #7a0000;">${courseName}</strong>.
+              </p>
 
-                    <div style="background-color: #ffffff; border: 1px solid #dee2e6; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
-                        <p style="color: #333; line-height: 1.6; margin-bottom: 15px;">
-                            ${statusInfo.message}
-                        </p>
+              <!-- Status Badge -->
+              <div style="text-align: center; margin: 30px 0;">
+                <div style="display: inline-block; padding: 20px 40px; border-radius: 8px; ${
+                  statusInfo.style
+                } box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);">
+                  <h3 style="margin: 0; font-size: 20px; font-weight: bold;">📋 ${status.toUpperCase()}</h3>
+                </div>
+              </div>
+
+              <!-- Status Message -->
+              <div style="background-color: #f8f9fa; padding: 25px; border-radius: 8px; margin: 25px 0; border-left: 4px solid #7a0000;">
+                <p style="color: #333; line-height: 1.6; margin: 0; font-size: 16px;">
+                  ${statusInfo.message}
+                </p>
+              </div>
             `;
 
       // Add status-specific content
@@ -117,80 +134,94 @@ class ApplicationEmailService {
         status === "ENROLLED"
       ) {
         htmlContent += `
-                        <div style="background-color: #d4edda; border: 1px solid #c3e6cb; padding: 15px; border-radius: 5px; margin: 15px 0;">
-                            <h4 style="color: #155724; margin-top: 0;">Next Steps:</h4>
-                            <ul style="color: #155724; margin-bottom: 0;">
-                                <li>You will receive admission documents within 3-5 business days</li>
-                                <li>Payment instructions will be provided separately</li>
-                                <li>Please check your email regularly for further communication</li>
-                                <li>Access your application portal for updates and documents</li>
-                            </ul>
-                        </div>
-                `;
+              <!-- Next Steps for Successful Status -->
+              <div style="background: linear-gradient(135deg, #28a745 0%, #20c997 100%); color: white; padding: 25px; border-radius: 8px; margin: 25px 0;">
+                <h4 style="color: white; margin: 0 0 15px; font-size: 18px;">🎉 Congratulations! Next Steps:</h4>
+                <ul style="color: white; margin: 0; padding-left: 20px; line-height: 1.8;">
+                  <li>📄 You will receive admission documents within 3-5 business days</li>
+                  <li>💳 Payment instructions will be provided separately</li>
+                  <li>📧 Please check your email regularly for further communication</li>
+                  <li>🌐 Access your application portal for updates and documents</li>
+                </ul>
+              </div>
+        `;
       }
 
       if (status === "DOCUMENTS_REQUIRED") {
         htmlContent += `
-                        <div style="background-color: #fff3cd; border: 1px solid #ffeaa7; padding: 15px; border-radius: 5px; margin: 15px 0;">
-                            <h4 style="color: #856404; margin-top: 0;">Required Actions:</h4>
-                            <p style="color: #856404; margin-bottom: 0;">
-                                Please submit the required documents as soon as possible to avoid delays in processing your application.
-                            </p>
-                        </div>
-                `;
+              <!-- Documents Required Warning -->
+              <div style="background-color: #fff3cd; border: 1px solid #ffeaa7; padding: 20px; border-radius: 8px; margin: 25px 0; border-left: 4px solid #ffc107;">
+                <h4 style="color: #856404; margin: 0 0 15px; font-size: 18px;">⚠️ Action Required:</h4>
+                <p style="color: #856404; margin: 0; font-size: 16px; line-height: 1.6;">
+                  Please submit the required documents as soon as possible to avoid delays in processing your application. 
+                  Log into your application portal to view specific document requirements.
+                </p>
+              </div>
+        `;
       }
 
       if (additionalInfo) {
         htmlContent += `
-                        <div style="border-left: 4px solid #007bff; padding-left: 15px; margin: 15px 0;">
-                            <h4 style="color: #007bff; margin-top: 0;">Additional Information:</h4>
-                            <p style="color: #333; margin-bottom: 0;">${additionalInfo}</p>
-                        </div>
-                `;
+              <!-- Additional Information -->
+              <div style="background-color: #e8f4fd; border: 1px solid #bee5eb; padding: 20px; border-radius: 8px; margin: 25px 0; border-left: 4px solid #007bff;">
+                <h4 style="color: #0c5460; margin: 0 0 15px; font-size: 18px;">💬 Additional Information:</h4>
+                <p style="color: #0c5460; margin: 0; font-size: 16px; line-height: 1.6;">${additionalInfo}</p>
+              </div>
+        `;
       }
 
       htmlContent += `
-                    </div>
+              <!-- Application Portal Access -->
+              <div style="text-align: center; margin: 30px 0; padding: 25px; background: linear-gradient(135deg, #007bff 0%, #0056b3 100%); border-radius: 8px;">
+                <h4 style="color: white; margin: 0 0 15px; font-size: 18px;">🎓 Application Portal Access</h4>
+                <p style="color: white; margin: 0 0 20px; font-size: 15px;">Track your application status, upload documents, and access important updates</p>
+                <a href="https://applicant.iuea.ac.ug/" 
+                   style="background-color: white; color: #007bff; padding: 15px 30px; text-decoration: none; border-radius: 5px; font-size: 16px; font-weight: bold; display: inline-block; transition: all 0.3s ease;">
+                  Access Portal
+                </a>
+              </div>
 
-                    <div style="text-align: center; margin: 30px 0; padding: 20px; background-color: #007bff; border-radius: 8px;">
-                        <h4 style="color: white; margin-top: 0;">🎓 Application Portal Access</h4>
-                        <p style="color: white; margin-bottom: 15px;">Track your application status, upload documents, and access important updates</p>
-                        <a href="https://applicant.iuea.ac.ug/" style="background-color: white; color: #007bff; padding: 15px 30px; text-decoration: none; border-radius: 5px; font-size: 16px; font-weight: bold; display: inline-block;">Access Application Portal</a>
-                    </div>
-
-                    <div style="background-color: #f8f9fa; padding: 20px; border-radius: 8px; margin-top: 30px;">
-                        <h4 style="color: #333; margin-top: 0;">Need Help?</h4>
-                        <p style="color: #666; margin-bottom: 10px;">
-                            If you have any questions about your application, please don't hesitate to contact us:
-                        </p>
-                        <ul style="color: #666; margin-bottom: 0;">
-                            <li>Email: apply@iuea.ac.ug</li>
-                            <li>Phone: +256 790 002 000</li>
-                            <li>Website: www.iuea.ac.ug</li>
-                            <li>Application Portal: <a href="https://applicant.iuea.ac.ug/" style="color: #007bff;">https://applicant.iuea.ac.ug/</a></li>
-                        </ul>
-                    </div>
-
-                    <div style="text-align: center; margin-top: 30px; padding-top: 20px; border-top: 1px solid #dee2e6;">
-                        <p style="color: #666; font-size: 14px; margin: 0;">
-                            Best regards,<br>
-                            <strong>IUEA Admissions Team</strong><br>
-                            International University of East Africa
-                        </p>
-                    </div>
+              <!-- Contact Information -->
+              <div style="background-color: #f8f9fa; padding: 25px; border-radius: 8px; margin: 25px 0;">
+                <h4 style="color: #7a0000; margin: 0 0 15px; font-size: 18px;">📞 Need Help?</h4>
+                <p style="color: #666; margin: 0 0 15px; font-size: 16px;">
+                  If you have any questions about your application, our admissions team is here to help:
+                </p>
+                <div style="display: flex; flex-wrap: wrap; gap: 15px;">
+                  <div style="flex: 1; min-width: 200px;">
+                    <p style="margin: 5px 0; color: #666; font-size: 15px;">📧 <a href="mailto:apply@iuea.ac.ug" style="color: #7a0000; text-decoration: none;">apply@iuea.ac.ug</a></p>
+                    <p style="margin: 5px 0; color: #666; font-size: 15px;">📱 <a href="tel:+256790002000" style="color: #7a0000; text-decoration: none;">+256 790 002 000</a></p>
+                  </div>
+                  <div style="flex: 1; min-width: 200px;">
+                    <p style="margin: 5px 0; color: #666; font-size: 15px;">🌐 <a href="https://www.iuea.ac.ug" style="color: #7a0000; text-decoration: none;">www.iuea.ac.ug</a></p>
+                    <p style="margin: 5px 0; color: #666; font-size: 15px;">📍 Ggaba Road, Kansanga, Kampala</p>
+                  </div>
                 </div>
-            `;
+              </div>
+            </div>
+
+            <!-- Footer -->
+            <div style="background-color: #f8f9fa; padding: 30px 20px; text-align: center; border-top: 1px solid #dee2e6;">
+              <p style="color: #666; font-size: 16px; margin: 0; font-weight: bold;">Best regards,</p>
+              <p style="color: #7a0000; font-size: 18px; margin: 5px 0; font-weight: bold;">IUEA Admissions Team</p>
+              <p style="color: #666; font-size: 14px; margin: 0;">International University of East Africa</p>
+              <p style="color: #666; font-size: 14px; margin: 10px 0 0; font-style: italic;">Learning to succeed.</p>
+            </div>
+          </div>
+        </body>
+        </html>
+      `;
 
       // Text version for email clients that don't support HTML
       let textContent = `
-IUEA - International University of East Africa
+INTERNATIONAL UNIVERSITY OF EAST AFRICA
 Application Status Update
 
 Dear ${applicantName},
 
-We are writing to inform you about an update regarding your application for ${courseName}.
+We are writing to inform you about an important update regarding your application for ${courseName}.
 
-STATUS: ${status.toUpperCase()}
+📋 STATUS: ${status.toUpperCase()}
 
 ${statusInfo.message}
             `;
@@ -203,37 +234,46 @@ ${statusInfo.message}
       ) {
         textContent += `
 
-Next Steps:
-- You will receive admission documents within 3-5 business days
-- Payment instructions will be provided separately
-- Please check your email regularly for further communication
-- Access your application portal for updates and documents
+🎉 CONGRATULATIONS! NEXT STEPS:
+• You will receive admission documents within 3-5 business days
+• Payment instructions will be provided separately
+• Please check your email regularly for further communication
+• Access your application portal for updates and documents
+                `;
+      }
+
+      if (status === "DOCUMENTS_REQUIRED") {
+        textContent += `
+
+⚠️ ACTION REQUIRED:
+Please submit the required documents as soon as possible to avoid delays in processing your application. Log into your application portal to view specific document requirements.
                 `;
       }
 
       if (additionalInfo) {
         textContent += `
 
-Additional Information:
+💬 ADDITIONAL INFORMATION:
 ${additionalInfo}
                 `;
       }
 
       textContent += `
 
-Application Portal:
+🎓 APPLICATION PORTAL:
 Track your application status and access important updates at: https://applicant.iuea.ac.ug/
 
-Need Help?
-If you have any questions about your application, please contact us:
-- Email: apply@iuea.ac.ug
-- Phone: +256 790 002 000
-- Website: www.iuea.ac.ug
-- Application Portal: https://applicant.iuea.ac.ug/
+📞 NEED HELP?
+If you have any questions about your application, our admissions team is here to help:
+• Email: apply@iuea.ac.ug
+• Phone: +256 790 002 000
+• Website: www.iuea.ac.ug
+• Address: Ggaba Road, Kansanga, Kampala, Uganda
 
 Best regards,
 IUEA Admissions Team
 International University of East Africa
+Learning to succeed.
             `;
 
       const emailOptions = {
@@ -574,45 +614,141 @@ International University of East Africa
 
       const emailOptions = {
         to: applicantEmail,
-        subject: `Payment Reminder - ${courseName}`,
+        subject: `💳 Payment Reminder - ${courseName}`,
         html: `
-                <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-                    <div style="text-align: center; margin-bottom: 30px;">
-                        <h1 style="color: #333; margin-bottom: 10px;">IUEA - International University of East Africa</h1>
-                        <p style="color: #666; margin: 0;">Payment Reminder</p>
-                    </div>
-                    <h2 style="color: #333;">Payment Reminder</h2>
-                    <p>Dear ${applicantName},</p>
-                    <p>This is a friendly reminder that your payment for <strong>${courseName}</strong> is due.</p>
-                    <div style="background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin: 20px 0;">
-                        <h3 style="color: #007bff; margin-top: 0;">Payment Details:</h3>
-                        <ul>
-                            <li><strong>Amount Due:</strong> ${amountDue}</li>
-                            <li><strong>Due Date:</strong> ${dueDate}</li>
-                        </ul>
-                    </div>
-                    ${
-                      paymentInstructions
-                        ? `<p><strong>Payment Instructions:</strong><br>${paymentInstructions}</p>`
-                        : ""
-                    }
-                    <p>Please ensure payment is made by the due date to secure your admission.</p>
-                    
-                    <div style="text-align: center; margin: 30px 0; padding: 20px; background-color: #007bff; border-radius: 8px;">
-                        <h4 style="color: white; margin-top: 0;">💳 Make Payment Online</h4>
-                        <p style="color: white; margin-bottom: 15px;">Access your application portal to view payment options and track your payment status</p>
-                        <a href="https://applicant.iuea.ac.ug/" style="background-color: white; color: #007bff; padding: 15px 30px; text-decoration: none; border-radius: 5px; font-size: 16px; font-weight: bold; display: inline-block;">Application Portal</a>
-                    </div>
-                    
-                    <br>
-                    <p>Best regards,<br>IUEA Finance Department</p>
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="UTF-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>Payment Reminder - IUEA</title>
+        </head>
+        <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f8f9fa;">
+          <div style="background-color: white; border-radius: 10px; overflow: hidden; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
+            
+            <!-- Header with IUEA Logo and Branding -->
+            <div style="background: linear-gradient(135deg, #7a0000 0%, #a00000 100%); color: white; padding: 30px 20px; text-align: center;">
+              <div style="background-color: white; border-radius: 8px; width: 160px; height: 100px; margin: 0 auto 20px; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);">
+                <img src="https://nyotatranslate.com/iuea-Logo.png" alt="IUEA Logo" style="width: 85px; height: 85px; object-fit: contain; display: block;" />
+              </div>
+              <h1 style="margin: 0; font-size: 28px; font-weight: bold;">International University of East Africa</h1>
+              <p style="margin: 10px 0 0; font-size: 16px; opacity: 0.9;">Payment Reminder</p>
+            </div>
+
+            <!-- Main Content -->
+            <div style="padding: 40px 30px;">
+              <h2 style="color: #333; margin: 0 0 20px; font-size: 22px;">Dear ${applicantName},</h2>
+              
+              <p style="color: #666; line-height: 1.6; font-size: 16px; margin-bottom: 25px;">
+                This is a friendly reminder that your payment for <strong style="color: #7a0000;">${courseName}</strong> is due.
+              </p>
+
+              <!-- Payment Details -->
+              <div style="background: linear-gradient(135deg, #ffc107 0%, #ffcd39 100%); color: #000; padding: 25px; border-radius: 8px; margin: 25px 0;">
+                <h3 style="color: #000; margin: 0 0 15px; font-size: 18px;">💰 Payment Details:</h3>
+                <div style="background-color: rgba(255, 255, 255, 0.9); padding: 15px; border-radius: 5px;">
+                  <p style="margin: 8px 0; font-size: 16px;"><strong>Amount Due:</strong> ${amountDue}</p>
+                  <p style="margin: 8px 0; font-size: 16px;"><strong>Due Date:</strong> ${dueDate}</p>
                 </div>
-            `,
-        text: `Payment Reminder\n\nDear ${applicantName},\n\nThis is a friendly reminder that your payment for ${courseName} is due.\n\nAmount Due: ${amountDue}\nDue Date: ${dueDate}\n\n${
-          paymentInstructions
-            ? `Payment Instructions: ${paymentInstructions}\n\n`
-            : ""
-        }Please ensure payment is made by the due date to secure your admission.\n\nFor payment options and to track your payment status, visit our application portal: https://applicant.iuea.ac.ug/\n\nBest regards,\nIUEA Finance Department`,
+              </div>
+
+              ${
+                paymentInstructions
+                  ? `
+              <!-- Payment Instructions -->
+              <div style="background-color: #e8f4fd; border: 1px solid #bee5eb; padding: 20px; border-radius: 8px; margin: 25px 0; border-left: 4px solid #007bff;">
+                <h4 style="color: #0c5460; margin: 0 0 15px; font-size: 18px;">📋 Payment Instructions:</h4>
+                <p style="color: #0c5460; margin: 0; font-size: 16px; line-height: 1.6;">${paymentInstructions}</p>
+              </div>
+              `
+                  : ""
+              }
+
+              <!-- Important Notice -->
+              <div style="background-color: #fff3cd; border: 1px solid #ffeaa7; padding: 20px; border-radius: 8px; margin: 25px 0; border-left: 4px solid #ffc107;">
+                <h4 style="color: #856404; margin: 0 0 15px; font-size: 18px;">⚠️ Important:</h4>
+                <p style="color: #856404; margin: 0; font-size: 16px; line-height: 1.6;">
+                  Please ensure payment is made by the due date to secure your admission and avoid any delays in your enrollment process.
+                </p>
+              </div>
+
+              <!-- Payment Portal Access -->
+              <div style="text-align: center; margin: 30px 0; padding: 25px; background: linear-gradient(135deg, #28a745 0%, #20c997 100%); border-radius: 8px;">
+                <h4 style="color: white; margin: 0 0 15px; font-size: 18px;">💳 Make Payment Online</h4>
+                <p style="color: white; margin: 0 0 20px; font-size: 15px;">Access your application portal to view payment options and track your payment status</p>
+                <a href="https://applicant.iuea.ac.ug/" 
+                   style="background-color: white; color: #28a745; padding: 15px 30px; text-decoration: none; border-radius: 5px; font-size: 16px; font-weight: bold; display: inline-block; transition: all 0.3s ease;">
+                  Access Payment Portal
+                </a>
+              </div>
+
+              <!-- Contact Information -->
+              <div style="background-color: #f8f9fa; padding: 25px; border-radius: 8px; margin: 25px 0;">
+                <h4 style="color: #7a0000; margin: 0 0 15px; font-size: 18px;">📞 Need Help?</h4>
+                <p style="color: #666; margin: 0 0 15px; font-size: 16px;">
+                  If you have any questions about your payment, our finance team is here to help:
+                </p>
+                <div style="display: flex; flex-wrap: wrap; gap: 15px;">
+                  <div style="flex: 1; min-width: 200px;">
+                    <p style="margin: 5px 0; color: #666; font-size: 15px;">📧 <a href="mailto:finance@iuea.ac.ug" style="color: #7a0000; text-decoration: none;">finance@iuea.ac.ug</a></p>
+                    <p style="margin: 5px 0; color: #666; font-size: 15px;">📱 <a href="tel:+256790002000" style="color: #7a0000; text-decoration: none;">+256 790 002 000</a></p>
+                  </div>
+                  <div style="flex: 1; min-width: 200px;">
+                    <p style="margin: 5px 0; color: #666; font-size: 15px;">🌐 <a href="https://www.iuea.ac.ug" style="color: #7a0000; text-decoration: none;">www.iuea.ac.ug</a></p>
+                    <p style="margin: 5px 0; color: #666; font-size: 15px;">📍 Ggaba Road, Kansanga, Kampala</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Footer -->
+            <div style="background-color: #f8f9fa; padding: 30px 20px; text-align: center; border-top: 1px solid #dee2e6;">
+              <p style="color: #666; font-size: 16px; margin: 0; font-weight: bold;">Best regards,</p>
+              <p style="color: #7a0000; font-size: 18px; margin: 5px 0; font-weight: bold;">IUEA Finance Department</p>
+              <p style="color: #666; font-size: 14px; margin: 0;">International University of East Africa</p>
+              <p style="color: #666; font-size: 14px; margin: 10px 0 0; font-style: italic;">Learning to succeed.</p>
+            </div>
+          </div>
+        </body>
+        </html>
+        `,
+        text: `
+INTERNATIONAL UNIVERSITY OF EAST AFRICA
+Payment Reminder
+
+Dear ${applicantName},
+
+This is a friendly reminder that your payment for ${courseName} is due.
+
+💰 PAYMENT DETAILS:
+• Amount Due: ${amountDue}
+• Due Date: ${dueDate}
+
+${
+  paymentInstructions
+    ? `📋 PAYMENT INSTRUCTIONS:
+${paymentInstructions}
+
+`
+    : ""
+}⚠️ IMPORTANT:
+Please ensure payment is made by the due date to secure your admission and avoid any delays in your enrollment process.
+
+💳 MAKE PAYMENT ONLINE:
+Access your application portal to view payment options and track your payment status: https://applicant.iuea.ac.ug/
+
+📞 NEED HELP?
+If you have any questions about your payment, our finance team is here to help:
+• Email: finance@iuea.ac.ug
+• Phone: +256 790 002 000
+• Website: www.iuea.ac.ug
+• Address: Ggaba Road, Kansanga, Kampala, Uganda
+
+Best regards,
+IUEA Finance Department
+International University of East Africa
+Learning to succeed.
+        `,
       };
 
       const result = await emailService.sendEmail(emailOptions);

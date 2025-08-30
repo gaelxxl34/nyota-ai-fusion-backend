@@ -253,7 +253,10 @@ async function sendWhatsAppMessage(to, message, messageType = "text") {
     };
 
     if (messageType === "text") {
-      payload.text = { body: message };
+      payload.text = {
+        body: message,
+        preview_url: true, // Enable clickable links and link previews
+      };
     }
 
     const response = await axios.post(
@@ -983,7 +986,15 @@ router.post("/ai/test", async (req, res) => {
       });
     }
 
-    const response = await aiService.generateResponse(message, context || {});
+    // For general testing, context might be empty or contain conversation history
+    const conversationHistory = context?.conversationHistory || [];
+    const leadStatus = context?.leadStatus || null;
+
+    const response = await aiService.generateResponse(
+      message,
+      conversationHistory,
+      leadStatus
+    );
 
     res.json({
       success: true,
@@ -1271,13 +1282,12 @@ router.post("/test-ai", async (req, res) => {
       console.log("No lead status found - treating as direct contact");
     }
 
-    // Generate AI response
-    const aiResponse = await aiService.generateResponse(message, {
-      phoneNumber: phoneNumber,
-      profileName: profileName,
-      conversationHistory: recentMessages,
-      leadStatus: leadStatus,
-    });
+    // Generate AI response with conversation history and lead status
+    const aiResponse = await aiService.generateResponse(
+      message,
+      recentMessages, // Pass conversation history as second parameter
+      leadStatus // Pass lead status as third parameter
+    );
 
     res.json({
       success: true,

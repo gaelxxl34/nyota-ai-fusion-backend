@@ -456,7 +456,10 @@ class ConversationService {
         messaging_product: "whatsapp",
         to: cleanPhoneNumber,
         type: "text",
-        text: { body: message },
+        text: {
+          body: message,
+          preview_url: true, // Enable clickable links and link previews
+        },
       };
 
       const response = await axios.post(
@@ -1017,7 +1020,11 @@ class ConversationService {
         return {
           id: doc.id,
           content: data.content || data.body || "",
+          message: data.content || data.body || "", // AI service expects 'message'
           sender: sender,
+          sender_name:
+            sender === "customer" ? data.senderName || "User" : "Miryam", // AI service expects 'sender_name'
+          is_from_user: data.direction === "incoming", // AI service expects 'is_from_user'
           messageType: data.senderType
             ? data.senderType === "incoming"
               ? "customer"

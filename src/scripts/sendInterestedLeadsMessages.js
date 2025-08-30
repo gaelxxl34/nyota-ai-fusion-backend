@@ -2,7 +2,7 @@
 
 /**
  * Script to send email and WhatsApp messages to all leads with "INTERESTED" status
- * Uses the whatsapp_validation template for WhatsApp messages
+ * Uses the application_followup_iuea template for WhatsApp messages
  */
 
 // Load environment variables
@@ -120,7 +120,8 @@ class InterestedLeadsMessenger {
    */
   async sendEmailToLead(lead) {
     try {
-      const subject = "Thank you for your interest in IUEA";
+      const subject =
+        "How's your IUEA application going? We're here to help! 🌟";
       const emailContent = this.generateEmailContent(lead);
 
       console.log(`📧 Sending email to ${lead.email}...`);
@@ -140,13 +141,15 @@ class InterestedLeadsMessenger {
         // Add interaction to lead timeline
         await this.leadService.addInteraction(lead.id, {
           type: "EMAIL",
-          content: `Email sent: ${subject}`,
+          content: emailContent.text, // Save the actual email content
           channel: "EMAIL",
           automated: true,
           direction: "outgoing",
           metadata: {
             messageId: result.messageId,
             provider: result.provider,
+            subject: subject,
+            campaignType: "interested_leads_followup",
           },
         });
       } else {
@@ -162,7 +165,7 @@ class InterestedLeadsMessenger {
   }
 
   /**
-   * Send WhatsApp message to a lead using whatsapp_validation template
+   * Send WhatsApp message to a lead using application_followup_iuea template
    */
   async sendWhatsAppToLead(lead) {
     try {
@@ -173,16 +176,22 @@ class InterestedLeadsMessenger {
       const cleanedPhone = phoneNumber.replace(/[^\d+]/g, "");
 
       console.log(
-        `📱 Sending WhatsApp validation message to ${cleanedPhone}...`
+        `📱 Sending WhatsApp follow-up message to ${cleanedPhone}...`
       );
 
-      // Prepare the whatsapp_validation template payload
+      // Template message content
+      const templateContent = `Hi there! 👋
+Just checking in to see how things are going with your IUEA application.
+We'd love to hear from you — if there's anything you need or any challenge you're facing, feel free to let us know. 😊
+We're here to support you and are excited to have you on this journey! 🌟`;
+
+      // Prepare the application_followup_iuea template payload
       const templatePayload = {
         messaging_product: "whatsapp",
         to: cleanedPhone.replace(/^\+/, ""), // Remove + for API
         type: "template",
         template: {
-          name: "whatsapp_validation",
+          name: "application_followup_iuea",
           language: { code: "en_US" },
           components: [],
         },
@@ -195,6 +204,7 @@ class InterestedLeadsMessenger {
           leadId: lead.id,
           contactName: lead.name,
           validationType: "interested_leads_campaign",
+          createConversation: true, // Ensure conversation is created
         }
       );
 
@@ -202,17 +212,18 @@ class InterestedLeadsMessenger {
         console.log(`✅ WhatsApp message sent successfully to ${cleanedPhone}`);
         this.results.whatsappSent++;
 
-        // Add interaction to lead timeline
+        // Add interaction to lead timeline with actual message content
         await this.leadService.addInteraction(lead.id, {
           type: "WHATSAPP",
-          content: "WhatsApp validation template sent",
+          content: templateContent,
           channel: "WHATSAPP",
           automated: true,
           direction: "outgoing",
           metadata: {
             messageId: result.messageId,
-            templateName: "whatsapp_validation",
+            templateName: "application_followup_iuea",
             campaignType: "interested_leads",
+            templateCategory: "Marketing",
           },
         });
       } else {
@@ -237,7 +248,7 @@ class InterestedLeadsMessenger {
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Thank you for your interest in IUEA</title>
+    <title>How's your IUEA application going?</title>
     <style>
         body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 20px; }
         .container { max-width: 600px; margin: 0 auto; background: #fff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
@@ -259,36 +270,40 @@ class InterestedLeadsMessenger {
         </div>
         
         <div class="header">
-            <h1>Thank You for Your Interest!</h1>
+            <h1>How's Your Application Going? 👋</h1>
             <p>International University of East Africa (IUEA)</p>
         </div>
         
         <div class="content">
             <p>Dear ${lead.name || "Prospective Student"},</p>
             
-            <p>Thank you for showing interest in the International University of East Africa (IUEA). We're excited about the possibility of having you join our vibrant academic community!</p>
+            <p>We hope this email finds you well! 😊 We're just checking in to see how things are going with your IUEA application.</p>
+            
+            <p>We understand that the application process can sometimes feel overwhelming, and we want you to know that <strong>we're here to support you every step of the way!</strong></p>
             
             <div class="highlight">
-                <h3>Why Choose IUEA?</h3>
+                <h3>Need Help? We've Got You Covered! 🤝</h3>
+                <p>If you're facing any challenges or have questions about:</p>
                 <ul>
-                    <li>🎓 Internationally recognized degree programs</li>
-                    <li>🌍 Diverse, multicultural learning environment</li>
-                    <li>👨‍🏫 Experienced faculty and industry experts</li>
-                    <li>🏢 Modern facilities and state-of-the-art technology</li>
-                    <li>💼 Strong industry connections and internship opportunities</li>
+                    <li>📋 Application requirements or documents</li>
+                    <li>💰 Tuition fees and payment options</li>
+                    <li>� Accommodation and campus life</li>
+                    <li>📚 Our academic programs</li>
+                    <li>� Any other concerns</li>
                 </ul>
+                <p><strong>Please don't hesitate to reach out to us!</strong> Our admissions team is ready to assist you.</p>
             </div>
             
-            <p>Our admissions team is ready to guide you through the application process and answer any questions you may have about our programs, campus life, or admission requirements.</p>
+            <p>Remember, taking this step toward your education shows incredible determination, and we're excited to have you on this journey with us! 🌟</p>
             
             <p style="text-align: center;">
                 <a href="https://applicant.iuea.ac.ug/login" class="cta-button">Continue Your Application</a>
             </p>
             
-            <p>We look forward to hearing from you soon and hope to welcome you to the IUEA family!</p>
+            <p>Feel free to reply to this email or call us directly if you need any assistance. We're here to help make your dream of joining IUEA a reality!</p>
             
-            <p>Best regards,<br>
-            <strong>IUEA Admissions Office</strong><br>
+            <p>Wishing you all the best,<br>
+            <strong>IUEA Admissions Team</strong><br>
             International University of East Africa</p>
         </div>
         
@@ -304,23 +319,29 @@ class InterestedLeadsMessenger {
     const text = `
 Dear ${lead.name || "Prospective Student"},
 
-Thank you for showing interest in the International University of East Africa (IUEA). We're excited about the possibility of having you join our vibrant academic community!
+We hope this email finds you well! 😊 We're just checking in to see how things are going with your IUEA application.
 
-Why Choose IUEA?
-- Internationally recognized degree programs
-- Diverse, multicultural learning environment
-- Experienced faculty and industry experts
-- Modern facilities and state-of-the-art technology
-- Strong industry connections and internship opportunities
+We understand that the application process can sometimes feel overwhelming, and we want you to know that we're here to support you every step of the way!
 
-Our admissions team is ready to guide you through the application process and answer any questions you may have about our programs, campus life, or admission requirements.
+Need Help? We've Got You Covered! 🤝
+
+If you're facing any challenges or have questions about:
+- Application requirements or documents
+- Tuition fees and payment options
+- Accommodation and campus life
+- Our academic programs
+- Any other concerns
+
+Please don't hesitate to reach out to us! Our admissions team is ready to assist you.
+
+Remember, taking this step toward your education shows incredible determination, and we're excited to have you on this journey with us! 🌟
 
 Continue your application: https://applicant.iuea.ac.ug/login
 
-We look forward to hearing from you soon and hope to welcome you to the IUEA family!
+Feel free to reply to this email or call us directly if you need any assistance. We're here to help make your dream of joining IUEA a reality!
 
-Best regards,
-IUEA Admissions Office
+Wishing you all the best,
+IUEA Admissions Team
 International University of East Africa
 
 Contact Information:
@@ -364,9 +385,7 @@ Address: Kansanga, Kampala, Uganda
 
     console.log("=".repeat(60));
   }
-}
-
-// Main execution function
+} // Main execution function
 async function main() {
   try {
     console.log("🚨 PRODUCTION MODE ACTIVE 🚨");
