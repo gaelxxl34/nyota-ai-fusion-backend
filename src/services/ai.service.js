@@ -339,21 +339,179 @@ class AIService {
     return knowledgeContext;
   }
 
+  // Build application status context to guide AI responses
+  buildStatusContext(leadStatus) {
+    const statusContexts = {
+      INTERESTED: `
+
+APPLICATION STATUS CONTEXT: This user has shown initial interest but hasn't applied yet.
+- Guide them towards application process
+- Share programme information
+- Encourage them to apply through the portal
+- Ask what specific programme they're interested in
+- Help with admission requirements`,
+
+      APPLIED: `
+
+APPLICATION STATUS CONTEXT: This user has already submitted their application! 🎓
+- Acknowledge their application if they mention it
+- Focus on next steps in the process
+- Provide timeline expectations
+- Offer support during review period
+- Don't repeatedly ask them to apply - they already have!
+- Help with document submission if needed`,
+
+      IN_REVIEW: `
+
+APPLICATION STATUS CONTEXT: This user's application is currently being reviewed.
+- Reassure them about the review process
+- Provide realistic timelines
+- Help with any additional documents needed
+- Keep them engaged while waiting
+- Don't ask them to apply again - focus on current application`,
+
+      QUALIFIED: `
+
+APPLICATION STATUS CONTEXT: This user has been qualified! Great news! ✨
+- Congratulate them on meeting requirements
+- Guide them through next steps
+- Help with enrollment process
+- Share important deadlines
+- Assist with any remaining requirements`,
+
+      ADMITTED: `
+
+APPLICATION STATUS CONTEXT: This user has been ADMITTED! Excellent! 🎉
+- Celebrate this achievement with them
+- Guide them through enrollment steps
+- Help with registration process
+- Share orientation information
+- Assist with fee payment process
+- Don't ask them to apply - they're already admitted!`,
+
+      ENROLLED: `
+
+APPLICATION STATUS CONTEXT: This user is ENROLLED! They're now a IUEA student! 🌟
+- Welcome them to the IUEA family
+- Help with student portal access
+- Share campus information
+- Assist with academic planning
+- Guide them to student services
+- Focus on student support, not admissions`,
+
+      DEFERRED: `
+
+APPLICATION STATUS CONTEXT: This user's application was deferred.
+- Be supportive and understanding
+- Explain next steps for reapplication
+- Help them strengthen their application
+- Provide encouragement
+- Guide them on timeline for next intake`,
+
+      EXPIRED: `
+
+APPLICATION STATUS CONTEXT: This user's previous application expired.
+- Encourage fresh application for current intake
+- Help them understand what's needed
+- Guide them through new application process
+- Be supportive about starting over
+- Focus on current opportunities`,
+    };
+
+    return (
+      statusContexts[leadStatus] ||
+      `
+
+APPLICATION STATUS CONTEXT: User status: ${leadStatus}
+- Respond appropriately to their current stage
+- Provide relevant next steps
+- Be supportive and helpful`
+    );
+  }
+
+  // Build user engagement context to personalize AI responses
+  buildEngagementContext(userContext) {
+    if (!userContext) return "";
+
+    let engagementPrompt = "\n\nUSER ENGAGEMENT CONTEXT:";
+
+    // Engagement level context
+    const engagementContexts = {
+      new: "- This is a new contact, be welcoming and introductory",
+      engaged:
+        "- User is actively engaged, continue the conversation naturally",
+      highly_engaged:
+        "- User is highly engaged with multiple interactions, be more detailed and comprehensive",
+      returning:
+        "- Returning user after some time, acknowledge the gap and be welcoming back",
+    };
+
+    if (userContext.engagementLevel) {
+      engagementPrompt += `\n${
+        engagementContexts[userContext.engagementLevel] ||
+        "- Regular engagement level"
+      }`;
+    }
+
+    // Application context
+    if (userContext.applications && userContext.applications.length > 0) {
+      engagementPrompt += `\n- User has ${userContext.applications.length} application(s) on file`;
+
+      // Get most recent application status
+      const recentApp = userContext.applications[0];
+      if (recentApp && recentApp.status) {
+        engagementPrompt += `\n- Most recent application status: ${recentApp.status}`;
+      }
+    }
+
+    // Message count context
+    if (userContext.messageCount) {
+      if (userContext.messageCount > 20) {
+        engagementPrompt +=
+          "\n- Long conversation history, user is very familiar with IUEA";
+      } else if (userContext.messageCount > 5) {
+        engagementPrompt +=
+          "\n- Moderate conversation history, user has some familiarity";
+      }
+    }
+
+    return engagementPrompt;
+  }
+
   async generateResponse(
     userMessage,
     conversationHistory = [],
-    leadStatus = null
+    leadStatus = null,
+    userContext = null
   ) {
     try {
       console.log(`🤖 AI generating response for: "${userMessage}"`);
       console.log(
         `📚 Conversation history length: ${conversationHistory.length}`
       );
+      console.log(
+        `👤 User lead status: ${leadStatus || "No status (direct contact)"}`
+      );
+      console.log(
+        `🔍 User context:`,
+        userContext
+          ? {
+              applications: userContext.applications?.length || 0,
+              engagementLevel: userContext.engagementLevel,
+              messageCount: userContext.messageCount,
+            }
+          : "Not available"
+      );
 
-      // 1. Build the recent‐conversation context
+      // 1. Build the recent‐conversation context with analysis
       let contextPrompt = "";
+      let conversationAnalysis = null;
+
       if (conversationHistory.length > 0) {
-        const recent = conversationHistory.slice(-3);
+        // Extract conversation analysis if available
+        conversationAnalysis = conversationHistory.conversationAnalysis;
+
+        const recent = conversationHistory.slice(-5); // Increased from 3 to 5 for better context
         contextPrompt = "\n\nRecent conversation:\n";
         recent.forEach((msg) => {
           if (msg.sender_name) {
@@ -364,13 +522,46 @@ class AIService {
             contextPrompt += `Miryam: ${msg.message}\n`;
           }
         });
+
+        // Add conversation analysis context if available
+        if (conversationAnalysis) {
+          contextPrompt += "\nCONVERSATION ANALYSIS:\n";
+          if (conversationAnalysis.hasUnresolvedQuestions) {
+            contextPrompt +=
+              "- User has unresolved questions that need addressing\n";
+          }
+          if (conversationAnalysis.discussedTopics.length > 0) {
+            contextPrompt += `- Previously discussed: ${conversationAnalysis.discussedTopics.join(
+              ", "
+            )}\n`;
+          }
+          if (conversationAnalysis.lastUserQuestion) {
+            contextPrompt += `- Last question: "${conversationAnalysis.lastUserQuestion}"\n`;
+          }
+          contextPrompt += `- Conversation stage: ${conversationAnalysis.conversationFlow}\n`;
+        }
+
         contextPrompt += "\n";
-        console.log(`💬 Context prompt: ${contextPrompt}`);
+        console.log(`💬 Enhanced context with analysis: ${contextPrompt}`);
       } else {
         console.log(`📭 No conversation history available`);
       }
 
-      // 2. Start the system prompt with current date
+      // 2. Build application status context
+      let statusContext = "";
+      if (leadStatus) {
+        statusContext = this.buildStatusContext(leadStatus);
+        console.log(`📊 Status context: ${statusContext}`);
+      }
+
+      // 3. Build user engagement context
+      let engagementContext = "";
+      if (userContext) {
+        engagementContext = this.buildEngagementContext(userContext);
+        console.log(`👥 Engagement context: ${engagementContext}`);
+      }
+
+      // 4. Start the system prompt with current date
       const currentDate = new Date();
       const currentDateString = currentDate.toLocaleDateString("en-GB", {
         day: "numeric",
@@ -392,6 +583,14 @@ Language: ALWAYS write in British English by default. Use British spellings (e.g
 
 Style: 1–2 short sentences. Natural, warm, and direct. No lists unless asked. No filler words, no clichés, no markdown, no hashtags, no asterisks, no em dashes.
 
+Context Awareness: You have access to the conversation history and user's application status. Use this information to:
+- Avoid repeating information already discussed
+- Reference previous conversations naturally
+- Adapt your response based on their application stage
+- Provide relevant next steps based on where they are in the process
+- Show continuity and understanding of their journey
+- Acknowledge their engagement level and respond appropriately
+
 Emotions & Emojis: Show personality with appropriate emojis and emotions:
 - Happy/Excited: 😊 😁 🎓 ✨ when discussing opportunities, success, achievements
 - Helpful/Supportive: 👍 💪 🤝 when providing assistance, encouragement  
@@ -411,7 +610,7 @@ Bachelors: Business Admin, Public Admin, Procurement & Logistics, Tourism & Hote
 
 Masters: MBA, Master of IT, Master of Int. Relations.
 
-Diplomas: Electrical Eng, Civil Eng, Architecture.`;
+Diplomas: Electrical Eng, Civil Eng, Architecture.${statusContext}${engagementContext}`;
 
       // 3. Pull in any matched Q&A from the CSV
       const relevantKnowledge = this.getRelevantKnowledge(userMessage);

@@ -1191,4 +1191,233 @@ router.post("/lead-forms/:formId/test-webhook", async (req, res) => {
   }
 });
 
+// ========== BULK ACTIONS ROUTES ==========
+
+// Get all interested leads for bulk messaging
+router.get("/bulk-actions/interested-leads", async (req, res) => {
+  try {
+    const db = admin.firestore();
+    const { LEAD_STATUSES } = require("../config/lead.constants");
+
+    const leadsQuery = await db
+      .collection("leads")
+      .where("status", "==", LEAD_STATUSES.INTERESTED)
+      .orderBy("createdAt", "desc")
+      .get();
+
+    const leads = leadsQuery.docs.map((doc) => ({
+      id: doc.id,
+      ...doc.data(),
+    }));
+
+    res.json({
+      success: true,
+      leads,
+      total: leads.length,
+    });
+  } catch (error) {
+    console.error("Error fetching interested leads:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch interested leads",
+      error: error.message,
+    });
+  }
+});
+
+// Start bulk messaging campaign
+router.post("/bulk-actions/send-messages", async (req, res) => {
+  try {
+    const { campaignName, description } = req.body;
+
+    if (!campaignName) {
+      return res.status(400).json({
+        success: false,
+        message: "Campaign name is required",
+      });
+    }
+
+    const db = admin.firestore();
+
+    // Create campaign record
+    const campaignData = {
+      name: campaignName,
+      description: description || "",
+      status: "running",
+      startedAt: admin.firestore.FieldValue.serverTimestamp(),
+      startedBy: req.user.uid,
+      results: {
+        totalLeads: 0,
+        emailsSent: 0,
+        emailsFailed: 0,
+        whatsappSent: 0,
+        whatsappFailed: 0,
+        errors: [],
+      },
+      logs: [],
+    };
+
+    const campaignRef = await db.collection("campaigns").add(campaignData);
+    const campaignId = campaignRef.id;
+
+    // Start the bulk messaging process in the background
+    setImmediate(async () => {
+      try {
+        const InterestedLeadsMessenger = require("../scripts/sendInterestedLeadsMessages");
+
+        // Create messenger with campaign reference for real-time updates
+        const messenger = new InterestedLeadsMessenger(campaignRef);
+
+        // Start processing
+        await campaignRef.update({
+          [`logs`]: admin.firestore.FieldValue.arrayUnion({
+            timestamp: new Date().toISOString(),
+            type: "info",
+            message: "Campaign started - beginning to process interested leads",
+          }),
+        });
+
+        const results = await messenger.processInterestedLeads();
+
+        // Update final results
+        await campaignRef.update({
+          status: "completed",
+          completedAt: admin.firestore.FieldValue.serverTimestamp(),
+          results: results,
+          [`logs`]: admin.firestore.FieldValue.arrayUnion({
+            timestamp: new Date().toISOString(),
+            type: "success",
+            message: `Campaign completed successfully. Emails sent: ${results.emailsSent}, WhatsApp sent: ${results.whatsappSent}`,
+          }),
+        });
+      } catch (error) {
+        console.error("Campaign error:", error);
+        await campaignRef.update({
+          status: "failed",
+          failedAt: admin.firestore.FieldValue.serverTimestamp(),
+          error: error.message,
+          [`logs`]: admin.firestore.FieldValue.arrayUnion({
+            timestamp: new Date().toISOString(),
+            type: "error",
+            message: `Campaign failed: ${error.message}`,
+          }),
+        });
+      }
+    });
+
+    res.json({
+      success: true,
+      message: "Bulk messaging campaign started successfully",
+      campaignId,
+      campaignName,
+    });
+  } catch (error) {
+    console.error("Error starting bulk messaging campaign:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to start bulk messaging campaign",
+      error: error.message,
+    });
+  }
+});
+
+// Get campaign status and logs
+router.get("/bulk-actions/campaigns/:campaignId", async (req, res) => {
+  try {
+    const { campaignId } = req.params;
+    const db = admin.firestore();
+
+    const campaignDoc = await db.collection("campaigns").doc(campaignId).get();
+
+    if (!campaignDoc.exists) {
+      return res.status(404).json({
+        success: false,
+        message: "Campaign not found",
+      });
+    }
+
+    const campaignData = campaignDoc.data();
+
+    res.json({
+      success: true,
+      campaign: {
+        id: campaignId,
+        ...campaignData,
+      },
+    });
+  } catch (error) {
+    console.error("Error fetching campaign:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch campaign",
+      error: error.message,
+    });
+  }
+});
+
+// Get all campaigns
+router.get("/bulk-actions/campaigns", async (req, res) => {
+  try {
+    const db = admin.firestore();
+    const { limit = 20, offset = 0 } = req.query;
+
+    const campaignsQuery = await db
+      .collection("campaigns")
+      .orderBy("startedAt", "desc")
+      .limit(parseInt(limit))
+      .offset(parseInt(offset))
+      .get();
+
+    const campaigns = campaignsQuery.docs.map((doc) => ({
+      id: doc.id,
+      ...doc.data(),
+    }));
+
+    res.json({
+      success: true,
+      campaigns,
+      total: campaigns.length,
+    });
+  } catch (error) {
+    console.error("Error fetching campaigns:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch campaigns",
+      error: error.message,
+    });
+  }
+});
+
+// Delete a campaign
+router.delete("/bulk-actions/campaigns/:campaignId", async (req, res) => {
+  try {
+    const { campaignId } = req.params;
+    const db = admin.firestore();
+
+    const campaignRef = db.collection("campaigns").doc(campaignId);
+    const campaignDoc = await campaignRef.get();
+
+    if (!campaignDoc.exists) {
+      return res.status(404).json({
+        success: false,
+        message: "Campaign not found",
+      });
+    }
+
+    await campaignRef.delete();
+
+    res.json({
+      success: true,
+      message: "Campaign deleted successfully",
+    });
+  } catch (error) {
+    console.error("Error deleting campaign:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to delete campaign",
+      error: error.message,
+    });
+  }
+});
+
 module.exports = router;

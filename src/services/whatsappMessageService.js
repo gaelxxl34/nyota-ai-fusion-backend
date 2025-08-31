@@ -666,7 +666,7 @@ Welcome to the IUEA family! 🌍✨`;
   }
 
   /**
-   * Handle AI auto-reply logic
+   * Handle AI auto-reply logic with enhanced context
    */
   async handleAIAutoReply(phoneNumber, messageContent, profileName) {
     console.log("🤖 AI Auto-Reply is enabled, generating response...");
@@ -675,10 +675,12 @@ Welcome to the IUEA family! 🌍✨`;
       // Start typing indicator
       this.broadcastAITyping(phoneNumber, profileName, true);
 
-      // Fetch recent messages for context (last 3 messages)
-      // Get recent conversation context for AI
+      // Fetch recent messages for context with enhanced analysis
       const recentMessages =
-        await this.conversationService.getRecentMessagesForContext(phoneNumber);
+        await this.conversationService.getRecentMessagesForContext(
+          phoneNumber,
+          10
+        );
       console.log(
         `📚 Got ${recentMessages.length} recent messages for AI context`
       );
@@ -689,23 +691,27 @@ Welcome to the IUEA family! 🌍✨`;
           hasMessage: !!recentMessages[0].message,
           hasSenderName: !!recentMessages[0].sender_name,
           hasIsFromUser: typeof recentMessages[0].is_from_user !== "undefined",
+          hasAnalysis: !!recentMessages.conversationAnalysis,
           sample: recentMessages[0],
         });
       }
 
-      // Get lead status for this contact
-      const leadStatus = await this.getLeadStatus(phoneNumber);
-      console.log(
-        `👤 Lead status for ${phoneNumber}: ${
-          leadStatus || "No status (direct contact)"
-        }`
-      );
+      // Get comprehensive user context
+      const userContext = await this.getUserContext(phoneNumber);
+      console.log(`👤 User context for ${phoneNumber}:`, {
+        leadStatus: userContext.leadStatus,
+        hasApplications: userContext.applications?.length > 0,
+        conversationStage:
+          recentMessages.conversationAnalysis?.conversationFlow,
+        discussedTopics: recentMessages.conversationAnalysis?.discussedTopics,
+      });
 
-      // Generate AI response with context and lead status
+      // Generate AI response with enhanced context
       const aiResponse = await aiService.generateResponse(
         messageContent,
-        recentMessages, // Pass conversation history as second parameter
-        leadStatus // Pass lead status as third parameter
+        recentMessages, // Enhanced conversation history with analysis
+        userContext.leadStatus, // Lead status for application awareness
+        userContext // Additional user context
       );
 
       if (aiResponse) {
@@ -722,6 +728,97 @@ Welcome to the IUEA family! 🌍✨`;
       console.error("❌ AI Response Error:", error);
       // Always stop typing indicator on error
       this.broadcastAITyping(phoneNumber, profileName, false);
+    }
+  }
+
+  /**
+   * Get comprehensive user context for AI decision making
+   */
+  async getUserContext(phoneNumber) {
+    try {
+      const context = {
+        leadStatus: null,
+        applications: [],
+        conversationHistory: [],
+        lastInteraction: null,
+        engagementLevel: "new", // new, engaged, returning
+        preferences: {},
+      };
+
+      // Get lead status
+      context.leadStatus = await this.getLeadStatus(phoneNumber);
+
+      // Get application information if lead exists
+      if (context.leadStatus) {
+        try {
+          const normalizedPhone = phoneNumber
+            .replace(/[^\d]/g, "")
+            .replace(/^0+/, "");
+
+          const axios = require("axios");
+
+          // Get applications for this phone number
+          const applicationsResponse = await axios.get(
+            `${
+              process.env.BACKEND_URL || "http://localhost:3000"
+            }/api/applications/phone/${normalizedPhone}`,
+            { timeout: 3000 }
+          );
+
+          if (applicationsResponse.data.success) {
+            context.applications = applicationsResponse.data.applications || [];
+            console.log(
+              `📋 Found ${context.applications.length} applications for ${phoneNumber}`
+            );
+          }
+        } catch (appError) {
+          console.log(`⚠️ Could not fetch applications: ${appError.message}`);
+        }
+      }
+
+      // Determine engagement level based on conversation history
+      const conversationId =
+        await this.conversationService.findConversationByPhone(phoneNumber);
+      if (conversationId) {
+        try {
+          const conversationDoc = await this.db
+            .collection("conversations")
+            .doc(conversationId)
+            .get();
+          if (conversationDoc.exists) {
+            const conversationData = conversationDoc.data();
+            context.lastInteraction = conversationData.lastMessageTime;
+            context.messageCount = conversationData.messageCount || 0;
+
+            // Determine engagement level
+            if (context.messageCount > 10) {
+              context.engagementLevel = "highly_engaged";
+            } else if (context.messageCount > 3) {
+              context.engagementLevel = "engaged";
+            } else if (
+              context.lastInteraction &&
+              Date.now() - new Date(context.lastInteraction).getTime() >
+                86400000
+            ) {
+              // 24 hours
+              context.engagementLevel = "returning";
+            }
+          }
+        } catch (convError) {
+          console.log(
+            `⚠️ Could not fetch conversation details: ${convError.message}`
+          );
+        }
+      }
+
+      return context;
+    } catch (error) {
+      console.error("❌ Error getting user context:", error);
+      return {
+        leadStatus: null,
+        applications: [],
+        engagementLevel: "new",
+      };
     }
   }
 

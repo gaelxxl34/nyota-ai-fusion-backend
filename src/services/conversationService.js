@@ -966,9 +966,9 @@ class ConversationService {
   }
 
   /**
-   * Get recent messages for AI context (last 3 messages)
+   * Get recent messages for AI context with enhanced context analysis
    */
-  async getRecentMessagesForContext(phoneNumber) {
+  async getRecentMessagesForContext(phoneNumber, limit = 10) {
     try {
       const conversationId = await this.findConversationByPhone(phoneNumber);
       if (!conversationId) {
@@ -976,12 +976,14 @@ class ConversationService {
         return [];
       }
 
-      console.log(`📋 Fetching recent messages for AI context...`);
+      console.log(`📋 Fetching recent messages for enhanced AI context...`);
 
+      // Get more messages for better context analysis
       const messagesQuery = await this.db
         .collection("messages")
         .where("conversationId", "==", conversationId)
-        .limit(10) // Get more to sort and pick last 3
+        .orderBy("timestamp", "desc")
+        .limit(limit)
         .get();
 
       const messages = messagesQuery.docs.map((doc) => {
@@ -999,21 +1001,24 @@ class ConversationService {
           timestamp = new Date();
         }
 
-        // Determine message type and alignment for frontend display
-        let messageType, alignment, sender;
+        // Determine message type and sender info
+        let messageType, alignment, sender, senderName;
 
         if (data.direction === "incoming") {
-          messageType = "customer"; // White background, left alignment
+          messageType = "customer";
           alignment = "left";
           sender = "customer";
+          senderName = data.profileName || data.senderName || "User";
         } else {
           alignment = "right";
           if (data.isAI === true || data.senderType === "ai") {
-            messageType = "ai"; // Green background, right alignment
+            messageType = "ai";
             sender = "ai";
+            senderName = "Miryam";
           } else {
-            messageType = "admin"; // Blue background, right alignment
+            messageType = "admin";
             sender = "admin";
+            senderName = "Admin";
           }
         }
 
@@ -1022,36 +1027,222 @@ class ConversationService {
           content: data.content || data.body || "",
           message: data.content || data.body || "", // AI service expects 'message'
           sender: sender,
-          sender_name:
-            sender === "customer" ? data.senderName || "User" : "Miryam", // AI service expects 'sender_name'
+          sender_name: senderName, // AI service expects 'sender_name'
           is_from_user: data.direction === "incoming", // AI service expects 'is_from_user'
-          messageType: data.senderType
-            ? data.senderType === "incoming"
-              ? "customer"
-              : data.senderType === "admin"
-              ? "admin"
-              : data.senderType
-            : messageType,
+          messageType: messageType,
           alignment: alignment,
           timestamp: timestamp,
           isAI: data.isAI === true,
           direction: data.direction,
+          // Additional context for AI analysis
+          wasFollowUp: this._isFollowUpMessage(data.content),
+          containsQuestion: this._containsQuestion(data.content),
+          mentionsApplication: this._mentionsApplication(data.content),
+          mentionsProgramme: this._mentionsProgramme(data.content),
+          mentionsFees: this._mentionsFees(data.content),
         };
       });
 
-      // Sort by timestamp and get the last 3 messages (excluding current incoming message)
-      const sortedMessages = messages
-        .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp))
-        .slice(-3);
+      // Sort by timestamp (oldest first for context flow) and analyze conversation patterns
+      const sortedMessages = messages.sort(
+        (a, b) => new Date(a.timestamp) - new Date(b.timestamp)
+      );
+
+      // Analyze conversation context for better AI understanding
+      const conversationAnalysis =
+        this._analyzeConversationContext(sortedMessages);
+
+      // Return recent messages with context analysis
+      const contextMessages = sortedMessages.slice(-5); // Get last 5 messages for context
 
       console.log(
-        `📨 Found ${sortedMessages.length} recent messages for context`
+        `📨 Found ${contextMessages.length} recent messages for context with analysis:`,
+        {
+          totalMessages: sortedMessages.length,
+          hasQuestions: conversationAnalysis.hasUnresolvedQuestions,
+          discussedTopics: conversationAnalysis.discussedTopics,
+          lastInteractionTime:
+            contextMessages[contextMessages.length - 1]?.timestamp,
+        }
       );
-      return sortedMessages;
+
+      // Attach conversation analysis to help AI understand context
+      contextMessages.conversationAnalysis = conversationAnalysis;
+
+      return contextMessages;
     } catch (error) {
       console.error("❌ Error fetching recent messages for context:", error);
       return [];
     }
+  }
+
+  /**
+   * Analyze conversation context for AI understanding
+   */
+  _analyzeConversationContext(messages) {
+    const analysis = {
+      hasUnresolvedQuestions: false,
+      discussedTopics: [],
+      lastUserQuestion: null,
+      conversationFlow: "initial", // initial, inquiry, application, post-application
+      repeatedQuestions: [],
+      needsFollowUp: false,
+    };
+
+    let lastUserMessage = null;
+    const topicKeywords = {
+      programmes: [
+        "course",
+        "program",
+        "programme",
+        "degree",
+        "study",
+        "mba",
+        "computer science",
+        "engineering",
+      ],
+      fees: [
+        "fee",
+        "cost",
+        "price",
+        "tuition",
+        "payment",
+        "money",
+        "expensive",
+        "cheap",
+      ],
+      admission: [
+        "admission",
+        "apply",
+        "application",
+        "requirement",
+        "qualify",
+        "entry",
+      ],
+      campus: [
+        "campus",
+        "location",
+        "facilities",
+        "accommodation",
+        "transport",
+      ],
+      timeline: ["when", "start", "intake", "deadline", "duration", "semester"],
+    };
+
+    // Analyze each message for topics and patterns
+    messages.forEach((msg, index) => {
+      const content = msg.content.toLowerCase();
+
+      // Check for discussed topics
+      Object.keys(topicKeywords).forEach((topic) => {
+        if (topicKeywords[topic].some((keyword) => content.includes(keyword))) {
+          if (!analysis.discussedTopics.includes(topic)) {
+            analysis.discussedTopics.push(topic);
+          }
+        }
+      });
+
+      // Track user questions
+      if (msg.is_from_user && msg.containsQuestion) {
+        analysis.lastUserQuestion = msg.content;
+
+        // Check if this question was adequately answered
+        const nextMessages = messages.slice(index + 1, index + 3);
+        const hasDetailedResponse = nextMessages.some(
+          (nextMsg) => !nextMsg.is_from_user && nextMsg.content.length > 50
+        );
+
+        if (!hasDetailedResponse) {
+          analysis.hasUnresolvedQuestions = true;
+        }
+      }
+
+      if (msg.is_from_user) {
+        lastUserMessage = msg;
+      }
+    });
+
+    // Determine conversation flow
+    if (
+      analysis.discussedTopics.includes("application") ||
+      messages.some((m) => m.mentionsApplication)
+    ) {
+      analysis.conversationFlow = "application";
+    } else if (analysis.discussedTopics.length > 0) {
+      analysis.conversationFlow = "inquiry";
+    }
+
+    // Check if follow-up is needed
+    if (
+      lastUserMessage &&
+      Date.now() - new Date(lastUserMessage.timestamp).getTime() < 300000 && // Within 5 minutes
+      analysis.hasUnresolvedQuestions
+    ) {
+      analysis.needsFollowUp = true;
+    }
+
+    return analysis;
+  }
+
+  /**
+   * Helper methods for message content analysis
+   */
+  _isFollowUpMessage(content) {
+    const followUpIndicators = [
+      "also",
+      "and",
+      "what about",
+      "another question",
+      "additionally",
+    ];
+    return followUpIndicators.some((indicator) =>
+      content.toLowerCase().includes(indicator)
+    );
+  }
+
+  _containsQuestion(content) {
+    return (
+      content.includes("?") ||
+      content
+        .toLowerCase()
+        .match(
+          /^(what|how|when|where|why|which|can|could|would|is|are|do|does)/
+        )
+    );
+  }
+
+  _mentionsApplication(content) {
+    const applicationKeywords = [
+      "apply",
+      "application",
+      "submit",
+      "portal",
+      "form",
+    ];
+    return applicationKeywords.some((keyword) =>
+      content.toLowerCase().includes(keyword)
+    );
+  }
+
+  _mentionsProgramme(content) {
+    const programmeKeywords = [
+      "course",
+      "program",
+      "programme",
+      "degree",
+      "study",
+      "major",
+    ];
+    return programmeKeywords.some((keyword) =>
+      content.toLowerCase().includes(keyword)
+    );
+  }
+
+  _mentionsFees(content) {
+    const feeKeywords = ["fee", "cost", "price", "tuition", "payment", "money"];
+    return feeKeywords.some((keyword) =>
+      content.toLowerCase().includes(keyword)
+    );
   }
 
   async getConversationMessages(conversationId, options = {}) {

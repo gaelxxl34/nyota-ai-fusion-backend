@@ -26,10 +26,11 @@ const WhatsAppMessageService = require("../services/whatsappMessageService");
 const { LEAD_STATUSES } = require("../config/lead.constants");
 
 class InterestedLeadsMessenger {
-  constructor() {
+  constructor(campaignRef = null) {
     this.leadService = new LeadService(db);
     this.emailService = emailService; // Use the singleton instance
     this.whatsappService = new WhatsAppMessageService();
+    this.campaignRef = campaignRef; // For real-time updates
     this.results = {
       totalLeads: 0,
       emailsSent: 0,
@@ -41,11 +42,56 @@ class InterestedLeadsMessenger {
   }
 
   /**
+   * Log a message to campaign if available
+   */
+  async logToCampaign(type, message, leadId = null) {
+    const logEntry = {
+      timestamp: new Date().toISOString(),
+      type,
+      message,
+      ...(leadId && { leadId }),
+    };
+
+    console.log(`📝 [${type.toUpperCase()}] ${message}`);
+
+    if (this.campaignRef) {
+      try {
+        await this.campaignRef.update({
+          logs: admin.firestore.FieldValue.arrayUnion(logEntry),
+        });
+      } catch (error) {
+        console.error("Failed to log to campaign:", error);
+      }
+    }
+  }
+
+  /**
+   * Update campaign progress
+   */
+  async updateCampaignProgress() {
+    if (this.campaignRef) {
+      try {
+        await this.campaignRef.update({
+          "results.totalLeads": this.results.totalLeads,
+          "results.emailsSent": this.results.emailsSent,
+          "results.emailsFailed": this.results.emailsFailed,
+          "results.whatsappSent": this.results.whatsappSent,
+          "results.whatsappFailed": this.results.whatsappFailed,
+          "results.errors": this.results.errors,
+        });
+      } catch (error) {
+        console.error("Failed to update campaign progress:", error);
+      }
+    }
+  }
+
+  /**
    * Main function to process all interested leads
    */
   async processInterestedLeads() {
     try {
-      console.log(
+      await this.logToCampaign(
+        "info",
         "🚀 Starting process to send messages to interested leads..."
       );
 
@@ -55,25 +101,32 @@ class InterestedLeadsMessenger {
       );
       this.results.totalLeads = interestedLeads.length;
 
-      console.log(
+      await this.logToCampaign(
+        "info",
         `📊 Found ${interestedLeads.length} leads with INTERESTED status`
       );
 
       if (interestedLeads.length === 0) {
-        console.log("ℹ️ No interested leads found. Exiting...");
+        await this.logToCampaign(
+          "info",
+          "ℹ️ No interested leads found. Exiting..."
+        );
         return this.results;
       }
 
       // Process each lead
       for (let i = 0; i < interestedLeads.length; i++) {
         const lead = interestedLeads[i];
-        console.log(
-          `\n📋 Processing lead ${i + 1}/${interestedLeads.length}: ${
+        await this.logToCampaign(
+          "info",
+          `📋 Processing lead ${i + 1}/${interestedLeads.length}: ${
             lead.name
-          } (${lead.id})`
+          } (${lead.id})`,
+          lead.id
         );
 
         await this.processLead(lead);
+        await this.updateCampaignProgress();
 
         // Add a small delay between processing leads to avoid rate limiting
         await this.delay(1000);
@@ -82,6 +135,10 @@ class InterestedLeadsMessenger {
       this.printSummary();
       return this.results;
     } catch (error) {
+      await this.logToCampaign(
+        "error",
+        `❌ Error processing interested leads: ${error.message}`
+      );
       console.error("❌ Error processing interested leads:", error);
       throw error;
     }
@@ -96,17 +153,28 @@ class InterestedLeadsMessenger {
       if (lead.email) {
         await this.sendEmailToLead(lead);
       } else {
-        console.log(`⚠️ No email address for lead ${lead.name}`);
+        await this.logToCampaign(
+          "warning",
+          `⚠️ No email address for lead ${lead.name}`,
+          lead.id
+        );
       }
 
       // Send WhatsApp message if lead has phone number
       if (lead.phone || lead.whatsappNumber) {
         await this.sendWhatsAppToLead(lead);
       } else {
-        console.log(`⚠️ No phone number for lead ${lead.name}`);
+        await this.logToCampaign(
+          "warning",
+          `⚠️ No phone number for lead ${lead.name}`,
+          lead.id
+        );
       }
     } catch (error) {
-      console.error(`❌ Error processing lead ${lead.name}:`, error);
+      const errorMessage = `❌ Error processing lead ${lead.name}: ${error.message}`;
+      await this.logToCampaign("error", errorMessage, lead.id);
+      console.error(errorMessage, error);
+
       this.results.errors.push({
         leadId: lead.id,
         leadName: lead.name,
@@ -124,7 +192,11 @@ class InterestedLeadsMessenger {
         "How's your IUEA application going? We're here to help! 🌟";
       const emailContent = this.generateEmailContent(lead);
 
-      console.log(`📧 Sending email to ${lead.email}...`);
+      await this.logToCampaign(
+        "info",
+        `📧 Sending email to ${lead.email}...`,
+        lead.id
+      );
 
       const result = await this.emailService.sendEmail({
         to: lead.email,
@@ -135,7 +207,11 @@ class InterestedLeadsMessenger {
       });
 
       if (result.success) {
-        console.log(`✅ Email sent successfully to ${lead.email}`);
+        await this.logToCampaign(
+          "success",
+          `✅ Email sent successfully to ${lead.email}`,
+          lead.id
+        );
         this.results.emailsSent++;
 
         // Add interaction to lead timeline
@@ -153,12 +229,19 @@ class InterestedLeadsMessenger {
           },
         });
       } else {
-        console.log(
-          `❌ Failed to send email to ${lead.email}: ${result.error}`
+        await this.logToCampaign(
+          "error",
+          `❌ Failed to send email to ${lead.email}: ${result.error}`,
+          lead.id
         );
         this.results.emailsFailed++;
       }
     } catch (error) {
+      await this.logToCampaign(
+        "error",
+        `❌ Email error for ${lead.email}: ${error.message}`,
+        lead.id
+      );
       console.error(`❌ Email error for ${lead.email}:`, error);
       this.results.emailsFailed++;
     }
@@ -175,8 +258,10 @@ class InterestedLeadsMessenger {
       // Clean phone number (remove any non-digit characters except +)
       const cleanedPhone = phoneNumber.replace(/[^\d+]/g, "");
 
-      console.log(
-        `📱 Sending WhatsApp follow-up message to ${cleanedPhone}...`
+      await this.logToCampaign(
+        "info",
+        `📱 Sending WhatsApp follow-up message to ${cleanedPhone}...`,
+        lead.id
       );
 
       // Template message content
@@ -209,7 +294,11 @@ We're here to support you and are excited to have you on this journey! 🌟`;
       );
 
       if (result.success) {
-        console.log(`✅ WhatsApp message sent successfully to ${cleanedPhone}`);
+        await this.logToCampaign(
+          "success",
+          `✅ WhatsApp message sent successfully to ${cleanedPhone}`,
+          lead.id
+        );
         this.results.whatsappSent++;
 
         // Add interaction to lead timeline with actual message content
@@ -227,12 +316,19 @@ We're here to support you and are excited to have you on this journey! 🌟`;
           },
         });
       } else {
-        console.log(
-          `❌ Failed to send WhatsApp message to ${cleanedPhone}: ${result.error}`
+        await this.logToCampaign(
+          "error",
+          `❌ Failed to send WhatsApp message to ${cleanedPhone}: ${result.error}`,
+          lead.id
         );
         this.results.whatsappFailed++;
       }
     } catch (error) {
+      await this.logToCampaign(
+        "error",
+        `❌ WhatsApp error for ${lead.phone}: ${error.message}`,
+        lead.id
+      );
       console.error(`❌ WhatsApp error for ${lead.phone}:`, error);
       this.results.whatsappFailed++;
     }

@@ -1306,4 +1306,89 @@ router.post("/test-ai", async (req, res) => {
   }
 });
 
+// Test enhanced AI response endpoint with context awareness
+router.post("/test-enhanced-ai", async (req, res) => {
+  try {
+    const {
+      message,
+      phoneNumber = process.env.WHATSAPP_TEST_PHONE_NUMBER,
+      profileName,
+      simulateStatus = null, // Simulate different lead statuses for testing
+    } = req.body;
+
+    if (!message || !phoneNumber) {
+      return res.status(400).json({
+        success: false,
+        error: "Message and phoneNumber are required",
+      });
+    }
+
+    console.log(
+      `🧪 Testing enhanced AI with simulated status: ${simulateStatus}`
+    );
+
+    const conversationService = new ConversationService();
+
+    // Get enhanced conversation context
+    const recentMessages =
+      await conversationService.getRecentMessagesForContext(phoneNumber, 10);
+
+    // Get lead status (use simulated if provided, otherwise real)
+    let leadStatus = simulateStatus;
+    if (!leadStatus) {
+      try {
+        const normalizedPhone = phoneNumber
+          .replace(/[^\d]/g, "")
+          .replace(/^0+/, "");
+        const leadResponse = await axios.get(
+          `${
+            process.env.BACKEND_URL || "http://localhost:3000"
+          }/api/leads/phone/${normalizedPhone}`
+        );
+        if (leadResponse.data.success && leadResponse.data.lead) {
+          leadStatus = leadResponse.data.lead.status;
+        }
+      } catch (error) {
+        console.log("No lead status found - treating as direct contact");
+      }
+    }
+
+    // Create mock user context for testing
+    const mockUserContext = {
+      leadStatus: leadStatus,
+      applications:
+        simulateStatus === "APPLIED" ? [{ status: "under_review" }] : [],
+      engagementLevel: recentMessages.length > 5 ? "engaged" : "new",
+      messageCount: recentMessages.length,
+      lastInteraction: new Date(),
+    };
+
+    // Generate AI response with enhanced context
+    const aiResponse = await aiService.generateResponse(
+      message,
+      recentMessages,
+      leadStatus,
+      mockUserContext
+    );
+
+    res.json({
+      success: true,
+      response: aiResponse,
+      context: {
+        recentMessagesCount: recentMessages.length,
+        leadStatus: leadStatus || "Direct Contact",
+        conversationAnalysis: recentMessages.conversationAnalysis,
+        userContext: mockUserContext,
+        testMode: true,
+      },
+    });
+  } catch (error) {
+    console.error("❌ Error testing enhanced AI:", error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
 module.exports = router;
