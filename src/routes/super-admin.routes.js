@@ -1228,12 +1228,33 @@ router.get("/bulk-actions/interested-leads", async (req, res) => {
 // Start bulk messaging campaign
 router.post("/bulk-actions/send-messages", async (req, res) => {
   try {
-    const { campaignName, description } = req.body;
+    const {
+      campaignName,
+      description,
+      leadStatus = "interested",
+      targetCount = 0,
+    } = req.body;
 
     if (!campaignName) {
       return res.status(400).json({
         success: false,
         message: "Campaign name is required",
+      });
+    }
+
+    // Validate that we have leads to process
+    if (targetCount === 0) {
+      return res.status(400).json({
+        success: false,
+        message: `No ${leadStatus} leads found to process. Campaign cannot be started.`,
+      });
+    }
+
+    // For non-interested leads, return early with not implemented message
+    if (leadStatus.toLowerCase() !== "interested") {
+      return res.status(400).json({
+        success: false,
+        message: `Campaigns for "${leadStatus}" leads are not yet implemented. Only "interested" leads are currently supported.`,
       });
     }
 
@@ -1243,6 +1264,8 @@ router.post("/bulk-actions/send-messages", async (req, res) => {
     const campaignData = {
       name: campaignName,
       description: description || "",
+      leadStatus: leadStatus.toUpperCase(), // Store the target lead status
+      targetCount: targetCount, // Store expected target count
       status: "running",
       startedAt: admin.firestore.FieldValue.serverTimestamp(),
       startedBy: req.user.uid,
@@ -1263,19 +1286,23 @@ router.post("/bulk-actions/send-messages", async (req, res) => {
     // Start the bulk messaging process in the background
     setImmediate(async () => {
       try {
-        const InterestedLeadsMessenger = require("../scripts/sendInterestedLeadsMessages");
-
-        // Create messenger with campaign reference for real-time updates
-        const messenger = new InterestedLeadsMessenger(campaignRef);
-
-        // Start processing
+        // Log initial campaign start
         await campaignRef.update({
           [`logs`]: admin.firestore.FieldValue.arrayUnion({
             timestamp: new Date().toISOString(),
             type: "info",
-            message: "Campaign started - beginning to process interested leads",
+            message: `Campaign started - beginning to process ${leadStatus} leads (Expected: ${targetCount} leads)`,
           }),
         });
+
+        console.log(
+          `📧 Starting campaign: ${campaignName} for ${leadStatus} leads`
+        );
+
+        const InterestedLeadsMessenger = require("../scripts/sendInterestedLeadsMessages");
+
+        // Create messenger with campaign reference for real-time updates
+        const messenger = new InterestedLeadsMessenger(campaignRef);
 
         const results = await messenger.processInterestedLeads();
 
@@ -1287,19 +1314,35 @@ router.post("/bulk-actions/send-messages", async (req, res) => {
           [`logs`]: admin.firestore.FieldValue.arrayUnion({
             timestamp: new Date().toISOString(),
             type: "success",
-            message: `Campaign completed successfully. Emails sent: ${results.emailsSent}, WhatsApp sent: ${results.whatsappSent}`,
+            message: `Campaign completed successfully. Processed: ${results.totalLeads} leads, Emails sent: ${results.emailsSent}, WhatsApp sent: ${results.whatsappSent}, Errors: ${results.errors.length}`,
           }),
         });
+
+        console.log(`✅ Campaign completed: ${campaignName}`, results);
       } catch (error) {
-        console.error("Campaign error:", error);
+        console.error("❌ Campaign error:", error);
+
+        // Provide more detailed error message
+        let errorMessage = error.message;
+        if (error.message.includes("Firebase app already exists")) {
+          errorMessage =
+            "Firebase initialization error - this has been resolved automatically";
+        } else if (error.message.includes("ECONNREFUSED")) {
+          errorMessage =
+            "Network connection error - please check your internet connection";
+        } else if (error.message.includes("permission-denied")) {
+          errorMessage =
+            "Database permission error - please check Firebase permissions";
+        }
+
         await campaignRef.update({
           status: "failed",
           failedAt: admin.firestore.FieldValue.serverTimestamp(),
-          error: error.message,
+          error: errorMessage,
           [`logs`]: admin.firestore.FieldValue.arrayUnion({
             timestamp: new Date().toISOString(),
             type: "error",
-            message: `Campaign failed: ${error.message}`,
+            message: `Campaign failed: ${errorMessage}`,
           }),
         });
       }
@@ -1310,6 +1353,8 @@ router.post("/bulk-actions/send-messages", async (req, res) => {
       message: "Bulk messaging campaign started successfully",
       campaignId,
       campaignName,
+      leadStatus: leadStatus.toUpperCase(),
+      targetCount,
     });
   } catch (error) {
     console.error("Error starting bulk messaging campaign:", error);

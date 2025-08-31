@@ -11,13 +11,27 @@ require("dotenv").config();
 const admin = require("firebase-admin");
 const path = require("path");
 
-// Initialize Firebase Admin
-const serviceAccount = require("../../serviceAccountKey.json");
-admin.initializeApp({
-  credential: admin.credential.cert(serviceAccount),
-});
-
-const db = admin.firestore();
+// Initialize Firebase Admin only if not already initialized
+let db;
+try {
+  // Try to get existing app
+  const app = admin.app();
+  db = app.firestore();
+  console.log("✅ Using existing Firebase Admin app");
+} catch (error) {
+  // No app exists, create a new one
+  try {
+    const serviceAccount = require("../../serviceAccountKey.json");
+    admin.initializeApp({
+      credential: admin.credential.cert(serviceAccount),
+    });
+    db = admin.firestore();
+    console.log("✅ Initialized new Firebase Admin app");
+  } catch (initError) {
+    console.error("❌ Failed to initialize Firebase:", initError.message);
+    throw new Error(`Firebase initialization failed: ${initError.message}`);
+  }
+}
 
 // Import required services
 const LeadService = require("../services/leadService");
