@@ -505,7 +505,7 @@ router.post("/send-message", authenticateUser, async (req, res) => {
           name: contactName || `Contact ${normalizedPhone.slice(-4)}`,
           status: "CONTACTED",
           source: "WHATSAPP",
-          createdAt: FieldValue.serverTimestamp(),
+          createdAt: new Date(),
         };
 
         console.log(

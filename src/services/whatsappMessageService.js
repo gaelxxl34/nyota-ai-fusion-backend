@@ -3,7 +3,7 @@
  * Handles WhatsApp message processing, AI responses, and broadcasting
  */
 
-const admin = require("firebase-admin");
+const { getFirestore } = require("firebase-admin/firestore");
 const aiService = require("./ai.service");
 const ConversationService = require("./conversationService");
 const { broadcastMessage } = require("./broadcastService");
@@ -449,7 +449,7 @@ Welcome to the IUEA family! 🌍✨`;
   }
   constructor(firestore, leadService, conversationService) {
     // Accept dependencies via constructor to avoid circular dependencies
-    this.db = firestore || admin.firestore();
+    this.db = firestore || getFirestore();
     this.leadService = leadService || new LeadService(this.db);
     this.conversationService =
       conversationService || new ConversationService(this.db);
