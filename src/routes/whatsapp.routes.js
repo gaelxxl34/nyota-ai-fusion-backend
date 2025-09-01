@@ -4,7 +4,7 @@ const { authenticateUser } = require("../middleware/auth.middleware");
 const axios = require("axios");
 // Import the WhatsAppMessageService class
 const WhatsAppMessageService = require("../services/whatsappMessageService");
-const { getFirestore } = require("firebase-admin/firestore");
+const { getFirestore, FieldValue } = require("firebase-admin/firestore");
 const LeadService = require("../services/leadService");
 // Initialize services properly to avoid circular dependencies
 const ConversationService = require("../services/conversationService");
@@ -485,7 +485,7 @@ router.post("/send-message", authenticateUser, async (req, res) => {
     const normalizedPhone = to.startsWith("+") ? to : `+${to}`;
 
     // Extract lead information from leadData if provided
-    const leadId = leadData?.id || leadData?.leadId || null;
+    let leadId = leadData?.id || leadData?.leadId || null;
     const contactName = leadData?.name || leadData?.contactName || null;
 
     // Check for leadId - essential for conversation tracking
@@ -495,7 +495,7 @@ router.post("/send-message", authenticateUser, async (req, res) => {
       );
 
       // Try to find an existing lead by phone number
-      const leadService = new LeadService(admin.firestore());
+      const leadService = new LeadService(db);
       let lead = await leadService.findLeadByPhone(normalizedPhone);
 
       if (!lead || !lead.id) {
@@ -505,7 +505,7 @@ router.post("/send-message", authenticateUser, async (req, res) => {
           name: contactName || `Contact ${normalizedPhone.slice(-4)}`,
           status: "CONTACTED",
           source: "WHATSAPP",
-          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          createdAt: FieldValue.serverTimestamp(),
         };
 
         console.log(
