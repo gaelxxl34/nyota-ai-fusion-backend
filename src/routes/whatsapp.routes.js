@@ -326,29 +326,51 @@ router.get("/conversations", authenticateUser, async (req, res) => {
 
     // Extract pagination and filter parameters
     const {
-      limit = 25, // Reduced default for better performance
+      limit = 100, // Increased default for faster loading
       offset = 0,
-      status = "active",
-      includeClosed = "false",
-      leadStatus = null, // New: filter by lead status
+      leadStatus = null, // Filter by lead status only
+      loadAll = "false", // New: option to load all conversations at once
+      includeClosed = "false", // Add includeClosed parameter
     } = req.query;
 
-    // Validate limit (max 50 per request for performance)
-    const parsedLimit = Math.min(parseInt(limit) || 25, 50);
-    const parsedOffset = parseInt(offset) || 0;
+    // For loadAll requests, use a much higher limit
+    const isLoadAll = loadAll.toLowerCase() === "true";
     const includeClosedBool = includeClosed.toLowerCase() === "true";
+    let parsedLimit;
 
-    // Fetch conversations using the optimized service
-    const result = await conversationService.getActiveConversations({
-      limit: parsedLimit,
-      offset: parsedOffset,
-      status,
-      includeClosed: includeClosedBool,
-      leadStatus, // Pass lead status filter
-    });
+    if (isLoadAll) {
+      parsedLimit = 5000; // Load up to 5000 conversations at once
+    } else {
+      // Validate limit (max 500 per request for better performance)
+      parsedLimit = Math.min(parseInt(limit) || 100, 500);
+    }
+
+    const parsedOffset = parseInt(offset) || 0;
+
+    // Fetch conversations using the optimized service with Redis caching
+    let result;
+
+    if (isLoadAll) {
+      // Use the optimized all-at-once method
+      console.log(`🚀 Using optimized loadAll method...`);
+      result = await conversationService.getAllConversationsOptimized({
+        leadStatus,
+      });
+    } else {
+      // Use the new cached method for better performance
+      console.log(`⚡ Using Redis cached method...`);
+      result = await conversationService.getActiveConversationsWithCache({
+        limit: parsedLimit,
+        offset: parsedOffset,
+        leadStatus, // Pass lead status filter
+        forceRefresh: req.query.forceRefresh === "true", // Allow forcing refresh via query param
+      });
+    }
 
     console.log(
-      `✅ Returning ${result.conversations.length} conversations to frontend (filtered by leadStatus: ${leadStatus})`
+      `✅ Returning ${result.conversations.length} conversations to frontend${
+        result.source ? ` (source: ${result.source})` : ""
+      }${result.loadTime ? ` in ${result.loadTime}ms` : ""}`
     );
 
     res.json({
@@ -365,12 +387,19 @@ router.get("/conversations", authenticateUser, async (req, res) => {
           Math.floor(parsedOffset / parsedLimit) + 1,
         totalFetched: result.conversations.length,
       },
+      performance: {
+        source: result.source || "firestore",
+        loadTime: result.loadTime || null,
+        cached: result.source === "cache",
+      },
       filters: {
         leadStatus,
-        status,
         includeClosed: includeClosedBool,
+        loadAll: isLoadAll,
       },
-      message: `Found ${result.conversations.length} active conversations`,
+      message: `Found ${result.conversations.length} active conversations${
+        result.source ? ` from ${result.source}` : ""
+      }`,
     });
   } catch (error) {
     console.error("❌ Error fetching conversations:", error);
@@ -745,7 +774,7 @@ router.get(
 
       const conversationService = new ConversationService();
 
-      const result = await conversationService.getActiveConversations({
+      const result = await conversationService.getActiveConversationsWithCache({
         limit: Math.min(parseInt(limit) || 25, 50),
         offset: parseInt(offset) || 0,
         leadStatus: status,

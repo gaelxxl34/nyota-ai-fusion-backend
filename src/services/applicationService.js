@@ -1138,6 +1138,40 @@ IUEA Admissions Team`;
         applicationUpdate.additionalNotes = updateData.additionalNotes || null;
       }
 
+      // Handle More Bio Data fields - only set if explicitly provided
+      if (updateData.dateOfBirth !== undefined) {
+        applicationUpdate.dateOfBirth = updateData.dateOfBirth || null;
+      }
+      if (updateData.registrationNumber !== undefined) {
+        applicationUpdate.registrationNumber =
+          updateData.registrationNumber || null;
+      }
+      if (updateData.faculty !== undefined) {
+        applicationUpdate.faculty = updateData.faculty || null;
+      }
+      if (updateData.equating !== undefined) {
+        applicationUpdate.equating = updateData.equating || null;
+      }
+      if (updateData.company !== undefined) {
+        applicationUpdate.company = updateData.company || null;
+      }
+      if (updateData.companyLocation !== undefined) {
+        applicationUpdate.companyLocation = updateData.companyLocation || null;
+      }
+      if (updateData.idType !== undefined) {
+        applicationUpdate.idType = updateData.idType || null;
+      }
+      if (updateData.uaceLevel !== undefined) {
+        applicationUpdate.uaceLevel = updateData.uaceLevel || null;
+      }
+      if (updateData.uaceLevelResults !== undefined) {
+        applicationUpdate.uaceLevelResults =
+          updateData.uaceLevelResults || null;
+      }
+      if (updateData.otherDocuments !== undefined) {
+        applicationUpdate.otherDocuments = updateData.otherDocuments || null;
+      }
+
       // Always update timestamp
       applicationUpdate.updatedAt = new Date().toISOString();
 
@@ -1244,6 +1278,16 @@ IUEA Admissions Team`;
         "phoneNumber",
         "preferredProgram",
         "modeOfStudy",
+        "dateOfBirth",
+        "registrationNumber",
+        "faculty",
+        "equating",
+        "company",
+        "companyLocation",
+        "idType",
+        "uaceLevel",
+        "uaceLevelResults",
+        "otherDocuments",
       ];
       for (const field of importantFields) {
         if (

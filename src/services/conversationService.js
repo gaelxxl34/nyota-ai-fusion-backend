@@ -1,9 +1,229 @@
 const { getFirestore, FieldValue } = require("firebase-admin/firestore");
 const axios = require("axios");
+const redisCache = require("./redisCache.service");
 
 class ConversationService {
   constructor() {
     this.db = getFirestore();
+
+    // In-memory cache for performance optimization (fallback)
+    this.cache = {
+      conversations: new Map(),
+      leadNames: new Map(),
+      lastCacheUpdate: null,
+      cacheTimeout: 5 * 60 * 1000, // 5 minutes cache
+    };
+
+    // Redis cache integration
+    this.redisCache = redisCache;
+
+    // Sync configuration
+    this.syncConfig = {
+      enabled: true,
+      batchSize: 50,
+      syncInterval: 30000, // 30 seconds
+      lastSyncTimestamp: null,
+    };
+
+    // Initialize background sync
+    this.initializeBackgroundSync();
+  }
+
+  /**
+   * Initialize background synchronization between Redis cache and Firestore
+   */
+  initializeBackgroundSync() {
+    if (!this.syncConfig.enabled) return;
+
+    console.log("🔄 Initializing Redis-Firestore sync for conversations...");
+
+    // Start periodic sync
+    setInterval(async () => {
+      try {
+        await this.syncConversationsFromFirestore();
+      } catch (error) {
+        console.error("❌ Background sync error:", error.message);
+      }
+    }, this.syncConfig.syncInterval);
+
+    // Initial sync on startup
+    setTimeout(() => {
+      this.syncConversationsFromFirestore();
+    }, 5000); // Wait 5 seconds after startup
+  }
+
+  /**
+   * Sync conversations from Firestore to Redis cache
+   * Only syncs new/updated conversations based on timestamp
+   */
+  async syncConversationsFromFirestore() {
+    try {
+      const lastSync =
+        (await this.redisCache.getSyncTimestamp("conversations")) || 0;
+      const currentTime = Date.now();
+
+      console.log(
+        `🔄 Starting conversation sync... (last: ${new Date(
+          lastSync
+        ).toISOString()})`
+      );
+
+      // Query for conversations updated since last sync
+      let query = this.db
+        .collection("conversations")
+        .where("updatedAt", ">", new Date(lastSync))
+        .orderBy("updatedAt", "asc")
+        .limit(this.syncConfig.batchSize);
+
+      const snapshot = await query.get();
+
+      if (snapshot.empty) {
+        console.log("✅ No new conversations to sync");
+        return;
+      }
+
+      const conversationsToCache = [];
+      const leadIds = new Set();
+
+      // Process conversations
+      snapshot.docs.forEach((doc) => {
+        const data = doc.data();
+        const conversation = {
+          id: doc.id,
+          ...data,
+          lastMessageTime: this._convertTimestamp(data.lastMessageTime),
+          createdAt: this._convertTimestamp(data.createdAt),
+          updatedAt: this._convertTimestamp(data.updatedAt),
+        };
+
+        conversationsToCache.push(conversation);
+
+        if (data.leadId) {
+          leadIds.add(data.leadId);
+        }
+      });
+
+      // Cache conversations in batch
+      const cachePromises = conversationsToCache.map((conv) =>
+        this.redisCache.cacheConversation(conv.id, conv)
+      );
+
+      await Promise.all(cachePromises);
+
+      // Also sync lead names for cached conversations
+      if (leadIds.size > 0) {
+        await this.syncLeadNamesForConversations(Array.from(leadIds));
+      }
+
+      // Update sync timestamp
+      await this.redisCache.updateSyncTimestamp("conversations");
+      this.syncConfig.lastSyncTimestamp = currentTime;
+
+      console.log(
+        `✅ Synced ${conversationsToCache.length} conversations to Redis cache`
+      );
+    } catch (error) {
+      console.error("❌ Error syncing conversations from Firestore:", error);
+    }
+  }
+
+  /**
+   * Sync lead names for better conversation display
+   */
+  async syncLeadNamesForConversations(leadIds) {
+    try {
+      // Check which lead names are not in cache
+      const uncachedLeadIds = [];
+
+      for (const leadId of leadIds) {
+        const cachedName = await this.redisCache.getCachedLeadName(leadId);
+        if (!cachedName) {
+          uncachedLeadIds.push(leadId);
+        }
+      }
+
+      if (uncachedLeadIds.length === 0) return;
+
+      // Fetch uncached lead names in batches (Firestore 'in' limit is 10)
+      const batchSize = 10;
+      const leadNamePromises = [];
+
+      for (let i = 0; i < uncachedLeadIds.length; i += batchSize) {
+        const batch = uncachedLeadIds.slice(i, i + batchSize);
+
+        const promise = this.db
+          .collection("leads")
+          .where("__name__", "in", batch)
+          .get()
+          .then((snapshot) => {
+            const cachePromises = snapshot.docs.map((doc) => {
+              const leadData = doc.data();
+              const leadName =
+                leadData.name ||
+                leadData.contactName ||
+                `Lead ${doc.id.slice(-4)}`;
+              return this.redisCache.cacheLeadName(doc.id, leadName);
+            });
+            return Promise.all(cachePromises);
+          });
+
+        leadNamePromises.push(promise);
+      }
+
+      await Promise.all(leadNamePromises);
+      console.log(`✅ Synced ${uncachedLeadIds.length} lead names to cache`);
+    } catch (error) {
+      console.error("❌ Error syncing lead names:", error);
+    }
+  }
+
+  /**
+   * Get conversations with Redis caching and smart fallback
+   */
+  async getActiveConversationsWithCache(options = {}) {
+    try {
+      const {
+        limit = 25,
+        offset = 0,
+        leadStatus = null,
+        forceRefresh = false,
+      } = options;
+
+      // Create cache key based on options
+      const cacheKey = `leadStatus_${leadStatus}_${limit}_${offset}`;
+
+      // Try to get from Redis cache first (unless forced refresh)
+      if (!forceRefresh) {
+        const cachedResult = await this.redisCache.getCachedConversationList(
+          cacheKey
+        );
+        if (cachedResult) {
+          console.log(
+            `⚡ Retrieved ${cachedResult.conversations.length} conversations from Redis cache`
+          );
+          return cachedResult;
+        }
+      }
+
+      console.log("📊 Cache miss - fetching conversations from Firestore...");
+
+      // Fallback to original method if cache miss
+      const result = await this.getActiveConversations(options);
+
+      // Cache the result in Redis
+      if (result.conversations.length > 0) {
+        await this.redisCache.cacheConversationList(cacheKey, result);
+        console.log(
+          `💾 Cached ${result.conversations.length} conversations in Redis`
+        );
+      }
+
+      return result;
+    } catch (error) {
+      console.error("❌ Error in getActiveConversationsWithCache:", error);
+      // Fallback to non-cached version
+      return await this.getActiveConversations(options);
+    }
   }
 
   /**
@@ -138,6 +358,9 @@ class ConversationService {
         .collection("conversations")
         .doc(conversationId)
         .update(updateData);
+
+      // Invalidate Redis cache for this conversation
+      await this.redisCache.invalidateConversation(conversationId);
 
       console.log(
         `💾 Stored message ${id} in conversation ${conversationId} from ${
@@ -422,6 +645,9 @@ class ConversationService {
             messageCount: FieldValue.increment(1),
           });
 
+        // Invalidate Redis cache for this conversation
+        await this.redisCache.invalidateConversation(conversationId);
+
         console.log(`📤 Sent message to ${phoneNumber}: "${message}"`);
       } else {
         console.log(
@@ -681,9 +907,7 @@ class ConversationService {
       const {
         limit = 25, // Further reduced for better performance
         offset = 0,
-        status = "active",
-        includeClosed = false,
-        leadStatus = null, // New: filter by lead status
+        leadStatus = null, // Filter by lead status only
       } = options;
 
       console.log(
@@ -758,14 +982,6 @@ class ConversationService {
           let conversationQuery = this.db
             .collection("conversations")
             .where("phoneNumber", "in", phoneBatch);
-
-          // Add status filter
-          if (!includeClosed) {
-            conversationQuery = conversationQuery.where("status", "in", [
-              "active",
-              null,
-            ]);
-          }
 
           const snapshot = await conversationQuery.get();
 
@@ -856,16 +1072,13 @@ class ConversationService {
         query = query.where("leadId", "==", null);
       }
 
-      // Add status filter (now works with composite index)
-      if (!includeClosed) {
-        query = query.where("status", "in", ["active", null]);
-      }
-
       // Order by lastMessageTime for better performance (composite index supports this)
-      query = query.orderBy("lastMessageTime", "desc").limit(limit);
+      query = query.orderBy("lastMessageTime", "desc");
 
-      // Add offset support using startAfter for better performance
+      // Use cursor-based pagination instead of offset for better performance
       if (offset > 0) {
+        // For cursor-based pagination, we'd ideally use a lastMessageTime cursor
+        // For now, we'll limit the offset impact by using a more efficient approach
         const offsetQuery = await this.db
           .collection("conversations")
           .orderBy("lastMessageTime", "desc")
@@ -878,11 +1091,59 @@ class ConversationService {
         }
       }
 
+      // Apply the limit after pagination setup
+      query = query.limit(limit);
+
       const conversationsQuery = await query.get();
 
       console.log(
         `📊 Raw conversations fetched: ${conversationsQuery.docs.length}`
       );
+
+      // Extract all unique leadIds for batch fetching
+      const leadIds = conversationsQuery.docs
+        .map((doc) => doc.data().leadId)
+        .filter((leadId) => leadId != null);
+
+      // Batch fetch all lead names at once instead of individual queries
+      let leadNamesMap = new Map();
+      if (leadIds.length > 0) {
+        try {
+          console.log(`🔄 Batch fetching ${leadIds.length} lead names...`);
+          const uniqueLeadIds = [...new Set(leadIds)];
+
+          // Split into chunks of 10 for Firestore 'in' query limit
+          const chunkSize = 10;
+          const leadChunks = [];
+          for (let i = 0; i < uniqueLeadIds.length; i += chunkSize) {
+            leadChunks.push(uniqueLeadIds.slice(i, i + chunkSize));
+          }
+
+          // Fetch all lead names in parallel
+          const leadQueries = leadChunks.map((chunk) =>
+            this.db.collection("leads").where("__name__", "in", chunk).get()
+          );
+
+          const leadResults = await Promise.all(leadQueries);
+
+          // Build the lead names map
+          leadResults.forEach((querySnapshot) => {
+            querySnapshot.docs.forEach((doc) => {
+              const leadData = doc.data();
+              leadNamesMap.set(
+                doc.id,
+                leadData.name ||
+                  leadData.contactName ||
+                  `Lead ${doc.id.slice(-4)}`
+              );
+            });
+          });
+
+          console.log(`✅ Batch fetched ${leadNamesMap.size} lead names`);
+        } catch (error) {
+          console.error("❌ Error batch fetching lead names:", error);
+        }
+      }
 
       // Convert to objects with optimized data structure
       const conversations = [];
@@ -890,11 +1151,8 @@ class ConversationService {
       for (const doc of conversationsQuery.docs) {
         const data = doc.data();
 
-        // Get lead name if leadId exists
-        let leadName = null;
-        if (data.leadId) {
-          leadName = await this.getLeadName(data.leadId);
-        }
+        // Get lead name from our batch-fetched map
+        const leadName = data.leadId ? leadNamesMap.get(data.leadId) : null;
 
         // Calculate display name with priority: Lead Name > Contact Name > Profile Name > Generic
         const displayName =
@@ -961,6 +1219,177 @@ class ConversationService {
           hasMore: false,
           nextOffset: 0,
         },
+      };
+    }
+  }
+
+  /**
+   * Load ALL conversations at once - optimized for full dataset retrieval
+   * Uses aggressive caching and batch processing
+   */
+  async getAllConversationsOptimized(options = {}) {
+    const { leadStatus = null } = options;
+
+    console.log(`🚀 Loading ALL conversations with optimization...`);
+    const startTime = Date.now();
+
+    try {
+      // Check cache first
+      const cacheKey = `all_conversations_leadStatus_${leadStatus}`;
+      const isCacheValid =
+        this.cache.lastCacheUpdate &&
+        Date.now() - this.cache.lastCacheUpdate < this.cache.cacheTimeout;
+
+      if (isCacheValid && this.cache.conversations.has(cacheKey)) {
+        console.log(
+          `✅ Returning ${
+            this.cache.conversations.get(cacheKey).length
+          } conversations from cache`
+        );
+        return {
+          conversations: this.cache.conversations.get(cacheKey),
+          totalCount: this.cache.conversations.get(cacheKey).length,
+          hasMore: false,
+          source: "cache",
+          loadTime: Date.now() - startTime,
+        };
+      }
+
+      // Build optimized query
+      let query = this.db.collection("conversations");
+
+      // Order by lastMessageTime and get ALL at once
+      query = query.orderBy("lastMessageTime", "desc");
+
+      console.log(`📊 Executing optimized Firestore query...`);
+      const conversationsQuery = await query.get();
+
+      console.log(
+        `📊 Raw conversations fetched: ${conversationsQuery.docs.length}`
+      );
+
+      // Extract all unique leadIds for batch fetching
+      const leadIds = conversationsQuery.docs
+        .map((doc) => doc.data().leadId)
+        .filter((leadId) => leadId != null);
+
+      // Batch fetch all lead names at once
+      let leadNamesMap = new Map();
+      if (leadIds.length > 0) {
+        try {
+          console.log(`🔄 Batch fetching ${leadIds.length} lead names...`);
+          const uniqueLeadIds = [...new Set(leadIds)];
+
+          // Use cached lead names if available
+          const uncachedLeadIds = uniqueLeadIds.filter(
+            (id) => !this.cache.leadNames.has(id)
+          );
+
+          if (uncachedLeadIds.length > 0) {
+            // Split into chunks of 10 for Firestore 'in' query limit
+            const chunkSize = 10;
+            const leadChunks = [];
+            for (let i = 0; i < uncachedLeadIds.length; i += chunkSize) {
+              leadChunks.push(uncachedLeadIds.slice(i, i + chunkSize));
+            }
+
+            // Fetch uncached lead names in parallel
+            const leadQueries = leadChunks.map((chunk) =>
+              this.db.collection("leads").where("__name__", "in", chunk).get()
+            );
+
+            const leadResults = await Promise.all(leadQueries);
+
+            // Build the lead names map and update cache
+            leadResults.forEach((querySnapshot) => {
+              querySnapshot.docs.forEach((doc) => {
+                const leadData = doc.data();
+                const leadName =
+                  leadData.name ||
+                  leadData.contactName ||
+                  `Lead ${doc.id.slice(-4)}`;
+                this.cache.leadNames.set(doc.id, leadName);
+              });
+            });
+          }
+
+          // Build complete lead names map from cache
+          uniqueLeadIds.forEach((id) => {
+            if (this.cache.leadNames.has(id)) {
+              leadNamesMap.set(id, this.cache.leadNames.get(id));
+            }
+          });
+
+          console.log(`✅ Total lead names available: ${leadNamesMap.size}`);
+        } catch (error) {
+          console.error("❌ Error batch fetching lead names:", error);
+        }
+      }
+
+      // Convert to objects with optimized data structure
+      const conversations = [];
+
+      for (const doc of conversationsQuery.docs) {
+        const data = doc.data();
+
+        // Get lead name from our batch-fetched map
+        const leadName = data.leadId ? leadNamesMap.get(data.leadId) : null;
+
+        // Calculate display name with priority: Lead Name > Contact Name > Profile Name > Generic
+        const displayName =
+          leadName ||
+          data.contactName ||
+          data.profileName ||
+          `Contact ${data.phoneNumber?.slice(-4) || "Unknown"}`;
+
+        conversations.push({
+          id: doc.id,
+          phoneNumber: data.phoneNumber,
+          contactName: displayName,
+          leadName: leadName,
+          contactId: data.contactId,
+          lastMessage: data.lastMessage || "",
+          lastMessageTime:
+            this._convertTimestamp(data.lastMessageTime) ||
+            this._convertTimestamp(data.createdAt) ||
+            new Date(),
+          lastMessageFrom: data.lastMessageFrom,
+          status: data.status || "active",
+          messageCount: data.messageCount || 0,
+          unreadCount: data.unreadCount || 0,
+          leadStatus: data.leadStatus || "NO_LEAD",
+          leadId: data.leadId || null,
+          aiEnabled: data.aiEnabled !== false,
+          createdAt: this._convertTimestamp(data.createdAt),
+          updatedAt: this._convertTimestamp(data.updatedAt),
+        });
+      }
+
+      // Update cache
+      this.cache.conversations.set(cacheKey, conversations);
+      this.cache.lastCacheUpdate = Date.now();
+
+      const loadTime = Date.now() - startTime;
+      console.log(
+        `✅ Loaded ${conversations.length} conversations in ${loadTime}ms`
+      );
+
+      return {
+        conversations,
+        totalCount: conversations.length,
+        hasMore: false,
+        source: "firestore",
+        loadTime,
+      };
+    } catch (error) {
+      console.error("❌ Error loading all conversations:", error);
+      return {
+        conversations: [],
+        totalCount: 0,
+        hasMore: false,
+        source: "error",
+        loadTime: Date.now() - startTime,
+        error: error.message,
       };
     }
   }
@@ -1247,11 +1676,38 @@ class ConversationService {
 
   async getConversationMessages(conversationId, options = {}) {
     try {
-      const { limit = 50, offset = 0 } = options;
+      const { limit = 50, offset = 0, useCache = true } = options;
 
       console.log(
         `📋 Fetching messages for conversation ${conversationId} (limit: ${limit}, offset: ${offset})...`
       );
+
+      // Try Redis cache first (for offset 0 only to keep it simple)
+      if (useCache && offset === 0) {
+        const cachedMessages =
+          await this.redisCache.getCachedConversationMessages(conversationId);
+        if (cachedMessages && cachedMessages.length > 0) {
+          console.log(
+            `⚡ Retrieved ${cachedMessages.length} messages from Redis cache`
+          );
+
+          // Apply limit to cached results
+          const limitedMessages = cachedMessages.slice(0, limit);
+          const hasMore = cachedMessages.length > limit;
+
+          return {
+            messages: limitedMessages,
+            hasMore,
+            total: limitedMessages.length,
+            limit,
+            offset,
+            fromCache: true,
+          };
+        }
+      }
+
+      // Cache miss or offset > 0 - fetch from Firestore
+      console.log("📊 Cache miss - fetching messages from Firestore...");
 
       // First, get the conversation to know the contact ID and lead ID
       const conversationDoc = await this.db
@@ -1267,9 +1723,21 @@ class ConversationService {
 
         // Fetch contact name from contacts collection
         if (conversationData.contactId) {
-          contactNameFromDatabase = await this.getContactName(
-            conversationData.contactId
+          // Try cache first for contact name
+          contactNameFromDatabase = await this.redisCache.getCachedLeadName(
+            `contact_${conversationData.contactId}`
           );
+          if (!contactNameFromDatabase) {
+            contactNameFromDatabase = await this.getContactName(
+              conversationData.contactId
+            );
+            if (contactNameFromDatabase) {
+              await this.redisCache.cacheLeadName(
+                `contact_${conversationData.contactId}`,
+                contactNameFromDatabase
+              );
+            }
+          }
           console.log(
             `🔍 Contact lookup: Found "${contactNameFromDatabase}" in contacts collection for ID: ${conversationData.contactId}`
           );
@@ -1277,9 +1745,21 @@ class ConversationService {
 
         // Fetch lead name from leads collection
         if (conversationData.leadId) {
-          leadNameFromDatabase = await this.getLeadName(
+          // Try cache first for lead name
+          leadNameFromDatabase = await this.redisCache.getCachedLeadName(
             conversationData.leadId
           );
+          if (!leadNameFromDatabase) {
+            leadNameFromDatabase = await this.getLeadName(
+              conversationData.leadId
+            );
+            if (leadNameFromDatabase) {
+              await this.redisCache.cacheLeadName(
+                conversationData.leadId,
+                leadNameFromDatabase
+              );
+            }
+          }
           console.log(
             `🔍 Lead lookup: Found "${leadNameFromDatabase}" in leads collection for ID: ${conversationData.leadId}`
           );
@@ -1397,6 +1877,17 @@ class ConversationService {
       // Note: We fetched in DESC order for pagination, but display in ASC order
       const sortedMessages = messages.reverse();
 
+      // Cache messages in Redis if this is the first page and we have messages
+      if (offset === 0 && sortedMessages.length > 0) {
+        await this.redisCache.cacheConversationMessages(
+          conversationId,
+          sortedMessages
+        );
+        console.log(
+          `💾 Cached ${sortedMessages.length} messages for conversation ${conversationId}`
+        );
+      }
+
       // Calculate pagination info
       const hasMore = messagesSnapshot.docs.length === limit;
       const total = sortedMessages.length; // This is just the current page count
@@ -1411,6 +1902,7 @@ class ConversationService {
         total,
         limit,
         offset,
+        fromCache: false,
       };
     } catch (error) {
       console.error("❌ Error getting messages:", error);
@@ -1420,6 +1912,7 @@ class ConversationService {
         total: 0,
         limit: options.limit || 50,
         offset: options.offset || 0,
+        fromCache: false,
       };
     }
   }

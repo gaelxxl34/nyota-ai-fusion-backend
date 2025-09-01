@@ -3,6 +3,7 @@ const router = express.Router();
 const { admin } = require("../config/firebase.config");
 const { authenticateUser } = require("../middleware/auth.middleware");
 const bcrypt = require("bcryptjs");
+const conversationStatsService = require("../services/conversationStats.service");
 
 // Middleware to check if user is super admin
 const requireSuperAdmin = (req, res, next) => {
@@ -861,6 +862,53 @@ router.get("/analytics/performance", async (req, res) => {
   }
 });
 
+// Get conversation statistics
+router.get("/analytics/conversations", async (req, res) => {
+  try {
+    const forceRefresh = req.query.refresh === "true";
+
+    console.log("📊 Fetching conversation statistics...");
+    const conversationStats =
+      await conversationStatsService.getCachedConversationStats(forceRefresh);
+
+    res.json({
+      success: true,
+      data: conversationStats,
+      cached: !forceRefresh,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error("Error fetching conversation statistics:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch conversation statistics",
+      error: error.message,
+    });
+  }
+});
+
+// Get simplified conversation counts for dashboard
+router.get("/analytics/conversations/counts", async (req, res) => {
+  try {
+    console.log("📈 Fetching conversation counts for dashboard...");
+    const conversationCounts =
+      await conversationStatsService.getConversationCounts();
+
+    res.json({
+      success: true,
+      data: conversationCounts,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error("Error fetching conversation counts:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch conversation counts",
+      error: error.message,
+    });
+  }
+});
+
 // ========== LEAD FORMS MANAGEMENT ROUTES ==========
 
 // Get all lead forms
@@ -1275,6 +1323,7 @@ router.post("/bulk-actions/send-messages", async (req, res) => {
         emailsFailed: 0,
         whatsappSent: 0,
         whatsappFailed: 0,
+        leadsSkipped: 0, // Add skipped leads counter
         errors: [],
       },
       logs: [],
@@ -1314,7 +1363,13 @@ router.post("/bulk-actions/send-messages", async (req, res) => {
           [`logs`]: admin.firestore.FieldValue.arrayUnion({
             timestamp: new Date().toISOString(),
             type: "success",
-            message: `Campaign completed successfully. Processed: ${results.totalLeads} leads, Emails sent: ${results.emailsSent}, WhatsApp sent: ${results.whatsappSent}, Errors: ${results.errors.length}`,
+            message: `Campaign completed successfully. Processed: ${
+              results.totalLeads
+            } leads, Emails sent: ${results.emailsSent}, WhatsApp sent: ${
+              results.whatsappSent
+            }, Skipped: ${results.leadsSkipped || 0}, Errors: ${
+              results.errors.length
+            }`,
           }),
         });
 

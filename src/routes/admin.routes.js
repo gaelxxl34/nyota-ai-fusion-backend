@@ -5,6 +5,7 @@ const db = admin.firestore();
 const XLSX = require("xlsx");
 const { authenticateUser } = require("../middleware/auth.middleware");
 const { checkRole } = require("../middleware/permissions.middleware");
+const conversationStatsService = require("../services/conversationStats.service");
 
 // Get system statistics for admin dashboard
 router.get(

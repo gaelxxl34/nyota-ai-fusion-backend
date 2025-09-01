@@ -6,7 +6,9 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "nodemon src/index.js",
-    "send-interested-leads": "node src/scripts/sendInterestedLeadsMessages.js"
+    "send-interested-leads": "node src/scripts/sendInterestedLeadsMessages.js",
+    "setup-redis": "./setup-redis.sh",
+    "test-cache": "node -e \"const cache = require('./src/services/redisCache.service'); cache.healthCheck().then(console.log);\""
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.56.0",
@@ -19,8 +21,10 @@
     "express-fileupload": "^1.5.2",
     "firebase": "^11.10.0",
     "firebase-admin": "^11.10.1",
+    "ioredis": "^5.7.0",
     "jsonwebtoken": "^9.0.2",
     "multer": "^2.0.2",
+    "redis": "^5.8.2",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {

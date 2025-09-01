@@ -286,6 +286,15 @@ function startServer() {
     logger.warn("Welcome routes not loaded:", error.message);
   }
 
+  // Cache management routes
+  try {
+    const cacheRoutes = require("./routes/cache.routes");
+    app.use("/api/cache", cacheRoutes);
+    logger.info("Cache management routes loaded");
+  } catch (error) {
+    logger.warn("Cache routes not loaded:", error.message);
+  }
+
   // Health check endpoint
   app.get("/health", async (req, res) => {
     try {

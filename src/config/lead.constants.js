@@ -16,6 +16,13 @@ const LEAD_STATUSES = {
   EXPIRED: "EXPIRED", // Application expired
 };
 
+// Conversation Status Constants
+const CONVERSATION_STATUSES = {
+  ACTIVE: "active",
+  CLOSED: "closed",
+  ARCHIVED: "archived",
+};
+
 // Lead Source Constants
 const LEAD_SOURCES = {
   WEBSITE: "WEBSITE",
@@ -41,4 +48,5 @@ const LEAD_SOURCES = {
 module.exports = {
   LEAD_STATUSES,
   LEAD_SOURCES,
+  CONVERSATION_STATUSES,
 };

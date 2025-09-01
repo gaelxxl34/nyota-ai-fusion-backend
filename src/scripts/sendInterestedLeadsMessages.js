@@ -51,6 +51,7 @@ class InterestedLeadsMessenger {
       emailsFailed: 0,
       whatsappSent: 0,
       whatsappFailed: 0,
+      leadsSkipped: 0, // New counter for skipped leads
       errors: [],
     };
   }
@@ -91,6 +92,7 @@ class InterestedLeadsMessenger {
           "results.emailsFailed": this.results.emailsFailed,
           "results.whatsappSent": this.results.whatsappSent,
           "results.whatsappFailed": this.results.whatsappFailed,
+          "results.leadsSkipped": this.results.leadsSkipped,
           "results.errors": this.results.errors,
         });
       } catch (error) {
@@ -159,10 +161,89 @@ class InterestedLeadsMessenger {
   }
 
   /**
+   * Check if a lead has received recent campaign messages (within last 7 days)
+   */
+  async hasRecentCampaignMessages(lead) {
+    try {
+      const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+
+      // Check lead timeline for recent automated messages from interested_leads campaigns
+      const recentCampaignInteractions = (lead.timeline || []).filter(
+        (entry) => {
+          // Check if it's an interaction with campaign metadata
+          if (entry.action !== "INTERACTION" || !entry.metadata) return false;
+
+          // Check if it's from an interested leads campaign
+          const isInterestedLeadsCampaign =
+            entry.metadata.campaignType === "interested_leads_followup" ||
+            entry.metadata.campaignType === "interested_leads";
+
+          // Check if it's automated (campaign message)
+          const isAutomated = entry.metadata.automated === true;
+
+          // Check if it's recent (within last 7 days)
+          const interactionDate = new Date(entry.timestamp);
+          const isRecent = interactionDate > sevenDaysAgo;
+
+          return isInterestedLeadsCampaign && isAutomated && isRecent;
+        }
+      );
+
+      if (recentCampaignInteractions.length > 0) {
+        const lastCampaignDate = new Date(
+          Math.max(
+            ...recentCampaignInteractions.map((i) => new Date(i.timestamp))
+          )
+        );
+
+        return {
+          hasRecent: true,
+          lastCampaignDate,
+          count: recentCampaignInteractions.length,
+        };
+      }
+
+      return { hasRecent: false };
+    } catch (error) {
+      console.error(
+        `Error checking recent campaign messages for lead ${lead.id}:`,
+        error
+      );
+      // If there's an error checking, err on the side of caution and don't send
+      return { hasRecent: true, error: error.message };
+    }
+  }
+
+  /**
    * Process a single lead - send email and WhatsApp message
    */
   async processLead(lead) {
     try {
+      // Check if lead has received recent campaign messages
+      const recentCheck = await this.hasRecentCampaignMessages(lead);
+
+      if (recentCheck.hasRecent) {
+        this.results.leadsSkipped++; // Increment skipped counter
+
+        if (recentCheck.error) {
+          await this.logToCampaign(
+            "warning",
+            `⚠️ Skipping lead ${lead.name} - Error checking recent messages: ${recentCheck.error}`,
+            lead.id
+          );
+        } else {
+          const daysSince = Math.floor(
+            (new Date() - recentCheck.lastCampaignDate) / (1000 * 60 * 60 * 24)
+          );
+          await this.logToCampaign(
+            "info",
+            `⏭️ Skipping lead ${lead.name} - Already received campaign message ${daysSince} days ago (${recentCheck.count} recent messages)`,
+            lead.id
+          );
+        }
+        return; // Skip this lead
+      }
+
       // Send email if lead has email
       if (lead.email) {
         await this.sendEmailToLead(lead);
@@ -483,6 +564,9 @@ Address: Kansanga, Kampala, Uganda
     console.log(`❌ Emails failed: ${this.results.emailsFailed}`);
     console.log(`📱 WhatsApp messages sent: ${this.results.whatsappSent}`);
     console.log(`❌ WhatsApp messages failed: ${this.results.whatsappFailed}`);
+    console.log(
+      `⏭️ Leads skipped (recent campaigns): ${this.results.leadsSkipped}`
+    );
 
     if (this.results.errors.length > 0) {
       console.log(`\n⚠️ Errors encountered: ${this.results.errors.length}`);

@@ -1,6 +1,8 @@
 const { Anthropic } = require("@anthropic-ai/sdk");
 const fs = require("fs").promises;
 const path = require("path");
+const crypto = require("crypto");
+const redisCache = require("./redisCache.service");
 
 class AIService {
   constructor() {
@@ -10,11 +12,27 @@ class AIService {
 
     this.csvKnowledgeBase = null;
     this.isEnabled = process.env.AI_AUTO_REPLY_ENABLED === "true";
+    this.redisCache = redisCache;
+
     this.loadCSVKnowledge();
   }
 
   async loadCSVKnowledge() {
     try {
+      // Try to get knowledge base from Redis cache first
+      const cachedKnowledge = await this.redisCache.getCachedKnowledgeBase();
+
+      if (cachedKnowledge) {
+        console.log(
+          `⚡ Knowledge base loaded from Redis cache: ${cachedKnowledge.knowledgeItems.length} items`
+        );
+        this.csvKnowledgeBase = cachedKnowledge.csvData;
+        this.knowledgeItems = cachedKnowledge.knowledgeItems;
+        return;
+      }
+
+      console.log("📊 Cache miss - loading knowledge base from CSV file...");
+
       const csvPath = path.join(
         __dirname,
         "../../data/Iuea Knowledgebase with Categories.csv"
@@ -24,8 +42,18 @@ class AIService {
 
       // Parse CSV into structured knowledge items for smart retrieval
       this.knowledgeItems = this.parseCSVToItems(csvData);
+
+      // Cache the knowledge base in Redis
+      const knowledgeData = {
+        csvData: this.csvKnowledgeBase,
+        knowledgeItems: this.knowledgeItems,
+        lastUpdated: new Date().toISOString(),
+      };
+
+      await this.redisCache.cacheKnowledgeBase(knowledgeData);
+
       console.log(
-        `✅ Knowledge base loaded: ${this.knowledgeItems.length} items`
+        `✅ Knowledge base loaded and cached: ${this.knowledgeItems.length} items`
       );
     } catch (error) {
       console.warn("CSV knowledge base not found, continuing without it");
@@ -486,6 +514,37 @@ APPLICATION STATUS CONTEXT: User status: ${leadStatus}
   ) {
     try {
       console.log(`🤖 AI generating response for: "${userMessage}"`);
+
+      // Create a hash for caching based on message content and context
+      const contextString = JSON.stringify({
+        message: userMessage.trim().toLowerCase(),
+        leadStatus: leadStatus || null,
+        historyLength: conversationHistory.length,
+        lastMessages: conversationHistory
+          .slice(-2)
+          .map((m) => m.message?.substring(0, 50)),
+      });
+
+      const messageHash = crypto
+        .createHash("md5")
+        .update(contextString)
+        .digest("hex");
+
+      // Try to get cached response first
+      const cachedResponse = await this.redisCache.getCachedAIResponse(
+        messageHash
+      );
+      if (cachedResponse) {
+        console.log(
+          `⚡ Retrieved AI response from cache for: "${userMessage.substring(
+            0,
+            50
+          )}..."`
+        );
+        return cachedResponse;
+      }
+
+      console.log(`📊 Cache miss - generating new AI response...`);
       console.log(
         `📚 Conversation history length: ${conversationHistory.length}`
       );
@@ -630,10 +689,17 @@ Diplomas: Electrical Eng, Civil Eng, Architecture.${statusContext}${engagementCo
         temperature: 0.7,
       });
 
-      return (
+      const aiResponse =
         response.content[0]?.text ||
-        "I apologize, but I encountered an issue. Could you please try again?"
-      );
+        "I apologize, but I encountered an issue. Could you please try again?";
+
+      // Cache the response for future use
+      if (aiResponse && !aiResponse.includes("I apologize")) {
+        await this.redisCache.cacheAIResponse(messageHash, aiResponse);
+        console.log(`💾 Cached AI response for future queries`);
+      }
+
+      return aiResponse;
     } catch (error) {
       console.error("Error generating AI response:", error);
       return "I apologize for the technical difficulty. Please try your question again, or contact our admissions team directly for immediate assistance.";
@@ -745,6 +811,10 @@ Diplomas: Electrical Eng, Civil Eng, Architecture.${statusContext}${engagementCo
 
       // Reload the knowledge base to include the new item
       await this.loadCSVKnowledge();
+
+      // Invalidate knowledge base cache since we added new content
+      await this.redisCache.del(this.redisCache.KEYS.KNOWLEDGE_BASE + "full");
+      console.log("🗑️ Invalidated knowledge base cache after adding new item");
 
       // Find the newly added item in the loaded knowledge base
       const addedItem = this.knowledgeItems.find(
@@ -861,6 +931,10 @@ Diplomas: Electrical Eng, Civil Eng, Architecture.${statusContext}${engagementCo
       // Reload the knowledge base
       await this.loadCSVKnowledge();
 
+      // Invalidate knowledge base cache since we updated content
+      await this.redisCache.del(this.redisCache.KEYS.KNOWLEDGE_BASE + "full");
+      console.log("🗑️ Invalidated knowledge base cache after update");
+
       const updatedItem = {
         id,
         category: updates.category || "general",
@@ -955,6 +1029,10 @@ Diplomas: Electrical Eng, Civil Eng, Architecture.${statusContext}${engagementCo
 
       // Reload the knowledge base
       await this.loadCSVKnowledge();
+
+      // Invalidate knowledge base cache since we deleted content
+      await this.redisCache.del(this.redisCache.KEYS.KNOWLEDGE_BASE + "full");
+      console.log("🗑️ Invalidated knowledge base cache after deletion");
 
       console.log(`✅ Deleted knowledge item from CSV: ${deletedItem.title}`);
       return true;
