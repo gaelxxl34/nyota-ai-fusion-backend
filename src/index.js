@@ -295,6 +295,15 @@ function startServer() {
     logger.warn("Cache routes not loaded:", error.message);
   }
 
+  // Facebook Lead Ads webhook routes
+  try {
+    const facebookLeadsRoutes = require("./routes/facebook-leads.routes");
+    app.use("/api/facebook-leads", facebookLeadsRoutes);
+    logger.info("Facebook Lead Ads webhook routes loaded");
+  } catch (error) {
+    logger.warn("Facebook Lead Ads routes not loaded:", error.message);
+  }
+
   // Health check endpoint
   app.get("/health", async (req, res) => {
     try {

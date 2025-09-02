@@ -1579,6 +1579,15 @@ class AnalyticsService {
         // For monthly view, show this month's data
         date.setDate(1); // First day of current month
         break;
+      case "previous_month":
+        // For previous month view, show last month's data
+        date.setDate(1); // First day of current month
+        date.setMonth(date.getMonth() - 1); // Go to previous month
+        break;
+      case "all_time":
+        // For all time view, start from a very early date
+        date.setFullYear(2020, 0, 1); // January 1, 2020
+        break;
       default:
         // Default to today
         break;
@@ -1604,6 +1613,15 @@ class AnalyticsService {
       case "monthly":
         // For monthly comparison, compare with last month
         date.setMonth(date.getMonth() - 1);
+        break;
+      case "previous_month":
+        // For previous month comparison, compare with two months ago
+        date.setMonth(date.getMonth() - 1);
+        break;
+      case "all_time":
+        // For all time, there's no meaningful "previous" period
+        // Return a very early date
+        date.setFullYear(2019, 0, 1); // January 1, 2019
         break;
     }
     return date;
@@ -1688,6 +1706,65 @@ class AnalyticsService {
           });
 
           current.setDate(current.getDate() + 7);
+        }
+        break;
+
+      case "previous_month":
+        // For previous month view, show weekly breakdown for last month
+        while (current <= endDate) {
+          const periodStart = new Date(current);
+          periodStart.setHours(0, 0, 0, 0);
+
+          const periodEnd = new Date(current);
+          periodEnd.setDate(periodEnd.getDate() + 6);
+          periodEnd.setHours(23, 59, 59, 999);
+
+          // Adjust if period end goes beyond endDate
+          if (periodEnd > endDate) {
+            periodEnd.setTime(endDate.getTime());
+          }
+
+          periods.push({
+            start: periodStart,
+            end: periodEnd,
+            label: `Week of ${current.toLocaleDateString("en-US", {
+              month: "short",
+              day: "numeric",
+            })}`,
+          });
+
+          current.setDate(current.getDate() + 7);
+        }
+        break;
+
+      case "all_time":
+        // For all time view, show monthly breakdown
+        while (current <= endDate) {
+          const periodStart = new Date(current);
+          periodStart.setDate(1);
+          periodStart.setHours(0, 0, 0, 0);
+
+          const periodEnd = new Date(current);
+          periodEnd.setMonth(periodEnd.getMonth() + 1);
+          periodEnd.setDate(0);
+          periodEnd.setHours(23, 59, 59, 999);
+
+          // Adjust if period end goes beyond endDate
+          if (periodEnd > endDate) {
+            periodEnd.setTime(endDate.getTime());
+          }
+
+          periods.push({
+            start: periodStart,
+            end: periodEnd,
+            label: current.toLocaleDateString("en-US", {
+              month: "short",
+              year: "numeric",
+            }),
+          });
+
+          current.setMonth(current.getMonth() + 1);
+          current.setDate(1);
         }
         break;
     }

@@ -945,7 +945,15 @@ class LeadService {
       const { sortBy = "createdAt", sortOrder = "desc", offset = 0 } = options;
 
       console.log(
-        `📋 Fetching leads by status: ${status} with sorting: ${sortBy} ${sortOrder}`
+        `📋 Fetching leads by status: ${status} with limit: ${limit}, sorting: ${sortBy} ${sortOrder}`
+      );
+
+      // Cap the limit to prevent excessive loads, but allow higher limits for analytics
+      const numericLimit = parseInt(limit, 10);
+      const maxLimit = Math.min(numericLimit, 10000);
+
+      console.log(
+        `🔍 DEBUG: Original limit: ${limit} (${typeof limit}), numericLimit: ${numericLimit}, maxLimit: ${maxLimit}`
       );
 
       let query = this.db
@@ -968,7 +976,7 @@ class LeadService {
       if (offset > 0) {
         // For consistency with getAllLeads, use similar offset logic
         if (offset <= 200) {
-          const totalLimit = offset + limit;
+          const totalLimit = offset + maxLimit;
           query = query.limit(totalLimit);
 
           const snapshot = await query.get();
@@ -976,7 +984,7 @@ class LeadService {
             this._normalizeLead(doc.id, doc.data())
           );
 
-          const leads = allLeads.slice(offset, offset + limit);
+          const leads = allLeads.slice(offset, offset + maxLimit);
           console.log(
             `✅ Returning ${leads.length} leads by status (offset-based)`
           );
@@ -997,7 +1005,7 @@ class LeadService {
         }
       }
 
-      query = query.limit(limit);
+      query = query.limit(maxLimit);
       const snapshot = await query.get();
 
       const leads = snapshot.docs.map((doc) =>

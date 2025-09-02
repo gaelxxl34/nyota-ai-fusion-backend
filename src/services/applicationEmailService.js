@@ -1,7 +1,22 @@
 const emailService = require("./emailService");
 const logger = require("../utils/logger");
+const WhatsAppMessageService = require("./whatsappMessageService");
+const { getFirestore } = require("firebase-admin/firestore");
+const LeadService = require("./leadService");
+const ConversationService = require("./conversationService");
 
 class ApplicationEmailService {
+  constructor() {
+    // Initialize WhatsApp services for status notifications
+    this.db = getFirestore();
+    this.leadService = new LeadService(this.db);
+    this.conversationService = new ConversationService(this.db);
+    this.whatsappMessageService = new WhatsAppMessageService(
+      this.db,
+      this.leadService,
+      this.conversationService
+    );
+  }
   /**
    * Send application status change notification to applicant
    * @param {Object} applicationData - Application data
@@ -327,6 +342,305 @@ Learning to succeed.
         skipped: false,
       };
     }
+  }
+
+  /**
+   * Send WhatsApp status change notification to applicant
+   * @param {Object} applicationData - Application data
+   * @param {string} applicationData.applicantPhone - Applicant's phone number
+   * @param {string} applicationData.applicantName - Applicant's name
+   * @param {string} applicationData.status - New status
+   * @param {string} applicationData.leadId - Lead ID (optional)
+   */
+  async sendWhatsAppStatusChangeNotification(applicationData) {
+    try {
+      const { applicantPhone, applicantName, status, leadId } = applicationData;
+
+      if (!applicantPhone) {
+        logger.warn(
+          "No phone number provided for WhatsApp status notification"
+        );
+        return {
+          success: false,
+          error: "Phone number required",
+          skipped: true,
+        };
+      }
+
+      // Normalize phone number
+      const normalizedPhone = applicantPhone.startsWith("+")
+        ? applicantPhone
+        : `+${applicantPhone}`;
+      const cleanPhone = normalizedPhone.replace(/[^\d]/g, "");
+
+      // Map status to template name and content
+      const statusTemplates = {
+        IN_REVIEW: {
+          templateName: "application_in_review",
+          content: `Hello 👋
+Your application is currently under review 📑
+Our admissions team is carefully checking your details and documents.
+👉 Visit your portal anytime for updates: https://applicant.iuea.ac.ug/`,
+        },
+        QUALIFIED: {
+          templateName: "application_qualified",
+          content: `Great news🎉
+Your application has met all requirements, and you are qualified for admission.
+👉 Check your portal now for the next steps: https://applicant.iuea.ac.ug/`,
+        },
+        ADMITTED: {
+          templateName: "application_admitted",
+          content: `Congratulations 🎓🎉
+You've been officially admitted to IUEA!
+👉 Download your admission letter and complete enrollment here: https://applicant.iuea.ac.ug/
+Welcome to the IUEA family 🌍`,
+        },
+        DEFERRED: {
+          templateName: "application_deferred",
+          content: `Hello 👋
+Your application has been deferred to a later intake ⏳
+This means your admission process is postponed for now.
+👉 Stay updated by checking your portal: https://applicant.iuea.ac.ug/`,
+        },
+      };
+
+      const templateInfo =
+        statusTemplates[status] || statusTemplates[status.toUpperCase()];
+
+      if (!templateInfo) {
+        logger.info(`No WhatsApp template defined for status: ${status}`);
+        return {
+          success: false,
+          error: "No template for this status",
+          skipped: true,
+        };
+      }
+
+      // Prepare template payload
+      const templatePayload = {
+        messaging_product: "whatsapp",
+        to: cleanPhone,
+        type: "template",
+        template: {
+          name: templateInfo.templateName,
+          language: { code: "en_US" },
+          components: [],
+        },
+      };
+
+      console.log(
+        `📱 Sending WhatsApp status notification "${templateInfo.templateName}" to ${normalizedPhone}`
+      );
+
+      // Send template message
+      const result = await this.whatsappMessageService.sendTemplateMessage(
+        normalizedPhone,
+        templatePayload,
+        {
+          leadId: leadId,
+          contactName: applicantName,
+          statusUpdate: true,
+          status: status,
+        }
+      );
+
+      if (result.success) {
+        // Save the readable message content to conversation
+        try {
+          const conversationId =
+            await this.conversationService.createOrGetConversation(
+              normalizedPhone,
+              leadId,
+              applicantName
+            );
+
+          // Store the status notification message
+          const messageDoc = {
+            messageId: result.messageId,
+            conversationId: conversationId,
+            from: process.env.WHATSAPP_PHONE_NUMBER_ID,
+            to: normalizedPhone,
+            content: templateInfo.content,
+            messageType: "template",
+            sender: "admin",
+            senderType: "admin",
+            direction: "outgoing",
+            timestamp: new Date(),
+            status: "sent",
+            createdAt: new Date(),
+            isAI: false,
+            automated: true,
+            senderName: "IUEA Admissions",
+            templateName: templateInfo.templateName,
+            statusUpdate: true,
+            applicationStatus: status,
+          };
+
+          await this.db.collection("messages").add(messageDoc);
+
+          // Update conversation with latest message
+          await this.db
+            .collection("conversations")
+            .doc(conversationId)
+            .update({
+              lastMessage: templateInfo.content.split("\n")[0], // First line as preview
+              lastMessageTime: new Date(),
+              lastMessageFrom: "business",
+              updatedAt: new Date(),
+            });
+
+          logger.info(
+            `✅ WhatsApp status notification sent and saved for ${normalizedPhone}`,
+            {
+              status,
+              templateName: templateInfo.templateName,
+              messageId: result.messageId,
+            }
+          );
+        } catch (saveError) {
+          console.error("❌ Error saving WhatsApp status message:", saveError);
+          // Don't fail the notification if saving fails
+        }
+
+        return {
+          success: true,
+          messageId: result.messageId,
+          templateName: templateInfo.templateName,
+          provider: "whatsapp",
+        };
+      } else {
+        logger.error("Failed to send WhatsApp status notification", {
+          phone: normalizedPhone,
+          status,
+          error: result.error,
+        });
+        return {
+          success: false,
+          error: result.error,
+          provider: "whatsapp",
+          skipped: false,
+        };
+      }
+    } catch (error) {
+      logger.error("Failed to send WhatsApp status notification:", error);
+      return {
+        success: false,
+        error: error.message,
+        provider: "whatsapp",
+        skipped: false,
+      };
+    }
+  }
+
+  /**
+   * Send combined email and WhatsApp status change notifications
+   * @param {Object} applicationData - Application data with email, phone, name, status, etc.
+   */
+  async sendCombinedStatusChangeNotification(applicationData) {
+    const results = {
+      email: { success: false, skipped: true },
+      whatsapp: { success: false, skipped: true },
+    };
+
+    // Prepare notification promises for parallel execution
+    const notificationPromises = [];
+
+    // Add email notification promise if email is available
+    if (applicationData.applicantEmail) {
+      const emailPromise = this.sendStatusChangeNotification({
+        applicantEmail: applicationData.applicantEmail,
+        applicantName: applicationData.applicantName,
+        courseName: applicationData.courseName,
+        status: applicationData.status,
+        additionalInfo: applicationData.additionalInfo,
+      })
+        .then((result) => {
+          results.email = result;
+          return { type: "email", result };
+        })
+        .catch((error) => {
+          console.error("❌ Error sending email status notification:", error);
+          results.email = { success: false, error: error.message };
+          return { type: "email", result: results.email };
+        });
+
+      notificationPromises.push(emailPromise);
+    }
+
+    // Add WhatsApp notification promise if phone is available
+    if (applicationData.applicantPhone) {
+      const whatsappPromise = this.sendWhatsAppStatusChangeNotification({
+        applicantPhone: applicationData.applicantPhone,
+        applicantName: applicationData.applicantName,
+        status: applicationData.status,
+        leadId: applicationData.leadId,
+      })
+        .then((result) => {
+          results.whatsapp = result;
+          return { type: "whatsapp", result };
+        })
+        .catch((error) => {
+          console.error(
+            "❌ Error sending WhatsApp status notification:",
+            error
+          );
+          results.whatsapp = { success: false, error: error.message };
+          return { type: "whatsapp", result: results.whatsapp };
+        });
+
+      notificationPromises.push(whatsappPromise);
+    }
+
+    // Execute all notifications simultaneously
+    if (notificationPromises.length > 0) {
+      try {
+        console.log(
+          `🚀 Sending ${notificationPromises.length} notifications simultaneously...`
+        );
+        const notificationResults = await Promise.all(notificationPromises);
+
+        // Log individual results
+        notificationResults.forEach(({ type, result }) => {
+          if (result.success) {
+            console.log(
+              `✅ ${
+                type.charAt(0).toUpperCase() + type.slice(1)
+              } notification sent successfully`
+            );
+          } else if (!result.skipped) {
+            console.log(
+              `❌ ${
+                type.charAt(0).toUpperCase() + type.slice(1)
+              } notification failed: ${result.error}`
+            );
+          }
+        });
+
+        console.log(
+          `📊 Notification summary: Email=${
+            results.email.success
+              ? "Success"
+              : results.email.skipped
+              ? "Skipped"
+              : "Failed"
+          }, WhatsApp=${
+            results.whatsapp.success
+              ? "Success"
+              : results.whatsapp.skipped
+              ? "Skipped"
+              : "Failed"
+          }`
+        );
+      } catch (error) {
+        console.error("❌ Error in parallel notification execution:", error);
+      }
+    } else {
+      console.warn(
+        "⚠️ No notification methods available (no email or phone provided)"
+      );
+    }
+
+    return results;
   }
 
   /**

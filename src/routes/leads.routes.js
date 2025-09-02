@@ -256,9 +256,17 @@ router.get("/", ensureLeadService, async (req, res) => {
 
     console.log(`📋 API: Fetching leads with query params:`, req.query);
 
-    // Validate limit (max 100)
-    const parsedLimit = Math.min(parseInt(limit) || 50, 100);
+    // Validate limit - Allow higher limits for analytics (max 5000), regular queries (max 100)
+    const requestedLimit = parseInt(limit) || 50;
+    const parsedLimit =
+      requestedLimit > 1000
+        ? Math.min(requestedLimit, 5000)
+        : Math.min(requestedLimit, 100);
     const parsedOffset = parseInt(offset) || 0;
+
+    console.log(
+      `📋 API: Using limit ${parsedLimit} (requested: ${requestedLimit})`
+    );
 
     let result;
 

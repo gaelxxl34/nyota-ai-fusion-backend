@@ -40,6 +40,16 @@ class WhatsAppMessageService {
     const isApplicationReceivedMessage =
       templatePayload.template?.name === "application_received";
 
+    // Check if this is a status update message
+    const isStatusUpdateMessage =
+      metadata?.statusUpdate === true ||
+      [
+        "application_in_review",
+        "application_qualified",
+        "application_admitted",
+        "application_deferred",
+      ].includes(templatePayload.template?.name);
+
     try {
       // Extract template information for logging
       const templateName = templatePayload.template?.name || "unknown_template";
@@ -323,6 +333,134 @@ Welcome to the IUEA family! 🌍✨`;
               success: true,
               messageId,
               isApplicationReceived: true,
+              error: `Message sent but not saved: ${error.message}`,
+            };
+          }
+        }
+
+        // For status update messages, create conversation and store status update content
+        if (isStatusUpdateMessage) {
+          console.log(
+            `📱 Processing status update template message ${messageId} for phone ${phoneNumber}`
+          );
+
+          try {
+            // Extract leadId from metadata or try to find existing lead
+            let leadId = metadata?.leadId;
+
+            if (!leadId && phoneNumber) {
+              try {
+                const normalizedPhone = phoneNumber.replace(/[^\d+]/g, "");
+                const phoneWithoutPlus = phoneNumber.replace(/[^\d]/g, "");
+
+                const existingLead =
+                  (await this.leadService.findLeadByPhone(normalizedPhone)) ||
+                  (await this.leadService.findLeadByPhone(phoneWithoutPlus)) ||
+                  (await this.leadService.findLeadByPhone(
+                    `+${phoneWithoutPlus}`
+                  ));
+
+                if (existingLead) {
+                  leadId = existingLead.id;
+                  console.log(
+                    `📱 Found lead ${leadId} for status update template to ${phoneNumber}`
+                  );
+                }
+              } catch (leadLookupError) {
+                console.warn(
+                  `⚠️ Error finding lead for status update template: ${leadLookupError.message}`
+                );
+              }
+            }
+
+            // Create or get conversation for status update template
+            const conversationId =
+              await this.conversationService.createOrGetConversation(
+                phoneNumber,
+                leadId,
+                metadata?.contactName || null
+              );
+
+            // Define status update message content based on template
+            const statusMessages = {
+              application_in_review: `Hello 👋
+Your application is currently under review 📑
+Our admissions team is carefully checking your details and documents.
+👉 Visit your portal anytime for updates: https://applicant.iuea.ac.ug/`,
+              application_qualified: `Great news🎉
+Your application has met all requirements, and you are qualified for admission.
+👉 Check your portal now for the next steps: https://applicant.iuea.ac.ug/`,
+              application_admitted: `Congratulations 🎓🎉
+You've been officially admitted to IUEA!
+👉 Download your admission letter and complete enrollment here: https://applicant.iuea.ac.ug/
+Welcome to the IUEA family 🌍`,
+              application_deferred: `Hello 👋
+Your application has been deferred to a later intake ⏳
+This means your admission process is postponed for now.
+👉 Stay updated by checking your portal: https://applicant.iuea.ac.ug/`,
+            };
+
+            const statusUpdateContent =
+              statusMessages[templateName] || `Status update: ${templateName}`;
+
+            // Store the status update message in our database
+            const messageDoc = {
+              messageId: messageId,
+              conversationId: conversationId,
+              from: process.env.WHATSAPP_PHONE_NUMBER_ID,
+              to: phoneNumber,
+              content: statusUpdateContent,
+              messageType: "template",
+              templateName: templateName,
+              templateLanguage: templateLanguage,
+              senderType: "outgoing",
+              direction: "outgoing",
+              timestamp: new Date(),
+              status: "sent",
+              metadata: metadata || {},
+              createdAt: new Date(),
+              isStatusUpdate: true,
+              applicationStatus: metadata?.status || "unknown",
+            };
+
+            // Add to messages collection
+            const messageRef = await this.db
+              .collection("messages")
+              .add(messageDoc);
+
+            // Update conversation with latest message
+            await this.db
+              .collection("conversations")
+              .doc(conversationId)
+              .update({
+                lastMessage: statusUpdateContent.split("\n")[0], // First line as preview
+                lastMessageTime: new Date(),
+                lastMessageFrom: "business",
+                updatedAt: new Date(),
+              });
+
+            console.log(
+              `💾 Status update template message ${messageId} saved to conversation ${conversationId}`
+            );
+
+            return {
+              success: true,
+              messageId,
+              conversationId,
+              savedMessageId: messageRef.id,
+              isStatusUpdate: true,
+              templateName: templateName,
+              applicationStatus: metadata?.status,
+            };
+          } catch (error) {
+            console.error(
+              `❌ Error storing status update template message: ${error.message}`
+            );
+            // Return success since the WhatsApp API call worked, but note the storage error
+            return {
+              success: true,
+              messageId,
+              isStatusUpdate: true,
               error: `Message sent but not saved: ${error.message}`,
             };
           }

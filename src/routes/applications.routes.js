@@ -1067,7 +1067,7 @@ router.put("/email/:email", ensureApplicationService, async (req, res) => {
     const updatedApplication =
       await applicationService.updateApplicationByEmail(email, applicationData);
 
-    // Check if status changed and send email notification
+    // Check if status changed and send notifications (email + WhatsApp)
     if (
       existingApplication &&
       updatedApplication &&
@@ -1075,21 +1075,47 @@ router.put("/email/:email", ensureApplicationService, async (req, res) => {
     ) {
       try {
         console.log(
-          `📧 Status changed from ${existingApplication.status} to ${updatedApplication.status} - sending email notification`
+          `📧 Status changed from ${existingApplication.status} to ${updatedApplication.status} - sending notifications`
         );
 
-        await applicationEmailService.sendStatusChangeNotification({
-          applicantEmail: updatedApplication.email,
-          applicantName: updatedApplication.name,
-          courseName: updatedApplication.preferredProgram || "Your Application",
-          status: updatedApplication.status,
-          additionalInfo:
-            updatedApplication.statusNote ||
-            "Your application status has been updated.",
-        });
+        // Send combined email and WhatsApp notifications
+        const notificationResults =
+          await applicationEmailService.sendCombinedStatusChangeNotification({
+            applicantEmail: updatedApplication.email,
+            applicantPhone: updatedApplication.phoneNumber, // Fixed: use phoneNumber instead of phone
+            applicantName: updatedApplication.name,
+            courseName:
+              updatedApplication.preferredProgram || "Your Application",
+            status: updatedApplication.status,
+            additionalInfo:
+              updatedApplication.statusNote ||
+              "Your application status has been updated.",
+            leadId: updatedApplication.leadId || null,
+          });
+
+        // Log results
+        if (notificationResults.email.success) {
+          console.log(
+            `✅ Email notification sent successfully to ${updatedApplication.email}`
+          );
+        } else if (!notificationResults.email.skipped) {
+          console.log(
+            `❌ Email notification failed: ${notificationResults.email.error}`
+          );
+        }
+
+        if (notificationResults.whatsapp.success) {
+          console.log(
+            `✅ WhatsApp notification sent successfully to ${updatedApplication.phoneNumber}`
+          );
+        } else if (!notificationResults.whatsapp.skipped) {
+          console.log(
+            `❌ WhatsApp notification failed: ${notificationResults.whatsapp.error}`
+          );
+        }
 
         console.log(
-          `✅ Status change email sent successfully to ${updatedApplication.email}`
+          `✅ Status change notifications processed for ${updatedApplication.email}`
         );
       } catch (emailError) {
         console.error("❌ Failed to send status change email:", emailError);
@@ -1529,42 +1555,73 @@ router.put("/:id/status", ensureApplicationService, async (req, res) => {
       updatedBy
     );
 
-    // Send email notification for status change
+    // Send notifications for status change (email + WhatsApp)
     try {
       if (application && application.email && application.name) {
         console.log(
-          `📧 Sending status change email to ${application.email} for status: ${status}`
+          `📧 Sending status change notifications to ${application.email} for status: ${status}`
         );
 
-        // Map internal statuses to email service status names
+        // Map internal statuses to notification service status names
         const statusMapping = {
-          QUALIFIED: "approved",
-          APPROVED: "approved",
+          QUALIFIED: "QUALIFIED",
+          APPROVED: "QUALIFIED", // Map to QUALIFIED for WhatsApp templates
           REJECTED: "rejected",
-          IN_REVIEW: "in_review",
+          IN_REVIEW: "IN_REVIEW",
           PENDING: "pending",
           INTERVIEW_SCHEDULED: "interview_scheduled",
           DOCUMENTS_REQUIRED: "documents_required",
           ON_HOLD: "on_hold",
+          ADMITTED: "ADMITTED",
+          DEFERRED: "DEFERRED",
         };
 
-        const emailStatus = statusMapping[status] || status.toLowerCase();
+        const notificationStatus =
+          statusMapping[status] || status.toLowerCase();
 
-        await applicationEmailService.sendStatusChangeNotification({
-          applicantEmail: application.email,
-          applicantName: application.name,
-          courseName: application.preferredProgram || "Your Application",
-          status: emailStatus,
-          additionalInfo: notes,
-        });
+        // Send combined email and WhatsApp notifications
+        const notificationResults =
+          await applicationEmailService.sendCombinedStatusChangeNotification({
+            applicantEmail: application.email,
+            applicantPhone: application.phoneNumber, // Fixed: use phoneNumber instead of phone
+            applicantName: application.name,
+            courseName: application.preferredProgram || "Your Application",
+            status: notificationStatus,
+            additionalInfo: notes,
+            leadId: application.leadId || null,
+          });
+
+        // Log results
+        if (notificationResults.email.success) {
+          console.log(
+            `✅ Email notification sent successfully to ${application.email}`
+          );
+        } else if (!notificationResults.email.skipped) {
+          console.log(
+            `❌ Email notification failed: ${notificationResults.email.error}`
+          );
+        }
+
+        if (notificationResults.whatsapp.success) {
+          console.log(
+            `✅ WhatsApp notification sent successfully to ${application.phoneNumber}`
+          );
+        } else if (!notificationResults.whatsapp.skipped) {
+          console.log(
+            `❌ WhatsApp notification failed: ${notificationResults.whatsapp.error}`
+          );
+        }
 
         console.log(
-          `✅ Status change email sent successfully to ${application.email}`
+          `✅ Status change notifications processed for ${application.email}`
         );
       }
-    } catch (emailError) {
-      console.error("❌ Failed to send status change email:", emailError);
-      // Don't fail the status update if email fails
+    } catch (notificationError) {
+      console.error(
+        "❌ Failed to send status change notifications:",
+        notificationError
+      );
+      // Don't fail the status update if notifications fail
     }
 
     res.json({

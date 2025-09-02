@@ -1498,6 +1498,77 @@ We'd love to hear from you — if there's anything you need or any challenge you
 We're here to support you and are excited to have you on this journey! 🌟`;
         break;
 
+      case "application_in_review":
+        templatePayload = {
+          messaging_product: "whatsapp",
+          to: cleanPhone,
+          type: "template",
+          template: {
+            name: "application_in_review",
+            language: { code: "en_US" },
+            components: [],
+          },
+        };
+
+        equivalentMessage = `Hello 👋
+Your application is currently under review 📑
+Our admissions team is carefully checking your details and documents.
+👉 Visit your portal anytime for updates: https://applicant.iuea.ac.ug/`;
+        break;
+
+      case "application_qualified":
+        templatePayload = {
+          messaging_product: "whatsapp",
+          to: cleanPhone,
+          type: "template",
+          template: {
+            name: "application_qualified",
+            language: { code: "en_US" },
+            components: [],
+          },
+        };
+
+        equivalentMessage = `Great news🎉
+Your application has met all requirements, and you are qualified for admission.
+👉 Check your portal now for the next steps: https://applicant.iuea.ac.ug/`;
+        break;
+
+      case "application_admitted":
+        templatePayload = {
+          messaging_product: "whatsapp",
+          to: cleanPhone,
+          type: "template",
+          template: {
+            name: "application_admitted",
+            language: { code: "en_US" },
+            components: [],
+          },
+        };
+
+        equivalentMessage = `Congratulations 🎓🎉
+You've been officially admitted to IUEA!
+👉 Download your admission letter and complete enrollment here: https://applicant.iuea.ac.ug/
+Welcome to the IUEA family 🌍`;
+        break;
+
+      case "application_deferred":
+        templatePayload = {
+          messaging_product: "whatsapp",
+          to: cleanPhone,
+          type: "template",
+          template: {
+            name: "application_deferred",
+            language: { code: "en_US" },
+            components: [],
+          },
+        };
+
+        equivalentMessage = `Hello 👋
+Your application has been deferred to a later intake ⏳
+This means your admission process is postponed for now.
+👉 Stay updated by checking your portal: https://applicant.iuea.ac.ug/`;
+        break;
+
       default:
         return res.status(400).json({
           success: false,
