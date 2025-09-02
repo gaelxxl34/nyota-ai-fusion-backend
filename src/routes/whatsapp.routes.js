@@ -1551,7 +1551,8 @@ We're here to support you and are excited to have you on this journey! 🌟`;
         to: normalizedPhone,
         content: equivalentMessage,
         messageType: "template",
-        senderType: "admin",
+        sender: "admin", // Changed from senderType to sender for frontend compatibility
+        senderType: "admin", // Keep both for backward compatibility
         direction: "outgoing",
         timestamp: new Date(),
         status: "sent",
@@ -1563,19 +1564,31 @@ We're here to support you and are excited to have you on this journey! 🌟`;
         templateData: templatePayload,
       };
 
-      await db.collection("messages").add(messageDoc);
+      try {
+        await db.collection("messages").add(messageDoc);
+        console.log(
+          `📝 Template message saved to database with ID: ${messageId}`
+        );
 
-      // Update conversation with latest message
-      await db
-        .collection("conversations")
-        .doc(conversationId)
-        .update({
-          lastMessage: equivalentMessage,
-          lastMessageTime: new Date(),
-          lastMessageFrom: "agent",
-          updatedAt: new Date(),
-          messageCount: FieldValue.increment(1),
-        });
+        // Update conversation with latest message
+        await db
+          .collection("conversations")
+          .doc(conversationId)
+          .update({
+            lastMessage: equivalentMessage,
+            lastMessageTime: new Date(),
+            lastMessageFrom: "agent",
+            updatedAt: new Date(),
+            messageCount: FieldValue.increment(1),
+          });
+        console.log(
+          `🔄 Conversation ${conversationId} updated with template message`
+        );
+      } catch (dbError) {
+        console.error("❌ Error saving template message to database:", dbError);
+        // Don't throw here as the WhatsApp message was sent successfully
+        // Just log the error and continue
+      }
 
       // Broadcast template message via SSE for real-time updates
       const templateMessageData = {
