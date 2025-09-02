@@ -1420,4 +1420,222 @@ router.post("/test-enhanced-ai", async (req, res) => {
   }
 });
 
+// Send WhatsApp Template Message for application follow-up
+router.post("/send-template-message", authenticateUser, async (req, res) => {
+  try {
+    const {
+      to,
+      templateName = "application_followup_iuea",
+      leadData,
+    } = req.body;
+
+    if (!to) {
+      return res.status(400).json({
+        success: false,
+        error: "Phone number is required",
+      });
+    }
+
+    // Normalize phone number for consistency
+    const normalizedPhone = to.startsWith("+") ? to : `+${to}`;
+    const cleanPhone = normalizedPhone.replace(/[^\d]/g, "");
+
+    // Extract lead information from leadData if provided
+    let leadId = leadData?.id || leadData?.leadId || null;
+    const contactName = leadData?.name || leadData?.contactName || null;
+
+    // Check for leadId - find or create if needed
+    if (!leadId) {
+      console.warn(
+        `⚠️ No lead ID provided for template message to ${normalizedPhone}. Will attempt to find or create a lead.`
+      );
+
+      // Try to find an existing lead by phone number
+      const leadService = new LeadService(db);
+      let lead = await leadService.findLeadByPhone(normalizedPhone);
+
+      if (!lead || !lead.id) {
+        // Create a new lead if none exists
+        const newLeadData = {
+          phone: normalizedPhone,
+          name: contactName || `Contact ${normalizedPhone.slice(-4)}`,
+          status: "CONTACTED",
+          source: "WHATSAPP",
+          createdAt: new Date(),
+        };
+
+        console.log(
+          `📝 Creating new lead for WhatsApp template conversation: ${normalizedPhone}`
+        );
+        const newLead = await leadService.createLead(newLeadData, "WHATSAPP");
+        lead = newLead;
+      }
+
+      leadId = lead.id;
+    }
+
+    // Prepare the template payload based on templateName
+    let templatePayload;
+    let equivalentMessage = "";
+
+    switch (templateName) {
+      case "application_followup_iuea":
+        templatePayload = {
+          messaging_product: "whatsapp",
+          to: cleanPhone,
+          type: "template",
+          template: {
+            name: "application_followup_iuea",
+            language: { code: "en_US" },
+            components: [],
+          },
+        };
+
+        // Define the equivalent message that users will see
+        equivalentMessage = `Hi there! 👋
+Just checking in to see how things are going with your IUEA application.
+We'd love to hear from you — if there's anything you need or any challenge you're facing, feel free to let us know. 😊
+We're here to support you and are excited to have you on this journey! 🌟`;
+        break;
+
+      default:
+        return res.status(400).json({
+          success: false,
+          error: `Unsupported template: ${templateName}`,
+        });
+    }
+
+    console.log(
+      `📤 Sending template message "${templateName}" to ${normalizedPhone}...`
+    );
+
+    // Send template message via WhatsApp API
+    const accessToken = process.env.WHATSAPP_ACCESS_TOKEN;
+    const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
+
+    if (!accessToken || !phoneNumberId) {
+      throw new Error("WhatsApp credentials not configured");
+    }
+
+    const response = await axios.post(
+      `https://graph.facebook.com/v17.0/${phoneNumberId}/messages`,
+      templatePayload,
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+      }
+    );
+
+    if (response.data && response.data.messages && response.data.messages[0]) {
+      const messageId = response.data.messages[0].id;
+
+      console.log(
+        `✅ Template message sent successfully with ID: ${messageId}`
+      );
+
+      // Create or get conversation
+      const conversationService = new ConversationService();
+      const conversationId = await conversationService.createOrGetConversation(
+        normalizedPhone,
+        leadId,
+        contactName
+      );
+
+      // Store the equivalent message in our database so it appears in the chat
+      const messageDoc = {
+        messageId: messageId,
+        conversationId: conversationId,
+        from: phoneNumberId,
+        to: normalizedPhone,
+        content: equivalentMessage,
+        messageType: "template",
+        senderType: "admin",
+        direction: "outgoing",
+        timestamp: new Date(),
+        status: "sent",
+        createdAt: new Date(),
+        isAI: false,
+        automated: false,
+        senderName: "Admin",
+        templateName: templateName,
+        templateData: templatePayload,
+      };
+
+      await db.collection("messages").add(messageDoc);
+
+      // Update conversation with latest message
+      await db
+        .collection("conversations")
+        .doc(conversationId)
+        .update({
+          lastMessage: equivalentMessage,
+          lastMessageTime: new Date(),
+          lastMessageFrom: "agent",
+          updatedAt: new Date(),
+          messageCount: FieldValue.increment(1),
+        });
+
+      // Broadcast template message via SSE for real-time updates
+      const templateMessageData = {
+        id: messageId,
+        to: normalizedPhone,
+        content: equivalentMessage,
+        timestamp: new Date().toISOString(),
+        sender: "admin",
+        senderName: "Admin",
+        messageType: "template",
+        templateName: templateName,
+        isAI: false,
+        automated: false,
+        direction: "outgoing",
+      };
+
+      broadcastMessage(templateMessageData, "template_message");
+
+      console.log(
+        `✅ Template message stored and conversation updated for ${normalizedPhone}`
+      );
+
+      res.json({
+        success: true,
+        message: "WhatsApp template message sent successfully",
+        data: response.data,
+        messageId: messageId,
+        equivalentMessage: equivalentMessage,
+        templateName: templateName,
+        delivered: true,
+        conversationId: conversationId,
+      });
+    } else {
+      throw new Error("Invalid response from WhatsApp API");
+    }
+  } catch (error) {
+    const errorMessage = error.response?.data?.error?.message || error.message;
+    console.error(
+      "❌ WhatsApp Template API Error:",
+      error.response?.data || error.message
+    );
+
+    // Check for 24-hour window errors
+    if (
+      errorMessage &&
+      (errorMessage.includes("24 hour") ||
+        errorMessage.includes("outside the allowed window") ||
+        errorMessage.includes("131047"))
+    ) {
+      console.log(
+        "❌ This error suggests the number was already contacted, but template messages should work regardless"
+      );
+    }
+
+    res.status(500).json({
+      success: false,
+      error: errorMessage,
+      canRetry: true,
+    });
+  }
+});
+
 module.exports = router;
