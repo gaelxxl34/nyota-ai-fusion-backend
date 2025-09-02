@@ -587,7 +587,8 @@ class ConversationService {
     leadId = null,
     contactName = null,
     isAI = false,
-    automated = false
+    automated = false,
+    senderNameOverride = undefined // Optional: pass in human/admin sender name
   ) {
     try {
       // Find or create conversation with lead information
@@ -628,7 +629,7 @@ class ConversationService {
           createdAt: new Date(),
           isAI: messageIsAI,
           automated: automated || messageIsAI, // AI messages are always automated
-          senderName: messageIsAI ? "Miryam" : "Admin",
+          senderName: messageIsAI ? "Miryam" : senderNameOverride || "Admin",
         };
 
         await this.db.collection("messages").add(messageDoc);

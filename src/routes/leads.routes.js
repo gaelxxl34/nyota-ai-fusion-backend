@@ -344,8 +344,10 @@ router.get(
         status,
         sortBy = "createdAt",
         sortOrder = "desc",
+        all = false,
       } = req.query;
-      const offset = (page - 1) * limit;
+      const numericLimit = parseInt(limit);
+      const offset = (page - 1) * numericLimit;
 
       // Get user info from request (set by auth middleware)
       const userEmail = req.user?.email;
@@ -357,21 +359,43 @@ router.get(
       }
 
       console.log(
-        `🔍 Getting leads submitted by ${userEmail} with sorting: ${sortBy} ${sortOrder}`
+        `🔍 Getting leads for user ${userEmail} (submitted by AND updated by) with sorting: ${sortBy} ${sortOrder} all=${all}`
       );
 
-      // Get leads where submittedBy.email matches the current user's email
-      const leads = await leadService.getLeadsBySubmitter(userEmail, {
-        limit: parseInt(limit),
-        offset,
-        status,
-        sortBy,
-        sortOrder,
-      });
+      let leads;
+      if (all === "true") {
+        // Fetch all leads up to a safe maximum (to avoid unbounded memory usage)
+        const MAX_ALL_LIMIT = 10000; // safety cap
+        leads = await leadService.getLeadsForUser(userEmail, {
+          limit: MAX_ALL_LIMIT,
+          offset: 0,
+          status,
+          sortBy,
+          sortOrder,
+        });
+      } else {
+        // Paginated fetch
+        leads = await leadService.getLeadsForUser(userEmail, {
+          limit: numericLimit,
+          offset,
+          status,
+          sortBy,
+          sortOrder,
+        });
+      }
 
       res.json({
         success: true,
         data: leads,
+        pagination:
+          all === "true"
+            ? {
+                total: leads.length,
+                limit: leads.length,
+                offset: 0,
+                hasMore: false,
+              }
+            : undefined,
       });
     } catch (error) {
       console.error("❌ Error getting user's submitted leads:", error);
@@ -416,45 +440,60 @@ router.get("/:id", ensureLeadService, async (req, res) => {
  * Update lead status
  * PUT /api/leads/:id/status
  */
-router.put("/:id/status", ensureLeadService, async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { status, notes, updatedBy, forceUpdate = false } = req.body;
+router.put(
+  "/:id/status",
+  authenticateUser,
+  ensureLeadService,
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { status, notes, updatedBy, forceUpdate = false } = req.body;
 
-    if (!status) {
-      return res.status(400).json({ error: "Status is required" });
+      if (!status) {
+        return res.status(400).json({ error: "Status is required" });
+      }
+
+      if (!Object.values(LEAD_STATUSES).includes(status)) {
+        return res.status(400).json({ error: "Invalid status" });
+      }
+
+      // Use authenticated user info if updatedBy is not provided or is generic
+      let finalUpdatedBy = updatedBy;
+      if (req.user && (!updatedBy || updatedBy === "frontend_user")) {
+        finalUpdatedBy =
+          req.user.displayName ||
+          req.user.name ||
+          req.user.email ||
+          "Unknown User";
+      }
+
+      const lead = await leadService.updateLeadStatus(
+        id,
+        status,
+        notes,
+        finalUpdatedBy,
+        forceUpdate // Pass the force update flag
+      );
+
+      res.json({
+        success: true,
+        data: lead,
+      });
+    } catch (error) {
+      console.error("❌ Error updating lead status:", error);
+      res.status(500).json({
+        success: false,
+        error: error.message,
+      });
     }
-
-    if (!Object.values(LEAD_STATUSES).includes(status)) {
-      return res.status(400).json({ error: "Invalid status" });
-    }
-
-    const lead = await leadService.updateLeadStatus(
-      id,
-      status,
-      notes,
-      updatedBy,
-      forceUpdate // Pass the force update flag
-    );
-
-    res.json({
-      success: true,
-      data: lead,
-    });
-  } catch (error) {
-    console.error("❌ Error updating lead status:", error);
-    res.status(500).json({
-      success: false,
-      error: error.message,
-    });
   }
-});
+);
 
 /**
  * Update lead information
  * PUT /api/leads/:id
  */
-router.put("/:id", ensureLeadService, async (req, res) => {
+router.put("/:id", authenticateUser, ensureLeadService, async (req, res) => {
   try {
     const { id } = req.params;
     const updateData = req.body;
@@ -463,6 +502,21 @@ router.put("/:id", ensureLeadService, async (req, res) => {
     delete updateData.id;
     delete updateData.createdAt;
     delete updateData.timeline;
+
+    // Add user information for tracking updates
+    if (req.user) {
+      updateData.lastUpdatedBy = {
+        email: req.user.email || "unknown@system.com",
+        name:
+          req.user.displayName ||
+          req.user.name ||
+          req.user.email ||
+          "Unknown User",
+        role: req.user.role || "unknown",
+        uid: req.user.uid,
+        updatedAt: new Date().toISOString(),
+      };
+    }
 
     const lead = await leadService.updateLead(id, updateData);
 

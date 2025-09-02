@@ -461,11 +461,21 @@ class LeadService {
         const timeline = [...(lead.timeline || []), timelineEntry];
 
         // Only update the fields we need to change
-        await this.db.collection(this.collection).doc(leadId).update({
+        const updateData = {
           status: newStatus,
           timeline,
           updatedAt: new Date(),
-        });
+        };
+
+        // Set lastUpdatedBy for tracking
+        if (updatedBy) {
+          updateData.lastUpdatedBy = updatedBy;
+        }
+
+        await this.db
+          .collection(this.collection)
+          .doc(leadId)
+          .update(updateData);
 
         // Return the updated lead
         updatedLead = await this.getLeadById(leadId);
@@ -480,6 +490,11 @@ class LeadService {
         );
 
         updatedLead = LeadModel.updateStatus(lead, newStatus, notes, updatedBy);
+
+        // Add lastUpdatedBy field for tracking
+        if (updatedBy) {
+          updatedLead.lastUpdatedBy = updatedBy;
+        }
 
         await this.db
           .collection(this.collection)
@@ -1682,6 +1697,232 @@ class LeadService {
         `❌ Error fetching leads by submitter ${userEmail}:`,
         error
       );
+      throw error;
+    }
+  }
+
+  /**
+   * Get leads for user (based on applications submitted by and updated by the user)
+   * This method finds leads that are associated with applications that were either submitted by or updated by the user
+   */
+  async getLeadsForUser(userEmail, options = {}) {
+    try {
+      const {
+        limit = 50,
+        offset = 0,
+        status,
+        sortBy = "createdAt",
+        sortOrder = "desc",
+      } = options;
+
+      console.log(
+        `🔍 Fetching leads for user: ${userEmail} (based on applications submitted by AND updated by)`
+      );
+
+      const allLeads = [];
+      const seenLeadIds = new Set(); // To avoid duplicates
+      const applicationUpdatedByMap = new Map(); // Track which apps were updated by user
+
+      // Step 1: Get applications submitted by the user that have associated leadId
+      console.log(`� Step 1: Finding applications submitted by ${userEmail}`);
+
+      const submittedApplicationsQuery = this.db
+        .collection("applications")
+        .where("submittedBy.email", "==", userEmail)
+        .where("leadId", "!=", null);
+
+      const submittedApplicationsSnapshot =
+        await submittedApplicationsQuery.get();
+
+      submittedApplicationsSnapshot.forEach((doc) => {
+        const appData = doc.data();
+        if (appData.leadId) {
+          // Track that this app was submitted by user
+          if (!applicationUpdatedByMap.has(appData.leadId)) {
+            applicationUpdatedByMap.set(appData.leadId, {
+              submittedBy: appData.submittedBy,
+              lastUpdatedBy: appData.lastUpdatedBy || appData.submittedBy,
+              applicationId: doc.id,
+            });
+          }
+        }
+      });
+
+      console.log(
+        `📋 Found ${submittedApplicationsSnapshot.size} applications submitted by ${userEmail}`
+      );
+
+      // Step 2: Get applications updated by the user (lastUpdatedBy.email)
+      console.log(`� Step 2: Finding applications updated by ${userEmail}`);
+
+      const updatedApplicationsQuery = this.db
+        .collection("applications")
+        .where("lastUpdatedBy.email", "==", userEmail)
+        .where("leadId", "!=", null);
+
+      const updatedApplicationsSnapshot = await updatedApplicationsQuery.get();
+
+      updatedApplicationsSnapshot.forEach((doc) => {
+        const appData = doc.data();
+        if (appData.leadId) {
+          // Track that this app was updated by user
+          applicationUpdatedByMap.set(appData.leadId, {
+            submittedBy: appData.submittedBy,
+            lastUpdatedBy: appData.lastUpdatedBy,
+            applicationId: doc.id,
+          });
+        }
+      });
+
+      console.log(
+        `📋 Found ${updatedApplicationsSnapshot.size} applications updated by ${userEmail}`
+      );
+
+      // Step 3: Get applications updated by the user in timeline
+      console.log(
+        `� Step 3: Finding applications with timeline updates by ${userEmail}`
+      );
+
+      try {
+        const timelineApplicationsQuery = this.db
+          .collection("applications")
+          .where("leadId", "!=", null);
+
+        const timelineApplicationsSnapshot =
+          await timelineApplicationsQuery.get();
+        let timelineMatchCount = 0;
+
+        timelineApplicationsSnapshot.forEach((doc) => {
+          const appData = doc.data();
+          if (
+            appData.leadId &&
+            appData.timeline &&
+            Array.isArray(appData.timeline)
+          ) {
+            // Check if this application's timeline contains updates by the user
+            const hasUserUpdate = appData.timeline.some((entry) => {
+              // Check if updatedBy matches user email
+              if (
+                entry.updatedBy &&
+                typeof entry.updatedBy === "object" &&
+                entry.updatedBy.email === userEmail
+              ) {
+                return true;
+              }
+              if (
+                entry.updatedBy &&
+                typeof entry.updatedBy === "string" &&
+                entry.updatedBy === userEmail
+              ) {
+                return true;
+              }
+              return false;
+            });
+
+            if (hasUserUpdate) {
+              // Track that this app was updated by user
+              applicationUpdatedByMap.set(appData.leadId, {
+                submittedBy: appData.submittedBy,
+                lastUpdatedBy: appData.lastUpdatedBy,
+                applicationId: doc.id,
+              });
+              timelineMatchCount++;
+            }
+          }
+        });
+
+        console.log(
+          `📋 Found ${timelineMatchCount} applications with timeline updates by ${userEmail}`
+        );
+      } catch (error) {
+        console.warn(
+          `⚠️ Error searching application timeline updates:`,
+          error.message
+        );
+      }
+
+      // Step 4: Get the actual leads and attach application update information
+      console.log(
+        `📋 Step 4: Fetching ${applicationUpdatedByMap.size} leads and attaching application info`
+      );
+
+      for (const [leadId, appInfo] of applicationUpdatedByMap.entries()) {
+        try {
+          const leadDoc = await this.db
+            .collection(this.collection)
+            .doc(leadId)
+            .get();
+
+          if (leadDoc.exists) {
+            const lead = this._normalizeLead(leadDoc.id, leadDoc.data());
+
+            // Apply status filter if provided
+            if (!status || lead.status === status) {
+              // Only add if not already in leads (avoid duplicates)
+              if (!seenLeadIds.has(lead.id)) {
+                // Attach application update information to the lead
+                lead.applicationUpdatedBy = appInfo.lastUpdatedBy;
+                lead.applicationSubmittedBy = appInfo.submittedBy;
+                lead.applicationId = appInfo.applicationId;
+
+                allLeads.push(lead);
+                seenLeadIds.add(lead.id);
+              }
+            }
+          }
+        } catch (docError) {
+          console.warn(
+            `⚠️ Could not fetch lead ${leadId}: ${docError.message}`
+          );
+        }
+      }
+
+      // Step 5: Sort all leads
+      const validSortFields = [
+        "createdAt",
+        "updatedAt",
+        "lastInteractionAt",
+        "status",
+      ];
+      const sortField = validSortFields.includes(sortBy) ? sortBy : "createdAt";
+      const sortDirection = sortOrder.toLowerCase() === "asc" ? "asc" : "desc";
+
+      allLeads.sort((a, b) => {
+        let valueA, valueB;
+
+        if (sortField === "createdAt" || sortField === "updatedAt") {
+          valueA =
+            a[sortField] instanceof Date
+              ? a[sortField]
+              : new Date(a[sortField]);
+          valueB =
+            b[sortField] instanceof Date
+              ? b[sortField]
+              : new Date(b[sortField]);
+        } else {
+          valueA = a[sortField] || "";
+          valueB = b[sortField] || "";
+        }
+
+        if (sortDirection === "desc") {
+          return valueB > valueA ? 1 : valueB < valueA ? -1 : 0;
+        } else {
+          return valueA > valueB ? 1 : valueA < valueB ? -1 : 0;
+        }
+      });
+
+      // Apply pagination after combining and sorting
+      const startIndex = offset;
+      const endIndex = offset + limit;
+      const paginatedLeads = allLeads.slice(startIndex, endIndex);
+
+      console.log(
+        `✅ Total found: ${allLeads.length} leads for user ${userEmail}, returning ${paginatedLeads.length} after pagination (sorted by ${sortField} ${sortDirection})`
+      );
+
+      return paginatedLeads;
+    } catch (error) {
+      console.error(`❌ Error fetching leads for user ${userEmail}:`, error);
       throw error;
     }
   }

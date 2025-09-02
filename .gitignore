@@ -18,3 +18,6 @@ certificates/
 # Demo and example files (not for production)
 public/demo.html
 public/wordpress-example.html
+
+# Test files
+test-for-you-tab.js

@@ -521,13 +521,20 @@ router.post("/send-message", authenticateUser, async (req, res) => {
 
     // Use ConversationService to send message and create conversation/message records
     const conversationService = new ConversationService();
+    // Determine human sender name (fallback to email local part or generic Admin)
+    const humanSenderName =
+      req.user?.name ||
+      (req.user?.email ? req.user.email.split("@")[0] : null) ||
+      "Admin";
+
     const result = await conversationService.sendMessage(
       normalizedPhone,
       message,
       leadId,
       contactName,
       false, // isAI = false (manual admin message)
-      false // automated = false (manual admin message)
+      false, // automated = false (manual admin message)
+      humanSenderName // senderNameOverride
     );
 
     if (result.success) {
@@ -538,7 +545,7 @@ router.post("/send-message", authenticateUser, async (req, res) => {
         content: message,
         timestamp: new Date().toISOString(),
         sender: "admin",
-        senderName: "Admin",
+        senderName: humanSenderName,
         messageType: messageType,
         isAI: false,
         automated: false,
@@ -1615,6 +1622,11 @@ This means your admission process is postponed for now.
       );
 
       // Store the equivalent message in our database so it appears in the chat
+      const templateSenderName =
+        req.user?.name ||
+        (req.user?.email ? req.user.email.split("@")[0] : null) ||
+        "Admin";
+
       const messageDoc = {
         messageId: messageId,
         conversationId: conversationId,
@@ -1630,7 +1642,7 @@ This means your admission process is postponed for now.
         createdAt: new Date(),
         isAI: false,
         automated: false,
-        senderName: "Admin",
+        senderName: templateSenderName,
         templateName: templateName,
         templateData: templatePayload,
       };
@@ -1668,7 +1680,7 @@ This means your admission process is postponed for now.
         content: equivalentMessage,
         timestamp: new Date().toISOString(),
         sender: "admin",
-        senderName: "Admin",
+        senderName: templateSenderName,
         messageType: "template",
         templateName: templateName,
         isAI: false,
