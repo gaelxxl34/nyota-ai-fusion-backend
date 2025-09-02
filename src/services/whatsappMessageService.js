@@ -522,9 +522,41 @@ This means your admission process is postponed for now.
               metadata?.contactName || null
             );
 
-          // Prepare a readable version of the template for storing
-          const templateContent = `Template: ${templateName} (${templateLanguage})`;
+          // Prepare a readable version of the template for storing.
+          // Instead of saving a generic identifier ("Template: name (lang)"),
+          // map known template names to the human-friendly message the user actually receives.
+          const templateEquivalents = {
+            application_followup_iuea: `Hi there! 👋\nJust checking in to see how things are going with your IUEA application.\nWe'd love to hear from you — if there's anything you need or any challenge you're facing, feel free to let us know. 😊\nWe're here to support you and are excited to have you on this journey! 🌟`,
+            application_in_review: `Hello 👋\nYour application is currently under review 📑\nOur admissions team is carefully checking your details and documents.\n👉 Visit your portal anytime for updates: https://applicant.iuea.ac.ug/`,
+            application_qualified: `Great news🎉\nYour application has met all requirements, and you are qualified for admission.\n👉 Check your portal now for the next steps: https://applicant.iuea.ac.ug/`,
+            application_admitted: `Congratulations 🎓🎉\nYou've been officially admitted to IUEA!\n👉 Download your admission letter and complete enrollment here: https://applicant.iuea.ac.ug/\nWelcome to the IUEA family 🌍`,
+            application_deferred: `Hello 👋\nYour application has been deferred to a later intake ⏳\nThis means your admission process is postponed for now.\n👉 Stay updated by checking your portal: https://applicant.iuea.ac.ug/`,
+            whatsapp_validation: `Hello👋\n\nThank you for your interest in IUEA! 🎓\nWe've received your message and we're here to help.😊\n\nIs there a specific program you're interested in, or would you like some help with the admission process?`,
+          };
+
+          // Allow caller to override with explicit equivalent message via metadata
+          let templateContent =
+            metadata?.equivalentMessage || templateEquivalents[templateName];
+
+          // If still no equivalent and there are body components with parameters, attempt a naive reconstruction
           const components = templatePayload.template?.components || [];
+          if (!templateContent) {
+            const bodyComponent = components.find((c) => c.type === "body");
+            if (bodyComponent && Array.isArray(bodyComponent.parameters)) {
+              // Join text parameters as a rough readable message; this is a best-effort fallback
+              const paramTexts = bodyComponent.parameters
+                .map((p) => p.text || p.parameter || "")
+                .filter(Boolean);
+              if (paramTexts.length) {
+                templateContent = paramTexts.join(" ");
+              }
+            }
+          }
+
+          // Final fallback to previous generic representation if no reconstruction possible
+          if (!templateContent) {
+            templateContent = `Template: ${templateName} (${templateLanguage})`;
+          }
 
           // Store the message in our database
           const messageDoc = {

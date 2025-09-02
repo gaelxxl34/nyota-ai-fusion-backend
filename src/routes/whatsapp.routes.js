@@ -1575,6 +1575,20 @@ Your application has been deferred to a later intake ⏳
 This means your admission process is postponed for now.
 👉 Stay updated by checking your portal: https://applicant.iuea.ac.ug/`;
         break;
+      case "whatsapp_validation":
+        templatePayload = {
+          messaging_product: "whatsapp",
+          to: cleanPhone,
+          type: "template",
+          template: {
+            name: "whatsapp_validation",
+            language: { code: "en_US" },
+            components: [],
+          },
+        };
+
+        equivalentMessage = `Hello 👋\nThank you for your interest in IUEA 🎓\nWe’ve received your message and we’re here to help 😊\n👉 Are you interested in a specific program, or would you like support with the admission process?`;
+        break;
 
       default:
         return res.status(400).json({
