@@ -472,7 +472,26 @@ router.get(
 // Send message to WhatsApp
 router.post("/send-message", authenticateUser, async (req, res) => {
   try {
-    const { to, message, messageType = "text", leadData } = req.body;
+    const {
+      to,
+      message,
+      messageType = "text",
+      leadData,
+      senderName,
+    } = req.body;
+
+    console.log(`📨 Send message request:`, {
+      to,
+      messageType,
+      senderNameFromRequest: senderName,
+      userFromAuth: req.user
+        ? {
+            name: req.user.name,
+            email: req.user.email,
+            id: req.user.id,
+          }
+        : "No user auth",
+    });
 
     if (!to || !message) {
       return res.status(400).json({
@@ -521,11 +540,24 @@ router.post("/send-message", authenticateUser, async (req, res) => {
 
     // Use ConversationService to send message and create conversation/message records
     const conversationService = new ConversationService();
-    // Determine human sender name (fallback to email local part or generic Admin)
+    // Determine human sender name (prioritize request, then user auth, then fallback)
     const humanSenderName =
+      senderName || // First priority: explicit senderName from request
       req.user?.name ||
       (req.user?.email ? req.user.email.split("@")[0] : null) ||
       "Admin";
+
+    console.log(
+      `📝 Sending message with sender name: "${humanSenderName}" (from: ${
+        senderName
+          ? "request"
+          : req.user?.name
+          ? "auth.name"
+          : req.user?.email
+          ? "auth.email"
+          : "fallback"
+      })`
+    );
 
     const result = await conversationService.sendMessage(
       normalizedPhone,
