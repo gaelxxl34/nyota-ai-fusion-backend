@@ -91,7 +91,18 @@ function startServer() {
     })
   );
   // Ensure JSON and URL-encoded middleware are configured correctly for webhooks
-  app.use(express.json({ limit: "500mb", strict: false })); // Use strict:false to accept malformed JSON
+  // Skip JSON parsing for Facebook webhook to preserve raw body for signature verification
+  app.use((req, res, next) => {
+    if (
+      req.path.includes("/api/facebook-leads/webhook") &&
+      req.method === "POST"
+    ) {
+      // Skip JSON parsing for Facebook webhook POST requests
+      return next();
+    }
+    // Apply JSON parsing to all other routes
+    express.json({ limit: "500mb", strict: false })(req, res, next);
+  });
   app.use(express.urlencoded({ extended: true, limit: "500mb" }));
 
   // Production logging middleware - only log important requests, not routine API calls
