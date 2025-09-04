@@ -37,10 +37,6 @@ const captureRawBodyForSignature = (req, res, next) => {
         // Parse JSON manually
         req.body = JSON.parse(rawBody);
 
-        console.log("🔧 Raw body captured and parsed successfully");
-        console.log("- Raw body length:", req.rawBody.length);
-        console.log("- Parsed body keys:", Object.keys(req.body));
-
         next();
       } catch (error) {
         console.error("❌ Failed to parse JSON body:", error);
@@ -96,81 +92,35 @@ router.get("/webhook", (req, res) => {
  * Handle Facebook Lead Ads webhook events
  * POST /api/facebook-leads/webhook
  */
-/**
- * Handle Facebook Lead Ads webhook events
- * POST /api/facebook-leads/webhook
- */
 router.post("/webhook", captureRawBodyForSignature, async (req, res) => {
   try {
     const body = req.body;
     const rawBody = req.rawBody;
 
-    // Try different header case variations for signature
+    // Get signature from headers
     const signature =
       req.get("X-Hub-Signature-256") ||
       req.get("x-hub-signature-256") ||
       req.headers["x-hub-signature-256"] ||
       req.headers["X-Hub-Signature-256"];
 
-    console.log("📨 Incoming Facebook webhook request:");
-    console.log("- All Headers:", JSON.stringify(req.headers, null, 2));
-    console.log("- Body:", JSON.stringify(body, null, 2));
-    console.log("- Raw Body Length:", rawBody ? rawBody.length : 0);
-    console.log("- Signature found:", signature);
-    console.log("- Signature search results:");
-    console.log("  - X-Hub-Signature-256:", req.get("X-Hub-Signature-256"));
-    console.log("  - x-hub-signature-256:", req.get("x-hub-signature-256"));
-    console.log(
-      "  - Direct header access:",
-      req.headers["x-hub-signature-256"]
-    );
-
-    // Check environment configuration
-    const hasAppSecret = !!process.env.FACEBOOK_APP_SECRET;
-    const isPlaceholder =
-      process.env.FACEBOOK_APP_SECRET === "your_facebook_app_secret_here";
-    const appSecretPreview = process.env.FACEBOOK_APP_SECRET
-      ? process.env.FACEBOOK_APP_SECRET.substring(0, 8) + "..."
-      : "not set";
-
-    console.log("🔐 Environment check:");
-    console.log("- App Secret configured:", hasAppSecret);
-    console.log("- Is placeholder:", isPlaceholder);
-    console.log("- App Secret preview:", appSecretPreview);
+    console.log("📨 Facebook webhook received - verifying signature...");
 
     // Verify webhook signature using raw body
     if (!verifyWebhookSignature(rawBody, signature)) {
       console.log("❌ Invalid Facebook webhook signature");
-      console.log("- Expected signature format: sha256=<hash>");
-      console.log("- Received signature:", signature);
-      console.log(
-        "- App Secret status:",
-        hasAppSecret
-          ? isPlaceholder
-            ? "PLACEHOLDER"
-            : "CONFIGURED"
-          : "MISSING"
-      );
-
       logger.error("Invalid Facebook webhook signature", {
         signature,
-        hasAppSecret,
-        isPlaceholder,
-        appSecretStatus: hasAppSecret
-          ? isPlaceholder
-            ? "PLACEHOLDER"
-            : "CONFIGURED"
-          : "MISSING",
+        hasAppSecret: !!process.env.FACEBOOK_APP_SECRET,
       });
       return res.sendStatus(403);
     }
 
     console.log("✅ Facebook webhook signature verified successfully");
-    console.log(
-      "📨 Facebook Lead Ads webhook received:",
-      JSON.stringify(body, null, 2)
-    );
-    logger.info("Facebook Lead Ads webhook received", { body });
+    logger.info("Facebook Lead Ads webhook received", {
+      entryCount: body.entry?.length || 0,
+      object: body.object,
+    });
 
     // Process webhook data
     if (body.object === "page") {
@@ -194,12 +144,10 @@ router.post("/webhook", captureRawBodyForSignature, async (req, res) => {
 /**
  * Verify webhook signature from Facebook
  */
+/**
+ * Verify webhook signature from Facebook
+ */
 function verifyWebhookSignature(payload, signature) {
-  console.log("🔍 Verifying webhook signature...");
-  console.log("- Raw Payload length:", payload ? payload.length : 0);
-  console.log("- Raw Payload type:", typeof payload);
-  console.log("- Signature received:", signature);
-
   if (!signature) {
     console.log("❌ No signature provided");
     return false;
@@ -230,46 +178,21 @@ function verifyWebhookSignature(payload, signature) {
         .update(payload, "utf8")
         .digest("hex");
 
-    console.log(
-      "- Expected signature format:",
-      expectedSignature.substring(0, 15) + "..."
-    );
-    console.log(
-      "- Received signature format:",
-      signature.substring(0, 15) + "..."
-    );
-    console.log("- Expected signature length:", expectedSignature.length);
-    console.log("- Received signature length:", signature.length);
-
-    // Ensure both signatures are the same length before comparing
-    if (signature.length !== expectedSignature.length) {
-      console.log(
-        "❌ Signature length mismatch - Expected:",
-        expectedSignature.length,
-        "Got:",
-        signature.length
-      );
-      console.log("- Full expected:", expectedSignature);
-      console.log("- Full received:", signature);
-      return false;
-    }
-
     // Use crypto.timingSafeEqual for secure comparison
     const expectedBuffer = Buffer.from(expectedSignature, "utf8");
     const receivedBuffer = Buffer.from(signature, "utf8");
 
     const isValid = crypto.timingSafeEqual(expectedBuffer, receivedBuffer);
 
-    console.log(
-      "- Signature validation result:",
-      isValid ? "✅ VALID" : "❌ INVALID"
-    );
     if (!isValid) {
-      console.log("- Expected:", expectedSignature);
-      console.log("- Received:", signature);
-      // For debugging, show first few chars of payload
-      console.log("- Payload preview:", payload.substring(0, 100) + "...");
+      console.log("❌ Signature verification failed");
+      // Only log full signatures in development
+      if (process.env.NODE_ENV === "development") {
+        console.log("- Expected:", expectedSignature);
+        console.log("- Received:", signature);
+      }
     }
+
     return isValid;
   } catch (error) {
     console.error("❌ Error during signature verification:", error);
@@ -282,10 +205,17 @@ function verifyWebhookSignature(payload, signature) {
  */
 async function processLeadgenEvent(leadgenData) {
   try {
-    console.log("🔄 Processing leadgen event:", leadgenData);
-
     const { leadgen_id, page_id, form_id, adgroup_id, ad_id, created_time } =
       leadgenData;
+
+    // Check if this is a test/dummy lead from Facebook (IDs with all 4s)
+    if (leadgen_id && leadgen_id.toString().match(/^4+$/)) {
+      console.log("📝 Test webhook received - skipping test lead processing");
+      logger.info("Facebook test webhook received", { leadgen_id });
+      return;
+    }
+
+    console.log("🔄 Processing leadgen event:", leadgenData);
 
     // Fetch lead details using Facebook Graph API
     const leadDetails = await fetchLeadDetailsFromFacebook(leadgen_id);
