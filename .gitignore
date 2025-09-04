@@ -21,3 +21,12 @@ public/wordpress-example.html
 
 # Test files
 test-for-you-tab.js
+
+# Export scripts
+scripts/export-interested-leads.js
+scripts/quick-export.js
+
+# CSV exports and data files
+*.csv
+interested-leads-*.csv
+exports/*.csv

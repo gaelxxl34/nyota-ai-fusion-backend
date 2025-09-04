@@ -8,7 +8,13 @@
     "dev": "nodemon src/index.js",
     "send-interested-leads": "node src/scripts/sendInterestedLeadsMessages.js",
     "setup-redis": "./setup-redis.sh",
-    "test-cache": "node -e \"const cache = require('./src/services/redisCache.service'); cache.healthCheck().then(console.log);\""
+    "test-cache": "node -e \"const cache = require('./src/services/redisCache.service'); cache.healthCheck().then(console.log);\"",
+    "export-interested": "node scripts/export-interested-leads.js --status=INTERESTED",
+    "export-all-leads": "node scripts/export-interested-leads.js --all",
+    "export-applied": "node scripts/export-interested-leads.js --status=APPLIED",
+    "export-qualified": "node scripts/export-interested-leads.js --status=QUALIFIED",
+    "export-enrolled": "node scripts/export-interested-leads.js --status=ENROLLED",
+    "quick-export": "node scripts/quick-export.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.56.0",

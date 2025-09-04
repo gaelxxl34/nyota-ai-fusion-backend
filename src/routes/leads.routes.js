@@ -619,5 +619,202 @@ router.delete("/:id", ensureLeadService, async (req, res) => {
   }
 });
 
+/**
+ * Export leads to CSV
+ * GET /api/leads/export
+ */
+router.get("/export", ensureLeadService, async (req, res) => {
+  try {
+    const {
+      status = "INTERESTED", // Default to interested people
+      format = "csv",
+      includeAll = false,
+    } = req.query;
+
+    console.log(`📋 Exporting leads with status: ${status || "ALL"}`);
+
+    let leads = [];
+
+    if (includeAll === "true" || !status) {
+      // Export all leads
+      const result = await leadService.getAllLeads({ limit: 10000 });
+      leads = result.leads;
+    } else {
+      // Export leads by specific status
+      if (!Object.values(LEAD_STATUSES).includes(status)) {
+        return res.status(400).json({
+          success: false,
+          error: `Invalid status. Valid statuses: ${Object.values(
+            LEAD_STATUSES
+          ).join(", ")}`,
+        });
+      }
+      leads = await leadService.getLeadsByStatus(status, 10000);
+    }
+
+    console.log(`📊 Found ${leads.length} leads to export`);
+
+    if (format === "csv") {
+      // Helper functions for CSV generation
+      const csvEscape = (value) => {
+        if (value === null || value === undefined) return "";
+        const str = String(value);
+        if (str.includes(",") || str.includes("\n") || str.includes('"')) {
+          return `"${str.replace(/"/g, '""')}"`;
+        }
+        return str;
+      };
+
+      const formatDate = (date) => {
+        if (!date) return "";
+        try {
+          if (date._seconds) {
+            date = new Date(date._seconds * 1000);
+          } else if (typeof date === "string") {
+            date = new Date(date);
+          }
+          if (date instanceof Date && !isNaN(date)) {
+            return date.toISOString().split("T")[0];
+          }
+        } catch (error) {
+          console.warn("Error formatting date:", error);
+        }
+        return "";
+      };
+
+      const formatProgram = (program) => {
+        if (!program) return "";
+        if (typeof program === "string") return program;
+        if (typeof program === "object") {
+          return program.name || program.code || program.title || "";
+        }
+        return String(program);
+      };
+
+      const getSubmittedBy = (lead) => {
+        if (!lead.submittedBy) return "";
+        if (typeof lead.submittedBy === "string") return lead.submittedBy;
+        if (typeof lead.submittedBy === "object") {
+          return (
+            lead.submittedBy.name ||
+            lead.submittedBy.email ||
+            lead.submittedBy.uid ||
+            ""
+          );
+        }
+        return "";
+      };
+
+      const getLatestStatus = (lead) => {
+        if (!lead.timeline || !Array.isArray(lead.timeline)) {
+          return lead.status || "UNKNOWN";
+        }
+        const sortedTimeline = [...lead.timeline].sort((a, b) => {
+          const dateA = a.date
+            ? new Date(a.date._seconds ? a.date._seconds * 1000 : a.date)
+            : new Date(0);
+          const dateB = b.date
+            ? new Date(b.date._seconds ? b.date._seconds * 1000 : b.date)
+            : new Date(0);
+          return dateB - dateA;
+        });
+        const latestEntry = sortedTimeline.find((entry) => entry.status);
+        return latestEntry ? latestEntry.status : lead.status || "UNKNOWN";
+      };
+
+      // Define CSV headers
+      const headers = [
+        "ID",
+        "Name",
+        "Email",
+        "Phone",
+        "WhatsApp Number",
+        "Status",
+        "Source",
+        "Program of Interest",
+        "Priority",
+        "Created Date",
+        "Last Updated",
+        "Last Interaction",
+        "Total Interactions",
+        "Submitted By",
+        "Assigned To",
+        "Next Follow Up",
+        "Notes",
+        "Tags",
+      ];
+
+      // Create CSV content
+      let csvContent = headers.map(csvEscape).join(",") + "\n";
+
+      // Process each lead
+      for (const lead of leads) {
+        const currentStatus = getLatestStatus(lead);
+
+        const row = [
+          csvEscape(lead.id),
+          csvEscape(lead.name || ""),
+          csvEscape(lead.email || ""),
+          csvEscape(lead.phone || ""),
+          csvEscape(lead.whatsappNumber || lead.phone || ""),
+          csvEscape(currentStatus),
+          csvEscape(lead.source || ""),
+          csvEscape(
+            formatProgram(lead.program || lead.programOfInterest || "")
+          ),
+          csvEscape(lead.priority || ""),
+          csvEscape(formatDate(lead.createdAt)),
+          csvEscape(formatDate(lead.updatedAt)),
+          csvEscape(formatDate(lead.lastInteractionAt)),
+          csvEscape(lead.totalInteractions || 0),
+          csvEscape(getSubmittedBy(lead)),
+          csvEscape(lead.assignedTo || ""),
+          csvEscape(formatDate(lead.nextFollowUpDate)),
+          csvEscape(lead.notes || ""),
+          csvEscape(
+            Array.isArray(lead.tags) ? lead.tags.join("; ") : lead.tags || ""
+          ),
+        ];
+
+        csvContent += row.join(",") + "\n";
+      }
+
+      // Set headers for file download
+      const filename =
+        status && !includeAll
+          ? `${status.toLowerCase()}-leads-${
+              new Date().toISOString().split("T")[0]
+            }.csv`
+          : `all-leads-${new Date().toISOString().split("T")[0]}.csv`;
+
+      res.setHeader("Content-Type", "text/csv");
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="${filename}"`
+      );
+
+      res.send(csvContent);
+    } else {
+      // JSON format
+      res.json({
+        success: true,
+        data: leads,
+        count: leads.length,
+        exportedAt: new Date().toISOString(),
+        filters: {
+          status: status || "ALL",
+          format,
+        },
+      });
+    }
+  } catch (error) {
+    console.error("❌ Error exporting leads:", error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
 module.exports = router;
 module.exports.initLeadService = initLeadService;

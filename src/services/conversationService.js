@@ -62,11 +62,11 @@ class ConversationService {
         (await this.redisCache.getSyncTimestamp("conversations")) || 0;
       const currentTime = Date.now();
 
-      console.log(
-        `🔄 Starting conversation sync... (last: ${new Date(
-          lastSync
-        ).toISOString()})`
-      );
+      // console.log(
+      //   `🔄 Starting conversation sync... (last: ${new Date(
+      //     lastSync
+      //   ).toISOString()})`
+      // );
 
       // Query for conversations updated since last sync
       let query = this.db
@@ -78,7 +78,7 @@ class ConversationService {
       const snapshot = await query.get();
 
       if (snapshot.empty) {
-        console.log("✅ No new conversations to sync");
+        // console.log("✅ No new conversations to sync");
         return;
       }
 
@@ -119,9 +119,9 @@ class ConversationService {
       await this.redisCache.updateSyncTimestamp("conversations");
       this.syncConfig.lastSyncTimestamp = currentTime;
 
-      console.log(
-        `✅ Synced ${conversationsToCache.length} conversations to Redis cache`
-      );
+      // console.log(
+      //   `✅ Synced ${conversationsToCache.length} conversations to Redis cache`
+      // );
     } catch (error) {
       console.error("❌ Error syncing conversations from Firestore:", error);
     }
