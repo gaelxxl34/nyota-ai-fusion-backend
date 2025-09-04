@@ -56,12 +56,63 @@ router.get("/webhook", (req, res) => {
 router.post("/webhook", async (req, res) => {
   try {
     const body = req.body;
-    const signature = req.get("X-Hub-Signature-256");
+
+    // Try different header case variations for signature
+    const signature =
+      req.get("X-Hub-Signature-256") ||
+      req.get("x-hub-signature-256") ||
+      req.headers["x-hub-signature-256"] ||
+      req.headers["X-Hub-Signature-256"];
+
+    console.log("📨 Incoming Facebook webhook request:");
+    console.log("- All Headers:", JSON.stringify(req.headers, null, 2));
+    console.log("- Body:", JSON.stringify(body, null, 2));
+    console.log("- Signature found:", signature);
+    console.log("- Signature search results:");
+    console.log("  - X-Hub-Signature-256:", req.get("X-Hub-Signature-256"));
+    console.log("  - x-hub-signature-256:", req.get("x-hub-signature-256"));
+    console.log(
+      "  - Direct header access:",
+      req.headers["x-hub-signature-256"]
+    );
+
+    // Check environment configuration
+    const hasAppSecret = !!process.env.FACEBOOK_APP_SECRET;
+    const isPlaceholder =
+      process.env.FACEBOOK_APP_SECRET === "your_facebook_app_secret_here";
+    const appSecretPreview = process.env.FACEBOOK_APP_SECRET
+      ? process.env.FACEBOOK_APP_SECRET.substring(0, 8) + "..."
+      : "not set";
+
+    console.log("🔐 Environment check:");
+    console.log("- App Secret configured:", hasAppSecret);
+    console.log("- Is placeholder:", isPlaceholder);
+    console.log("- App Secret preview:", appSecretPreview);
 
     // Verify webhook signature
     if (!verifyWebhookSignature(JSON.stringify(body), signature)) {
       console.log("❌ Invalid Facebook webhook signature");
-      logger.error("Invalid Facebook webhook signature");
+      console.log("- Expected signature format: sha256=<hash>");
+      console.log("- Received signature:", signature);
+      console.log(
+        "- App Secret status:",
+        hasAppSecret
+          ? isPlaceholder
+            ? "PLACEHOLDER"
+            : "CONFIGURED"
+          : "MISSING"
+      );
+
+      logger.error("Invalid Facebook webhook signature", {
+        signature,
+        hasAppSecret,
+        isPlaceholder,
+        appSecretStatus: hasAppSecret
+          ? isPlaceholder
+            ? "PLACEHOLDER"
+            : "CONFIGURED"
+          : "MISSING",
+      });
       return res.sendStatus(403);
     }
 
@@ -94,7 +145,12 @@ router.post("/webhook", async (req, res) => {
  * Verify webhook signature from Facebook
  */
 function verifyWebhookSignature(payload, signature) {
+  console.log("🔍 Verifying webhook signature...");
+  console.log("- Payload length:", payload ? payload.length : 0);
+  console.log("- Signature received:", signature);
+
   if (!signature) {
+    console.log("❌ No signature provided");
     return false;
   }
 
@@ -104,17 +160,59 @@ function verifyWebhookSignature(payload, signature) {
     return false;
   }
 
-  const expectedSignature =
-    "sha256=" +
-    crypto
-      .createHmac("sha256", APP_SECRET)
-      .update(payload, "utf8")
-      .digest("hex");
+  if (APP_SECRET === "your_facebook_app_secret_here") {
+    console.warn("⚠️ FACEBOOK_APP_SECRET is still placeholder value");
+    return false;
+  }
 
-  return crypto.timingSafeEqual(
-    Buffer.from(signature),
-    Buffer.from(expectedSignature)
-  );
+  try {
+    const expectedSignature =
+      "sha256=" +
+      crypto
+        .createHmac("sha256", APP_SECRET)
+        .update(payload, "utf8")
+        .digest("hex");
+
+    console.log(
+      "- Expected signature format:",
+      expectedSignature.substring(0, 15) + "..."
+    );
+    console.log(
+      "- Received signature format:",
+      signature.substring(0, 15) + "..."
+    );
+    console.log("- Expected signature length:", expectedSignature.length);
+    console.log("- Received signature length:", signature.length);
+
+    // Ensure both signatures are the same length before comparing
+    if (signature.length !== expectedSignature.length) {
+      console.log(
+        "❌ Signature length mismatch - Expected:",
+        expectedSignature.length,
+        "Got:",
+        signature.length
+      );
+      console.log("- Full expected:", expectedSignature);
+      console.log("- Full received:", signature);
+      return false;
+    }
+
+    // Use string comparison instead of buffer comparison for now
+    const isValid = signature === expectedSignature;
+
+    console.log(
+      "- Signature validation result:",
+      isValid ? "✅ VALID" : "❌ INVALID"
+    );
+    if (!isValid) {
+      console.log("- Expected:", expectedSignature);
+      console.log("- Received:", signature);
+    }
+    return isValid;
+  } catch (error) {
+    console.error("❌ Error during signature verification:", error);
+    return false;
+  }
 }
 
 /**
