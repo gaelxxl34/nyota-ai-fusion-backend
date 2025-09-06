@@ -1079,6 +1079,27 @@ router.put("/email/:email", ensureApplicationService, async (req, res) => {
         );
 
         // Send combined email and WhatsApp notifications
+        // Prepare additional info based on status
+        let additionalInfo =
+          updatedApplication.statusNote ||
+          "Your application status has been updated.";
+
+        // For MISSING_DOCUMENT status, ensure we have proper missing documents information
+        if (updatedApplication.status === "MISSING_DOCUMENT") {
+          // If statusNote is provided and is specific missing documents info, use it
+          // Otherwise, provide a default message
+          if (
+            updatedApplication.statusNote &&
+            updatedApplication.statusNote !==
+              `Status updated to ${updatedApplication.status}`
+          ) {
+            additionalInfo = updatedApplication.statusNote;
+          } else {
+            additionalInfo =
+              "Please check your application portal to see which documents are required and upload them as soon as possible.";
+          }
+        }
+
         const notificationResults =
           await applicationEmailService.sendCombinedStatusChangeNotification({
             applicantEmail: updatedApplication.email,
@@ -1087,9 +1108,7 @@ router.put("/email/:email", ensureApplicationService, async (req, res) => {
             courseName:
               updatedApplication.preferredProgram || "Your Application",
             status: updatedApplication.status,
-            additionalInfo:
-              updatedApplication.statusNote ||
-              "Your application status has been updated.",
+            additionalInfo: additionalInfo,
             leadId: updatedApplication.leadId || null,
           });
 
@@ -1571,6 +1590,7 @@ router.put("/:id/status", ensureApplicationService, async (req, res) => {
           PENDING: "pending",
           INTERVIEW_SCHEDULED: "interview_scheduled",
           DOCUMENTS_REQUIRED: "documents_required",
+          MISSING_DOCUMENT: "MISSING_DOCUMENT", // Add missing document mapping
           ON_HOLD: "on_hold",
           ADMITTED: "ADMITTED",
           DEFERRED: "DEFERRED",

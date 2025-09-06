@@ -8,6 +8,7 @@ const LEAD_STATUSES = {
   // Main funnel stages
   INTERESTED: "INTERESTED", // Initial inquiry/lead capture
   APPLIED: "APPLIED", // Application submitted
+  MISSING_DOCUMENT: "MISSING_DOCUMENT", // Application missing required documents
   IN_REVIEW: "IN_REVIEW", // Application being reviewed
   QUALIFIED: "QUALIFIED", // Meets all requirements
   ADMITTED: "ADMITTED", // Officially admitted

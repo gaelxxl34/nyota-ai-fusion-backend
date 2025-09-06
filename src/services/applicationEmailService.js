@@ -39,6 +39,28 @@ class ApplicationEmailService {
         interviewLocation,
       } = applicationData;
 
+      // Helper function to format status names for display
+      const formatStatusForDisplay = (status) => {
+        const statusMap = {
+          APPLIED: "Applied",
+          IN_REVIEW: "In Review",
+          QUALIFIED: "Qualified",
+          APPROVED: "Approved",
+          REJECTED: "Rejected",
+          DOCUMENTS_REQUIRED: "Documents Required",
+          MISSING_DOCUMENT: "Missing Documents",
+          ON_HOLD: "On Hold",
+          ADMITTED: "Admitted",
+          ENROLLED: "Enrolled",
+          DEFERRED: "Deferred",
+        };
+        return (
+          statusMap[status?.toUpperCase()] ||
+          status?.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase()) ||
+          status
+        );
+      };
+
       const statusMessages = {
         applied: {
           subject: "Application Received - Thank You for Applying!",
@@ -80,6 +102,12 @@ class ApplicationEmailService {
             "Additional documents are required to complete your application.",
           style: "background-color: #fd7e14; color: white;",
         },
+        MISSING_DOCUMENT: {
+          subject: "Missing Documents - Action Required",
+          message:
+            "Some required documents are missing from your application. Please upload them as soon as possible to continue the review process.",
+          style: "background-color: #dc3545; color: white;",
+        },
         ON_HOLD: {
           subject: "Application On Hold",
           message: "Your application is currently on hold.",
@@ -90,7 +118,9 @@ class ApplicationEmailService {
       const statusInfo = statusMessages[status] ||
         statusMessages[status.toUpperCase()] || {
           subject: "Application Status Update",
-          message: `Your application status has been updated to: ${status}`,
+          message: `Your application status has been updated to: ${formatStatusForDisplay(
+            status
+          )}`,
           style: "background-color: #007bff; color: white;",
         };
 
@@ -106,11 +136,15 @@ class ApplicationEmailService {
         <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f8f9fa;">
           <div style="background-color: white; border-radius: 10px; overflow: hidden; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
             
-            <!-- Header with IUEA Logo and Branding -->
-            <div style="background: linear-gradient(135deg, #7a0000 0%, #a00000 100%); color: white; padding: 30px 20px; text-align: center;">
-              <div style="background-color: white; border-radius: 8px; width: 160px; height: 100px; margin: 0 auto 20px; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);">
-                <img src="https://nyotatranslate.com/iuea-Logo.png" alt="IUEA Logo" style="width: 85px; height: 85px; object-fit: contain; display: block;" />
+            <!-- Logo Section - Centered on top -->
+            <div style="text-align: center; padding: 20px 20px 10px; background-color: white;">
+              <div style="background-color: white; border-radius: 8px; width: 160px; height: 100px; margin: 0 auto; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);">
+                <img src="https://nyotatranslate.com/iuea-Logo.png" alt="IUEA Logo" style="width: 120px; height: 120px; object-fit: contain; display: block;" />
               </div>
+            </div>
+            
+            <!-- Header with IUEA Branding -->
+            <div style="background: linear-gradient(135deg, #7a0000 0%, #a00000 100%); color: white; padding: 30px 20px; text-align: center;">
               <h1 style="margin: 0; font-size: 28px; font-weight: bold;">International University of East Africa</h1>
               <p style="margin: 10px 0 0; font-size: 16px; opacity: 0.9;">Application Status Update</p>
             </div>
@@ -129,7 +163,9 @@ class ApplicationEmailService {
                 <div style="display: inline-block; padding: 20px 40px; border-radius: 8px; ${
                   statusInfo.style
                 } box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);">
-                  <h3 style="margin: 0; font-size: 20px; font-weight: bold;">📋 ${status.toUpperCase()}</h3>
+                  <h3 style="margin: 0; font-size: 20px; font-weight: bold;">📋 ${formatStatusForDisplay(
+                    status
+                  )}</h3>
                 </div>
               </div>
 
@@ -170,6 +206,43 @@ class ApplicationEmailService {
                 <p style="color: #856404; margin: 0; font-size: 16px; line-height: 1.6;">
                   Please submit the required documents as soon as possible to avoid delays in processing your application. 
                   Log into your application portal to view specific document requirements.
+                </p>
+              </div>
+        `;
+      }
+
+      if (status === "MISSING_DOCUMENT") {
+        // Extract missing documents details from additionalInfo or use default message
+        const missingDocumentsDetails =
+          additionalInfo ||
+          "Please check your application portal to see which documents are required.";
+
+        // Check if the additionalInfo contains specific document information
+        // If it's just a generic status update message, provide more helpful default text
+        let documentDetails = missingDocumentsDetails;
+        if (
+          missingDocumentsDetails.includes("Status updated to") ||
+          missingDocumentsDetails.includes(
+            "Your application status has been updated"
+          )
+        ) {
+          documentDetails =
+            "Please check your application portal to see which specific documents are required for your application.";
+        }
+
+        htmlContent += `
+              <!-- Missing Documents Warning -->
+              <div style="background-color: #f8d7da; border: 1px solid #f5c6cb; padding: 20px; border-radius: 8px; margin: 25px 0; border-left: 4px solid #dc3545;">
+                <h4 style="color: #721c24; margin: 0 0 15px; font-size: 18px;">📋 Missing Documents:</h4>
+                <p style="color: #721c24; margin: 0 0 15px; font-size: 16px; line-height: 1.6;">
+                  Your application is incomplete due to missing required documents. Please upload the missing documents immediately to avoid delays in processing.
+                </p>
+                <div style="background-color: rgba(255, 255, 255, 0.9); padding: 15px; border-radius: 5px; margin-top: 15px;">
+                  <h5 style="color: #721c24; margin: 0 0 10px; font-size: 16px; font-weight: bold;">📄 Required Documents:</h5>
+                  <p style="color: #721c24; margin: 0; font-size: 15px; line-height: 1.5;">${documentDetails}</p>
+                </div>
+                <p style="color: #721c24; margin: 15px 0 0; font-size: 16px; line-height: 1.6;">
+                  Access your application portal below to upload the required documents directly.
                 </p>
               </div>
         `;
@@ -236,7 +309,7 @@ Dear ${applicantName},
 
 We are writing to inform you about an important update regarding your application for ${courseName}.
 
-📋 STATUS: ${status.toUpperCase()}
+📋 STATUS: ${formatStatusForDisplay(status)}
 
 ${statusInfo.message}
             `;
@@ -262,6 +335,24 @@ ${statusInfo.message}
 
 ⚠️ ACTION REQUIRED:
 Please submit the required documents as soon as possible to avoid delays in processing your application. Log into your application portal to view specific document requirements.
+                `;
+      }
+
+      if (status === "MISSING_DOCUMENT") {
+        // Extract missing documents details from additionalInfo or use default message
+        const missingDocumentsDetails =
+          additionalInfo ||
+          "Please check your application portal to see which documents are required.";
+
+        textContent += `
+
+📋 MISSING DOCUMENTS:
+Your application is incomplete due to missing required documents. Please upload the missing documents immediately to avoid delays in processing.
+
+📄 REQUIRED DOCUMENTS:
+${missingDocumentsDetails}
+
+Access your application portal to upload the required documents directly.
                 `;
       }
 
@@ -387,6 +478,13 @@ Our admissions team is carefully checking your details and documents.
           content: `Great news🎉
 Your application has met all requirements, and you are qualified for admission.
 👉 Check your portal now for the next steps: https://applicant.iuea.ac.ug/`,
+        },
+        MISSING_DOCUMENT: {
+          templateName: "application_missing_documents",
+          content: `Important Update 📋
+Your application requires additional documents to proceed.
+Please upload the missing documents as soon as possible.
+👉 Access your portal now: https://applicant.iuea.ac.ug/`,
         },
         ADMITTED: {
           templateName: "application_admitted",
@@ -676,11 +774,15 @@ This means your admission process is postponed for now.
         <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f8f9fa;">
           <div style="background-color: white; border-radius: 10px; overflow: hidden; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
             
-            <!-- Header with IUEA Logo and Branding -->
-            <div style="background: linear-gradient(135deg, #7a0000 0%, #a00000 100%); color: white; padding: 30px 20px; text-align: center;">
-              <div style="background-color: white; border-radius: 8px; width: 160px; height: 100px; margin: 0 auto 20px; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);">
-                <img src="https://nyotatranslate.com/iuea-Logo.png" alt="IUEA Logo" style="width: 85px; height: 85px; object-fit: contain; display: block;" />
+            <!-- Logo Section - Centered on top -->
+            <div style="text-align: center; padding: 20px 20px 10px; background-color: white;">
+              <div style="background-color: white; border-radius: 8px; width: 160px; height: 100px; margin: 0 auto; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);">
+                <img src="https://nyotatranslate.com/iuea-Logo.png" alt="IUEA Logo" style="width: 120px; height: 120px; object-fit: contain; display: block;" />
               </div>
+            </div>
+            
+            <!-- Header with IUEA Branding -->
+            <div style="background: linear-gradient(135deg, #7a0000 0%, #a00000 100%); color: white; padding: 30px 20px; text-align: center;">
               <h1 style="margin: 0; font-size: 28px; font-weight: bold;">International University of East Africa</h1>
               <p style="margin: 10px 0 0; font-size: 16px; opacity: 0.9;">technological university of choice • Learning to Succeed</p>
             </div>
@@ -940,11 +1042,15 @@ International University of East Africa
         <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f8f9fa;">
           <div style="background-color: white; border-radius: 10px; overflow: hidden; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
             
-            <!-- Header with IUEA Logo and Branding -->
-            <div style="background: linear-gradient(135deg, #7a0000 0%, #a00000 100%); color: white; padding: 30px 20px; text-align: center;">
-              <div style="background-color: white; border-radius: 8px; width: 160px; height: 100px; margin: 0 auto 20px; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);">
-                <img src="https://nyotatranslate.com/iuea-Logo.png" alt="IUEA Logo" style="width: 85px; height: 85px; object-fit: contain; display: block;" />
+            <!-- Logo Section - Centered on top -->
+            <div style="text-align: center; padding: 20px 20px 10px; background-color: white;">
+              <div style="background-color: white; border-radius: 8px; width: 160px; height: 100px; margin: 0 auto; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);">
+                <img src="https://nyotatranslate.com/iuea-Logo.png" alt="IUEA Logo" style="width: 120px; height: 120px; object-fit: contain; display: block;" />
               </div>
+            </div>
+            
+            <!-- Header with IUEA Branding -->
+            <div style="background: linear-gradient(135deg, #7a0000 0%, #a00000 100%); color: white; padding: 30px 20px; text-align: center;">
               <h1 style="margin: 0; font-size: 28px; font-weight: bold;">International University of East Africa</h1>
               <p style="margin: 10px 0 0; font-size: 16px; opacity: 0.9;">Payment Reminder</p>
             </div>

@@ -66,6 +66,7 @@ class AnalyticsService {
       const funnelCounts = {
         [LEAD_STATUSES.INTERESTED]: 0,
         [LEAD_STATUSES.APPLIED]: 0,
+        [LEAD_STATUSES.MISSING_DOCUMENT]: 0,
         [LEAD_STATUSES.IN_REVIEW]: 0,
         [LEAD_STATUSES.QUALIFIED]: 0,
         [LEAD_STATUSES.ADMITTED]: 0,
@@ -114,6 +115,22 @@ class AnalyticsService {
             ? (
                 (funnelCounts[LEAD_STATUSES.APPLIED] /
                   funnelCounts[LEAD_STATUSES.INTERESTED]) *
+                100
+              ).toFixed(1)
+            : 0,
+        appliedToMissingDoc:
+          funnelCounts[LEAD_STATUSES.APPLIED] > 0
+            ? (
+                (funnelCounts[LEAD_STATUSES.MISSING_DOCUMENT] /
+                  funnelCounts[LEAD_STATUSES.APPLIED]) *
+                100
+              ).toFixed(1)
+            : 0,
+        missingDocToInReview:
+          funnelCounts[LEAD_STATUSES.MISSING_DOCUMENT] > 0
+            ? (
+                (funnelCounts[LEAD_STATUSES.IN_REVIEW] /
+                  funnelCounts[LEAD_STATUSES.MISSING_DOCUMENT]) *
                 100
               ).toFixed(1)
             : 0,
@@ -186,9 +203,14 @@ class AnalyticsService {
             percentage: conversionRates.interestedToApplied,
           },
           {
+            stage: "MISSING_DOCUMENT",
+            count: funnelCounts[LEAD_STATUSES.MISSING_DOCUMENT],
+            percentage: conversionRates.appliedToMissingDoc,
+          },
+          {
             stage: "IN_REVIEW",
             count: funnelCounts[LEAD_STATUSES.IN_REVIEW],
-            percentage: conversionRates.appliedToInReview,
+            percentage: conversionRates.missingDocToInReview,
           },
           {
             stage: "QUALIFIED",
@@ -1061,6 +1083,7 @@ class AnalyticsService {
     try {
       const admissionStatuses = [
         "APPLIED",
+        "MISSING_DOCUMENT",
         "IN_REVIEW",
         "QUALIFIED",
         "ADMITTED",
@@ -1073,6 +1096,7 @@ class AnalyticsService {
       const statusCounts = {
         total: 0,
         applied: 0,
+        missingDocument: 0,
         inReview: 0,
         qualified: 0,
         admitted: 0,
@@ -1103,6 +1127,9 @@ class AnalyticsService {
         switch (currentStatus) {
           case "APPLIED":
             statusCounts.applied++;
+            break;
+          case "MISSING_DOCUMENT":
+            statusCounts.missingDocument++;
             break;
           case "IN_REVIEW":
             statusCounts.inReview++;
@@ -1139,6 +1166,9 @@ class AnalyticsService {
             case "APPLIED":
               timeRangeCounts.applied++;
               break;
+            case "MISSING_DOCUMENT":
+              timeRangeCounts.missingDocument++;
+              break;
             case "IN_REVIEW":
               timeRangeCounts.inReview++;
               break;
@@ -1166,6 +1196,9 @@ class AnalyticsService {
           switch (currentStatus) {
             case "APPLIED":
               previousPeriodCounts.applied++;
+              break;
+            case "MISSING_DOCUMENT":
+              previousPeriodCounts.missingDocument++;
               break;
             case "IN_REVIEW":
               previousPeriodCounts.inReview++;
@@ -1217,6 +1250,7 @@ class AnalyticsService {
       return {
         totalApplications: statusCounts.applied,
         pendingReview: statusCounts.inReview,
+        missingDocument: statusCounts.missingDocument,
         qualified: statusCounts.qualified,
         admitted: statusCounts.admitted,
         enrolled: statusCounts.enrolled,
@@ -1229,6 +1263,7 @@ class AnalyticsService {
         previousPeriodCounts,
         statusDistribution: {
           applied: statusCounts.applied,
+          missingDocument: statusCounts.missingDocument,
           inReview: statusCounts.inReview,
           qualified: statusCounts.qualified,
           admitted: statusCounts.admitted,

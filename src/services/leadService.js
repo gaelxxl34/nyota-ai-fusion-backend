@@ -990,7 +990,7 @@ class LeadService {
       // Add pagination if offset is provided
       if (offset > 0) {
         // For consistency with getAllLeads, use similar offset logic
-        if (offset <= 200) {
+        if (offset <= 2000) {
           const totalLimit = offset + maxLimit;
           query = query.limit(totalLimit);
 
@@ -1046,6 +1046,11 @@ class LeadService {
         status,
         source,
         search,
+        name,
+        email,
+        phone,
+        program,
+        dateRange,
         sortBy = "createdAt",
         sortOrder = "desc",
       } = options;
@@ -1056,6 +1061,11 @@ class LeadService {
         status,
         source,
         search,
+        name,
+        email,
+        phone,
+        program,
+        dateRange,
         sortBy,
         sortOrder,
       });
@@ -1087,7 +1097,7 @@ class LeadService {
 
       // For better consistency, use simple offset-based pagination for small offsets
       // and fall back to cursor pagination for larger offsets
-      if (offset > 0 && offset <= 200) {
+      if (offset > 0 && offset <= 2000) {
         // For small offsets, use simple limit/skip approach by fetching more and slicing
         const totalLimit = offset + limit;
         query = query.limit(totalLimit);
@@ -1116,6 +1126,36 @@ class LeadService {
           );
         }
 
+        // Apply advanced search filters for individual fields
+        if (name && name.trim()) {
+          const nameTerm = name.toLowerCase().trim();
+          allLeads = allLeads.filter(
+            (lead) => lead.name && lead.name.toLowerCase().includes(nameTerm)
+          );
+        }
+
+        if (email && email.trim()) {
+          const emailTerm = email.toLowerCase().trim();
+          allLeads = allLeads.filter(
+            (lead) => lead.email && lead.email.toLowerCase().includes(emailTerm)
+          );
+        }
+
+        if (phone && phone.trim()) {
+          const phoneTerm = phone.toLowerCase().trim();
+          allLeads = allLeads.filter(
+            (lead) => lead.phone && lead.phone.toLowerCase().includes(phoneTerm)
+          );
+        }
+
+        if (program && program.trim()) {
+          const programTerm = program.toLowerCase().trim();
+          allLeads = allLeads.filter(
+            (lead) =>
+              lead.program && lead.program.toLowerCase().includes(programTerm)
+          );
+        }
+
         // Apply offset and limit
         const leads = allLeads.slice(offset, offset + limit);
         const hasMore = allLeads.length > offset + limit;
@@ -1135,7 +1175,7 @@ class LeadService {
             totalAvailable: allLeads.length,
           },
         };
-      } else if (offset > 200) {
+      } else if (offset > 2000) {
         // For larger offsets, use cursor pagination
         const offsetQuery = await this.db
           .collection(this.collection)
@@ -1171,6 +1211,36 @@ class LeadService {
               (lead.program &&
                 lead.program.toLowerCase().includes(searchTerm)) ||
               (lead.source && lead.source.toLowerCase().includes(searchTerm))
+          );
+        }
+
+        // Apply advanced search filters for individual fields
+        if (name && name.trim()) {
+          const nameTerm = name.toLowerCase().trim();
+          leads = leads.filter(
+            (lead) => lead.name && lead.name.toLowerCase().includes(nameTerm)
+          );
+        }
+
+        if (email && email.trim()) {
+          const emailTerm = email.toLowerCase().trim();
+          leads = leads.filter(
+            (lead) => lead.email && lead.email.toLowerCase().includes(emailTerm)
+          );
+        }
+
+        if (phone && phone.trim()) {
+          const phoneTerm = phone.toLowerCase().trim();
+          leads = leads.filter(
+            (lead) => lead.phone && lead.phone.toLowerCase().includes(phoneTerm)
+          );
+        }
+
+        if (program && program.trim()) {
+          const programTerm = program.toLowerCase().trim();
+          leads = leads.filter(
+            (lead) =>
+              lead.program && lead.program.toLowerCase().includes(programTerm)
           );
         }
 
@@ -1213,6 +1283,36 @@ class LeadService {
               (lead.program &&
                 lead.program.toLowerCase().includes(searchTerm)) ||
               (lead.source && lead.source.toLowerCase().includes(searchTerm))
+          );
+        }
+
+        // Apply advanced search filters for individual fields
+        if (name && name.trim()) {
+          const nameTerm = name.toLowerCase().trim();
+          leads = leads.filter(
+            (lead) => lead.name && lead.name.toLowerCase().includes(nameTerm)
+          );
+        }
+
+        if (email && email.trim()) {
+          const emailTerm = email.toLowerCase().trim();
+          leads = leads.filter(
+            (lead) => lead.email && lead.email.toLowerCase().includes(emailTerm)
+          );
+        }
+
+        if (phone && phone.trim()) {
+          const phoneTerm = phone.toLowerCase().trim();
+          leads = leads.filter(
+            (lead) => lead.phone && lead.phone.toLowerCase().includes(phoneTerm)
+          );
+        }
+
+        if (program && program.trim()) {
+          const programTerm = program.toLowerCase().trim();
+          leads = leads.filter(
+            (lead) =>
+              lead.program && lead.program.toLowerCase().includes(programTerm)
           );
         }
 

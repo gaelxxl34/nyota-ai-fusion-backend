@@ -250,18 +250,23 @@ router.get("/", ensureLeadService, async (req, res) => {
       status,
       source,
       search,
+      name,
+      email,
+      phone,
+      program,
+      dateRange,
       sortBy = "createdAt",
       sortOrder = "desc",
     } = req.query;
 
     console.log(`📋 API: Fetching leads with query params:`, req.query);
 
-    // Validate limit - Allow higher limits for analytics (max 5000), regular queries (max 100)
+    // Validate limit - Allow pagination limits (200, 400, 1000) for data center, higher limits for analytics
     const requestedLimit = parseInt(limit) || 50;
     const parsedLimit =
       requestedLimit > 1000
-        ? Math.min(requestedLimit, 5000)
-        : Math.min(requestedLimit, 100);
+        ? Math.min(requestedLimit, 5000) // Analytics queries
+        : Math.min(requestedLimit, 1000); // Regular pagination queries
     const parsedOffset = parseInt(offset) || 0;
 
     console.log(
@@ -295,6 +300,11 @@ router.get("/", ensureLeadService, async (req, res) => {
         status,
         source,
         search,
+        name,
+        email,
+        phone,
+        program,
+        dateRange,
         sortBy,
         sortOrder,
       });

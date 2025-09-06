@@ -16,42 +16,69 @@ const DEPRECATED_QUALIFICATION_RULES = {
   ELIGIBLE_STATUSES_FOR_AUTO_QUALIFICATION: [
     LEAD_STATUSES.INTERESTED,
     LEAD_STATUSES.APPLIED,
+    LEAD_STATUSES.MISSING_DOCUMENT,
     LEAD_STATUSES.IN_REVIEW,
   ],
 };
 
 // Status transition rules - Updated for new streamlined funnel
-// INTERESTED → APPLIED → IN_REVIEW → QUALIFIED → ADMITTED → ENROLLED
+// INTERESTED → APPLIED → MISSING_DOCUMENT → IN_REVIEW → QUALIFIED → ADMITTED → ENROLLED
 const STATUS_TRANSITIONS = {
   [LEAD_STATUSES.INTERESTED]: [
     LEAD_STATUSES.APPLIED,
+    LEAD_STATUSES.MISSING_DOCUMENT, // Allow direct missing document for special cases
     LEAD_STATUSES.IN_REVIEW, // Allow direct review for special cases
     LEAD_STATUSES.QUALIFIED, // Allow direct qualification for special cases
+    LEAD_STATUSES.DEFERRED, // Allow deferred for any status
+    LEAD_STATUSES.EXPIRED, // Allow expired for any status
   ],
   [LEAD_STATUSES.APPLIED]: [
+    LEAD_STATUSES.MISSING_DOCUMENT, // New transition to missing document status
     LEAD_STATUSES.IN_REVIEW,
     LEAD_STATUSES.QUALIFIED, // Allow direct qualification for special cases
     LEAD_STATUSES.ADMITTED, // Allow direct admission for bulk imports
+    LEAD_STATUSES.DEFERRED, // Allow deferred for any status
+    LEAD_STATUSES.EXPIRED, // Allow expired for any status
+  ],
+  [LEAD_STATUSES.MISSING_DOCUMENT]: [
+    LEAD_STATUSES.IN_REVIEW, // Can transition to review once documents are provided
+    LEAD_STATUSES.APPLIED, // Allow back to applied if needed
+    LEAD_STATUSES.DEFERRED, // Allow deferred for any status
+    LEAD_STATUSES.EXPIRED, // Allow expired for any status
   ],
   [LEAD_STATUSES.IN_REVIEW]: [
     LEAD_STATUSES.QUALIFIED,
     LEAD_STATUSES.ADMITTED, // Allow direct admission for special cases
     LEAD_STATUSES.APPLIED, // Allow back to applied if needed
+    LEAD_STATUSES.MISSING_DOCUMENT, // Allow transition back to missing document if needed
+    LEAD_STATUSES.DEFERRED, // Allow deferred for any status
+    LEAD_STATUSES.EXPIRED, // Allow expired for any status
   ],
   [LEAD_STATUSES.QUALIFIED]: [
     LEAD_STATUSES.ADMITTED,
     LEAD_STATUSES.ENROLLED, // Allow direct enrollment for special cases
+    LEAD_STATUSES.DEFERRED, // Allow deferred for any status
+    LEAD_STATUSES.EXPIRED, // Allow expired for any status
   ],
-  [LEAD_STATUSES.ADMITTED]: [LEAD_STATUSES.ENROLLED],
+  [LEAD_STATUSES.ADMITTED]: [
+    LEAD_STATUSES.ENROLLED,
+    LEAD_STATUSES.DEFERRED, // Allow deferred for admitted students
+    LEAD_STATUSES.EXPIRED, // Allow expired for admitted students
+  ],
   // Terminal statuses
-  [LEAD_STATUSES.ENROLLED]: [], // Final success state
+  [LEAD_STATUSES.ENROLLED]: [
+    LEAD_STATUSES.DEFERRED, // Allow deferred for enrolled students
+    LEAD_STATUSES.EXPIRED, // Allow expired for enrolled students
+  ], // Final success state
   [LEAD_STATUSES.DEFERRED]: [
     LEAD_STATUSES.APPLIED, // Can reapply
     LEAD_STATUSES.IN_REVIEW, // Can go back to review
+    LEAD_STATUSES.EXPIRED, // Allow transition to expired
   ],
   [LEAD_STATUSES.EXPIRED]: [
     LEAD_STATUSES.INTERESTED, // Can restart the process
     LEAD_STATUSES.APPLIED, // Can reapply
+    LEAD_STATUSES.DEFERRED, // Allow transition to deferred
   ],
 };
 

@@ -26,6 +26,25 @@ test-for-you-tab.js
 scripts/export-interested-leads.js
 scripts/quick-export.js
 
+# Facebook webhook scripts
+scripts/facebook-live-test.js
+scripts/check-facebook-campaigns.js
+scripts/facebook-webhook-tester.js
+scripts/verify-facebook-webhook.js
+scripts/test-facebook-webhook-direct.js
+scripts/facebook-production-setup.js
+
+# All webhook-related scripts
+scripts/*webhook*
+scripts/production-webhook-setup.js
+scripts/test-public-webhook.js
+scripts/direct-webhook-test.js
+
+# Test and development scripts
+scripts/test-*
+scripts/*-test.js
+scripts/test-conversation-stats.js
+
 # CSV exports and data files
 *.csv
 interested-leads-*.csv

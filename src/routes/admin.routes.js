@@ -1061,6 +1061,8 @@ router.post(
         total: rows.length,
         updated: 0,
         enrolled: 0,
+        deferred: 0,
+        expired: 0,
         notFound: 0,
         failed: 0,
         errors: [],
@@ -1157,12 +1159,12 @@ router.post(
               },
             };
 
-            // Check if tags value is "green" and current status is "ADMITTED"
+            // Check tag values and update status accordingly
             let statusChanged = false;
-            if (
-              tags.toLowerCase() === "green" &&
-              currentData.status === "ADMITTED"
-            ) {
+            const tagsLower = tags.toLowerCase();
+
+            // Handle green tags - update ADMITTED to ENROLLED
+            if (tagsLower === "green" && currentData.status === "ADMITTED") {
               console.log(
                 `🔄 Processing green tag for application ${applicationId}`
               );
@@ -1189,6 +1191,64 @@ router.post(
                 `✅ Updating status from ADMITTED to ENROLLED for reg no: ${regNo}`
               );
               results.enrolled++;
+              statusChanged = true;
+            }
+            // Handle yellow tags - update to DEFERRED
+            else if (tagsLower === "yellow") {
+              console.log(
+                `🔄 Processing yellow tag for application ${applicationId}`
+              );
+              console.log(
+                `🔄 Current status: ${currentData.status}, Lead ID: ${currentData.leadId}`
+              );
+
+              // Use ApplicationService to update status
+              await applicationService.updateApplicationStatus(
+                applicationId,
+                "DEFERRED",
+                `Status updated to DEFERRED due to yellow tag from import`,
+                updateData.lastUpdatedBy
+              );
+
+              // Also update tags separately
+              await db.collection("applications").doc(applicationId).update({
+                tags: tags,
+                updatedAt: new Date(),
+                lastUpdatedBy: updateData.lastUpdatedBy,
+              });
+
+              console.log(
+                `✅ Updating status to DEFERRED for reg no: ${regNo}`
+              );
+              results.deferred++;
+              statusChanged = true;
+            }
+            // Handle red tags - update to EXPIRED
+            else if (tagsLower === "red") {
+              console.log(
+                `🔄 Processing red tag for application ${applicationId}`
+              );
+              console.log(
+                `🔄 Current status: ${currentData.status}, Lead ID: ${currentData.leadId}`
+              );
+
+              // Use ApplicationService to update status
+              await applicationService.updateApplicationStatus(
+                applicationId,
+                "EXPIRED",
+                `Status updated to EXPIRED due to red tag from import`,
+                updateData.lastUpdatedBy
+              );
+
+              // Also update tags separately
+              await db.collection("applications").doc(applicationId).update({
+                tags: tags,
+                updatedAt: new Date(),
+                lastUpdatedBy: updateData.lastUpdatedBy,
+              });
+
+              console.log(`✅ Updating status to EXPIRED for reg no: ${regNo}`);
+              results.expired++;
               statusChanged = true;
             } else {
               // Just update tags and add timeline entry
@@ -1226,7 +1286,7 @@ router.post(
 
       res.json({
         success: true,
-        message: `Tag import completed. ${results.updated} updated, ${results.enrolled} enrolled, ${results.notFound} not found, ${results.failed} failed`,
+        message: `Tag import completed. ${results.updated} updated, ${results.enrolled} enrolled, ${results.deferred} deferred, ${results.expired} expired, ${results.notFound} not found, ${results.failed} failed`,
         stats: results,
         errors: results.errors.slice(0, 10), // Limit errors in response
       });

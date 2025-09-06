@@ -1187,48 +1187,83 @@ IUEA Admissions Team`;
       }
 
       // Handle document updates if provided - upload to Firebase Storage first
-      if (
-        updateData.passportPhoto &&
-        updateData.passportPhoto !== latestApplication.passportPhoto
-      ) {
-        console.log("📤 Uploading new passport photo to Firebase Storage...");
-        applicationUpdate.passportPhoto = await this.uploadApplicationDocument(
-          latestApplication.id,
-          "passportPhoto",
-          updateData.passportPhoto,
-          latestApplication.email
-        );
-      }
-      if (
-        updateData.academicDocuments &&
-        updateData.academicDocuments !== latestApplication.academicDocuments
-      ) {
-        console.log(
-          "📤 Uploading new academic documents to Firebase Storage..."
-        );
-        applicationUpdate.academicDocuments =
-          await this.uploadApplicationDocument(
-            latestApplication.id,
-            "academicDocuments",
-            updateData.academicDocuments,
-            latestApplication.email
+      // Only process files that are valid file objects or base64 strings
+      // Skip file processing if this is just a status update
+      const isStatusOnlyUpdate =
+        updateData.status &&
+        Object.keys(updateData).filter(
+          (key) =>
+            !["updatedBy", "updatedAt"].includes(key) &&
+            updateData[key] !== undefined
+        ).length <= 3; // status, statusNote, notes typically
+
+      console.log(`🔍 Update analysis:`, {
+        totalKeys: Object.keys(updateData).length,
+        filteredKeys: Object.keys(updateData).filter(
+          (key) =>
+            !["updatedBy", "updatedAt"].includes(key) &&
+            updateData[key] !== undefined
+        ),
+        isStatusOnlyUpdate,
+        hasStatus: !!updateData.status,
+        hasPassportPhoto: !!updateData.passportPhoto,
+        hasAcademicDocuments: !!updateData.academicDocuments,
+        hasIdentificationDocument: !!updateData.identificationDocument,
+      });
+
+      if (!isStatusOnlyUpdate) {
+        if (
+          updateData.passportPhoto &&
+          updateData.passportPhoto !== latestApplication.passportPhoto &&
+          this._isValidFileData(updateData.passportPhoto)
+        ) {
+          console.log("📤 Uploading new passport photo to Firebase Storage...");
+          applicationUpdate.passportPhoto =
+            await this.uploadApplicationDocument(
+              latestApplication.id,
+              "passportPhoto",
+              updateData.passportPhoto,
+              latestApplication.email
+            );
+        }
+        if (
+          updateData.academicDocuments &&
+          updateData.academicDocuments !==
+            latestApplication.academicDocuments &&
+          this._isValidFileData(updateData.academicDocuments)
+        ) {
+          console.log(
+            "📤 Uploading new academic documents to Firebase Storage..."
           );
-      }
-      if (
-        updateData.identificationDocument &&
-        updateData.identificationDocument !==
-          latestApplication.identificationDocument
-      ) {
-        console.log(
-          "📤 Uploading new identification document to Firebase Storage..."
-        );
-        applicationUpdate.identificationDocument =
-          await this.uploadApplicationDocument(
-            latestApplication.id,
-            "identificationDocument",
-            updateData.identificationDocument,
-            latestApplication.email
+          applicationUpdate.academicDocuments =
+            await this.uploadApplicationDocument(
+              latestApplication.id,
+              "academicDocuments",
+              updateData.academicDocuments,
+              latestApplication.email
+            );
+        }
+        if (
+          updateData.identificationDocument &&
+          updateData.identificationDocument !==
+            latestApplication.identificationDocument &&
+          this._isValidFileData(updateData.identificationDocument)
+        ) {
+          console.log(
+            "📤 Uploading new identification document to Firebase Storage..."
           );
+          applicationUpdate.identificationDocument =
+            await this.uploadApplicationDocument(
+              latestApplication.id,
+              "identificationDocument",
+              updateData.identificationDocument,
+              latestApplication.email
+            );
+        }
+      } else {
+        console.log(
+          "📝 Status-only update detected, skipping file processing..."
+        );
       }
 
       // Parse updatedBy field if it's a JSON string
@@ -2445,6 +2480,53 @@ IUEA Admissions Team`;
         leads: { byEmail: null, byPhone: null },
       };
     }
+  }
+
+  /**
+   * Check if file data is valid for upload
+   * @param {*} fileData - The data to validate
+   * @returns {boolean} - True if valid file data, false otherwise
+   */
+  _isValidFileData(fileData) {
+    // Check if it's null, undefined, or empty string
+    if (!fileData || fileData === "") {
+      return false;
+    }
+
+    // Check if it's a base64 string (starts with data:)
+    if (typeof fileData === "string" && fileData.startsWith("data:")) {
+      return true;
+    }
+
+    // Check if it's an express-fileupload file object
+    if (
+      typeof fileData === "object" &&
+      fileData.data &&
+      fileData.name &&
+      fileData.mimetype
+    ) {
+      return true;
+    }
+
+    // Check if it's a Buffer
+    if (Buffer.isBuffer(fileData)) {
+      return true;
+    }
+
+    // Log what we received for debugging
+    console.log("🔍 Invalid file data detected:", {
+      type: typeof fileData,
+      isObject: typeof fileData === "object",
+      hasData: fileData && fileData.data ? "yes" : "no",
+      hasName: fileData && fileData.name ? "yes" : "no",
+      hasSize: fileData && fileData.size ? "yes" : "no",
+      keys:
+        fileData && typeof fileData === "object"
+          ? Object.keys(fileData).slice(0, 5)
+          : [],
+    });
+
+    return false;
   }
 }
 
