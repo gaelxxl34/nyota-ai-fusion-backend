@@ -221,16 +221,19 @@ class LeadModel {
       // Find the most recent entry with a status
       const latestStatusEntry = sortedTimeline.find((entry) => entry.status);
 
-      // Check if status field is synchronized with timeline
+      // Check if status field is synchronized with timeline (only warn once per lead)
       const timelineStatus = latestStatusEntry?.status;
       if (
         timelineStatus &&
         leadData.status &&
         timelineStatus !== leadData.status
       ) {
-        console.warn(
-          `⚠️ Status field (${leadData.status}) doesn't match timeline status (${timelineStatus})`
-        );
+        // Only log warning if this hasn't been flagged before
+        if (!leadData._statusMismatchWarned) {
+          console.warn(
+            `⚠️ Status field (${leadData.status}) doesn't match timeline status (${timelineStatus})`
+          );
+        }
       }
 
       return (
@@ -377,6 +380,75 @@ class LeadModel {
       ...leadData,
       status: timelineStatus,
       updatedAt: new Date(),
+    };
+  }
+
+  /**
+   * Validate and fix timeline structure
+   * Ensures timeline is always an array with proper structure
+   * @param {Object} leadData - The lead data to validate
+   * @returns {Object} The lead data with corrected timeline if needed
+   */
+  static validateAndFixTimeline(leadData) {
+    if (!leadData) return leadData;
+
+    // If timeline doesn't exist or isn't an array, create a proper one
+    if (!leadData.timeline || !Array.isArray(leadData.timeline)) {
+      console.warn(`⚠️ Fixing invalid timeline format for lead`);
+
+      const now = new Date();
+      const status = leadData.status || LEAD_STATUSES.INTERESTED;
+
+      const fixedTimeline = [
+        {
+          date: leadData.createdAt || now,
+          action: "CREATED",
+          status: status,
+          notes: `Timeline reconstructed due to invalid format`,
+          metadata: { reconstructed: true },
+        },
+      ];
+
+      return {
+        ...leadData,
+        timeline: fixedTimeline,
+        updatedAt: new Date(),
+      };
+    }
+
+    // Validate each timeline entry
+    const validatedTimeline = leadData.timeline.map((entry, index) => {
+      const validatedEntry = { ...entry };
+
+      // Ensure date is a proper Date object
+      if (!entry.date || !(entry.date instanceof Date)) {
+        try {
+          validatedEntry.date = new Date(entry.date || 0);
+        } catch (error) {
+          console.warn(
+            `⚠️ Invalid date in timeline entry ${index}, using current date`
+          );
+          validatedEntry.date = new Date();
+        }
+      }
+
+      // Ensure required fields exist
+      if (!validatedEntry.action) {
+        validatedEntry.action = "UNKNOWN";
+      }
+      if (!validatedEntry.status) {
+        validatedEntry.status = leadData.status || LEAD_STATUSES.INTERESTED;
+      }
+      if (!validatedEntry.notes) {
+        validatedEntry.notes = "";
+      }
+
+      return validatedEntry;
+    });
+
+    return {
+      ...leadData,
+      timeline: validatedTimeline,
     };
   }
 }

@@ -49,3 +49,6 @@ scripts/test-conversation-stats.js
 *.csv
 interested-leads-*.csv
 exports/*.csv
+
+# Lead status fix scripts (internal maintenance)
+scripts/fix-lead-status-inconsistencies*.js

@@ -68,17 +68,17 @@ class LeadService {
    */
   _normalizeLead(docId, data) {
     try {
-      const convertedData = this._convertTimestamps(data);
+      let convertedData = this._convertTimestamps(data);
 
-      // Ensure timeline is an array or null/undefined
-      if (convertedData.timeline && !Array.isArray(convertedData.timeline)) {
+      // Use the new validation methods from LeadModel
+      convertedData = LeadModel.validateAndFixTimeline(convertedData);
+      convertedData = LeadModel.verifyStatusConsistency(convertedData);
+
+      // Legacy warning for invalid timeline format (now handled by validateAndFixTimeline)
+      if (data.timeline && !Array.isArray(data.timeline)) {
         console.error(
           `❌ Lead ${docId} has invalid timeline format. Converting to array.`
         );
-        // If timeline exists but isn't an array, convert it or set to empty array
-        convertedData.timeline = Array.isArray(convertedData.timeline)
-          ? convertedData.timeline
-          : [];
       }
 
       const currentStatus = LeadModel.getCurrentStatus(convertedData);
@@ -95,6 +95,7 @@ class LeadService {
         id: docId,
         ...data,
         status: data.status || "INTERESTED",
+        timeline: Array.isArray(data.timeline) ? data.timeline : [],
       };
     }
   }
