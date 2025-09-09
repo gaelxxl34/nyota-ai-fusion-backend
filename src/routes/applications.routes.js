@@ -8,6 +8,8 @@ const ApplicationService = require("../services/applicationService");
 const applicationEmailService = require("../services/applicationEmailService");
 const { APPLICATION_STATUSES } = require("../models/application.model");
 const { authenticateUser } = require("../middleware/auth.middleware");
+const { requirePermission } = require("../middleware/permissions.middleware");
+const { PERMISSIONS } = require("../config/roles.config");
 
 const router = express.Router();
 
@@ -625,231 +627,240 @@ router.post("/submit", ensureApplicationService, async (req, res) => {
  * Submit a manual application (internal form)
  * POST /api/applications/submit-manual
  */
-router.post("/submit-manual", ensureApplicationService, async (req, res) => {
-  try {
-    const { submittedBy, forceSubmit, ...applicationData } = req.body;
+router.post(
+  "/submit-manual",
+  authenticateUser,
+  requirePermission(PERMISSIONS.CREATE_APPLICATION),
+  ensureApplicationService,
+  async (req, res) => {
+    try {
+      const { submittedBy, forceSubmit, ...applicationData } = req.body;
 
-    if (!applicationData) {
-      return res.status(400).json({
-        success: false,
-        error: "Application data is required",
-      });
-    }
-
-    // Validate required fields for manual application
-    if (!applicationData.email) {
-      return res.status(400).json({
-        success: false,
-        error: "Email is required for manual application submission",
-      });
-    }
-
-    // Handle file uploads if available
-    const files = {};
-    let applicationId = null; // Will be set once we generate the proper ID
-
-    if (req.files) {
-      console.log(
-        "Files received in manual submission:",
-        Object.keys(req.files)
-      );
-
-      // Generate application ID early to ensure consistent folder structure
-      applicationId = applicationService.generateApplicationId();
-      console.log(
-        `📋 Generated application ID for file uploads: ${applicationId}`
-      );
-
-      // Process each uploaded file
-      for (const fieldName in req.files) {
-        const file = req.files[fieldName];
-        console.log(
-          `Processing file upload for field: ${fieldName}`,
-          file.name
-        );
-
-        try {
-          // Upload file to Firebase Storage using the document upload method
-          const documentType =
-            fieldName === "passportPhoto"
-              ? "passportPhoto"
-              : fieldName === "academicDocuments"
-              ? "academicDocuments"
-              : fieldName === "idDocument" ||
-                fieldName === "identificationDocuments"
-              ? "identificationDocument"
-              : fieldName;
-
-          // Validate that we have a proper email before uploading
-          if (!applicationData.email) {
-            return res.status(400).json({
-              success: false,
-              error: `Email is required for file upload. Cannot upload ${fieldName} without applicant email.`,
-            });
-          }
-
-          // Upload to Firebase Storage with the proper application ID
-          const publicUrl = await applicationService.uploadApplicationDocument(
-            applicationId,
-            documentType,
-            file,
-            applicationData.email
-          );
-
-          console.log(
-            `File uploaded successfully to Firebase Storage. Field: ${fieldName}, URL: ${publicUrl}`
-          );
-
-          // Add the public URL to application data
-          files[fieldName] = publicUrl;
-        } catch (fileError) {
-          console.error(`Error uploading file for ${fieldName}:`, fileError);
-          return res.status(500).json({
-            success: false,
-            error: `File upload failed for ${fieldName}: ${fileError.message}`,
-          });
-        }
-      }
-
-      // Merge file data with application data
-      Object.assign(applicationData, files);
-    }
-
-    // Check for base64 document data in the request body and convert them to Firebase Storage URLs
-    const documentFields = [
-      "passportPhoto",
-      "academicDocuments",
-      "idDocument",
-      "identificationDocuments",
-      "identificationDocument",
-    ];
-    for (const field of documentFields) {
-      if (
-        applicationData[field] &&
-        typeof applicationData[field] === "string" &&
-        applicationData[field].startsWith("data:")
-      ) {
-        console.log(
-          `Found base64 data for ${field}, uploading to Firebase Storage...`
-        );
-        try {
-          // Validate that we have a proper email before uploading
-          if (!applicationData.email) {
-            return res.status(400).json({
-              success: false,
-              error: `Email is required for file upload. Cannot upload ${field} without applicant email.`,
-            });
-          }
-
-          // Use the same application ID if already generated, otherwise generate one
-          if (!applicationId) {
-            applicationId = applicationService.generateApplicationId();
-            console.log(
-              `📋 Generated application ID for base64 uploads: ${applicationId}`
-            );
-          }
-
-          // Convert base64 to file-like object and upload to Firebase Storage
-          const base64Data = applicationData[field];
-
-          // Create a temporary file object from base64
-          const base64Parts = base64Data.split(",");
-          const mimeType = base64Parts[0].match(/:(.*?);/)[1];
-          const base64Content = base64Parts[1];
-          const buffer = Buffer.from(base64Content, "base64");
-
-          const tempFile = {
-            data: buffer,
-            name: `${field}_${Date.now()}.${mimeType.split("/")[1]}`,
-            mimetype: mimeType,
-            size: buffer.length,
-          };
-
-          const documentType =
-            field === "identificationDocuments" || field === "idDocument"
-              ? "identificationDocument"
-              : field;
-
-          const publicUrl = await applicationService.uploadApplicationDocument(
-            applicationId,
-            documentType,
-            tempFile,
-            applicationData.email
-          );
-
-          console.log(
-            `Base64 ${field} uploaded to Firebase Storage: ${publicUrl}`
-          );
-          applicationData[field] = publicUrl;
-        } catch (uploadError) {
-          console.error(`Error uploading base64 ${field}:`, uploadError);
-          return res.status(500).json({
-            success: false,
-            error: `Failed to upload ${field}: ${uploadError.message}`,
-          });
-        }
-      }
-    }
-
-    // If submittedBy is included in the request, use it
-    // Otherwise, try to use the authenticated user info from the middleware
-    const submitterInfo =
-      submittedBy ||
-      (req.user
-        ? {
-            uid: req.user.uid,
-            email: req.user.email,
-            role: req.user.role,
-            submittedAt: new Date().toISOString(),
-          }
-        : null);
-
-    // Add submittedBy to the application data
-    const dataWithSubmitter = {
-      ...applicationData,
-      submittedBy: submitterInfo,
-    };
-
-    // Check for duplicates if forceSubmit is not true
-    if (!forceSubmit) {
-      // Check if there are existing applications with the same email or phone
-      const existingEntries =
-        await applicationService.checkExistingApplications(
-          applicationData.email,
-          applicationData.phoneNumber
-        );
-
-      if (existingEntries.hasDuplicates) {
-        return res.status(409).json({
+      if (!applicationData) {
+        return res.status(400).json({
           success: false,
-          duplicatesFound: true,
-          existingData: existingEntries,
-          message: "Matching records found with the same email or phone number",
+          error: "Application data is required",
         });
       }
+
+      // Validate required fields for manual application
+      if (!applicationData.email) {
+        return res.status(400).json({
+          success: false,
+          error: "Email is required for manual application submission",
+        });
+      }
+
+      // Handle file uploads if available
+      const files = {};
+      let applicationId = null; // Will be set once we generate the proper ID
+
+      if (req.files) {
+        console.log(
+          "Files received in manual submission:",
+          Object.keys(req.files)
+        );
+
+        // Generate application ID early to ensure consistent folder structure
+        applicationId = applicationService.generateApplicationId();
+        console.log(
+          `📋 Generated application ID for file uploads: ${applicationId}`
+        );
+
+        // Process each uploaded file
+        for (const fieldName in req.files) {
+          const file = req.files[fieldName];
+          console.log(
+            `Processing file upload for field: ${fieldName}`,
+            file.name
+          );
+
+          try {
+            // Upload file to Firebase Storage using the document upload method
+            const documentType =
+              fieldName === "passportPhoto"
+                ? "passportPhoto"
+                : fieldName === "academicDocuments"
+                ? "academicDocuments"
+                : fieldName === "idDocument" ||
+                  fieldName === "identificationDocuments"
+                ? "identificationDocument"
+                : fieldName;
+
+            // Validate that we have a proper email before uploading
+            if (!applicationData.email) {
+              return res.status(400).json({
+                success: false,
+                error: `Email is required for file upload. Cannot upload ${fieldName} without applicant email.`,
+              });
+            }
+
+            // Upload to Firebase Storage with the proper application ID
+            const publicUrl =
+              await applicationService.uploadApplicationDocument(
+                applicationId,
+                documentType,
+                file,
+                applicationData.email
+              );
+
+            console.log(
+              `File uploaded successfully to Firebase Storage. Field: ${fieldName}, URL: ${publicUrl}`
+            );
+
+            // Add the public URL to application data
+            files[fieldName] = publicUrl;
+          } catch (fileError) {
+            console.error(`Error uploading file for ${fieldName}:`, fileError);
+            return res.status(500).json({
+              success: false,
+              error: `File upload failed for ${fieldName}: ${fileError.message}`,
+            });
+          }
+        }
+
+        // Merge file data with application data
+        Object.assign(applicationData, files);
+      }
+
+      // Check for base64 document data in the request body and convert them to Firebase Storage URLs
+      const documentFields = [
+        "passportPhoto",
+        "academicDocuments",
+        "idDocument",
+        "identificationDocuments",
+        "identificationDocument",
+      ];
+      for (const field of documentFields) {
+        if (
+          applicationData[field] &&
+          typeof applicationData[field] === "string" &&
+          applicationData[field].startsWith("data:")
+        ) {
+          console.log(
+            `Found base64 data for ${field}, uploading to Firebase Storage...`
+          );
+          try {
+            // Validate that we have a proper email before uploading
+            if (!applicationData.email) {
+              return res.status(400).json({
+                success: false,
+                error: `Email is required for file upload. Cannot upload ${field} without applicant email.`,
+              });
+            }
+
+            // Use the same application ID if already generated, otherwise generate one
+            if (!applicationId) {
+              applicationId = applicationService.generateApplicationId();
+              console.log(
+                `📋 Generated application ID for base64 uploads: ${applicationId}`
+              );
+            }
+
+            // Convert base64 to file-like object and upload to Firebase Storage
+            const base64Data = applicationData[field];
+
+            // Create a temporary file object from base64
+            const base64Parts = base64Data.split(",");
+            const mimeType = base64Parts[0].match(/:(.*?);/)[1];
+            const base64Content = base64Parts[1];
+            const buffer = Buffer.from(base64Content, "base64");
+
+            const tempFile = {
+              data: buffer,
+              name: `${field}_${Date.now()}.${mimeType.split("/")[1]}`,
+              mimetype: mimeType,
+              size: buffer.length,
+            };
+
+            const documentType =
+              field === "identificationDocuments" || field === "idDocument"
+                ? "identificationDocument"
+                : field;
+
+            const publicUrl =
+              await applicationService.uploadApplicationDocument(
+                applicationId,
+                documentType,
+                tempFile,
+                applicationData.email
+              );
+
+            console.log(
+              `Base64 ${field} uploaded to Firebase Storage: ${publicUrl}`
+            );
+            applicationData[field] = publicUrl;
+          } catch (uploadError) {
+            console.error(`Error uploading base64 ${field}:`, uploadError);
+            return res.status(500).json({
+              success: false,
+              error: `Failed to upload ${field}: ${uploadError.message}`,
+            });
+          }
+        }
+      }
+
+      // If submittedBy is included in the request, use it
+      // Otherwise, try to use the authenticated user info from the middleware
+      const submitterInfo =
+        submittedBy ||
+        (req.user
+          ? {
+              uid: req.user.uid,
+              email: req.user.email,
+              role: req.user.role,
+              submittedAt: new Date().toISOString(),
+            }
+          : null);
+
+      // Add submittedBy to the application data
+      const dataWithSubmitter = {
+        ...applicationData,
+        submittedBy: submitterInfo,
+      };
+
+      // Check for duplicates if forceSubmit is not true
+      if (!forceSubmit) {
+        // Check if there are existing applications with the same email or phone
+        const existingEntries =
+          await applicationService.checkExistingApplications(
+            applicationData.email,
+            applicationData.phoneNumber
+          );
+
+        if (existingEntries.hasDuplicates) {
+          return res.status(409).json({
+            success: false,
+            duplicatesFound: true,
+            existingData: existingEntries,
+            message:
+              "Matching records found with the same email or phone number",
+          });
+        }
+      }
+
+      // Use the dedicated manual application submission method
+      const result = await applicationService.submitManualApplication(
+        dataWithSubmitter,
+        applicationId // Pass the pre-generated ID if files were uploaded
+      );
+
+      res.status(201).json({
+        success: true,
+        message: "Manual application submitted successfully",
+        application: result.application,
+        lead: result.lead,
+        emailMessage: result.emailMessage,
+      });
+    } catch (error) {
+      console.error("❌ Error submitting manual application:", error);
+      res.status(500).json({
+        success: false,
+        error: error.message,
+      });
     }
-
-    // Use the dedicated manual application submission method
-    const result = await applicationService.submitManualApplication(
-      dataWithSubmitter,
-      applicationId // Pass the pre-generated ID if files were uploaded
-    );
-
-    res.status(201).json({
-      success: true,
-      message: "Manual application submitted successfully",
-      application: result.application,
-      lead: result.lead,
-      emailMessage: result.emailMessage,
-    });
-  } catch (error) {
-    console.error("❌ Error submitting manual application:", error);
-    res.status(500).json({
-      success: false,
-      error: error.message,
-    });
   }
-});
+);
 
 /**
  * Get application statistics
@@ -1661,211 +1672,227 @@ router.put("/:id/status", ensureApplicationService, async (req, res) => {
  * Update application details
  * PUT /api/applications/:id
  */
-router.put("/:id", ensureApplicationService, async (req, res) => {
-  try {
-    const { id } = req.params;
-    let applicationData = req.body;
+/**
+ * Update an application
+ * PUT /api/applications/:id
+ */
+router.put(
+  "/:id",
+  authenticateUser,
+  requirePermission(PERMISSIONS.CREATE_APPLICATION),
+  ensureApplicationService,
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+      let applicationData = req.body;
 
-    // Handle file uploads if available
-    const files = {};
-    if (req.files) {
-      console.log("Files received in update request:", Object.keys(req.files));
-
-      // Process each uploaded file
-      for (const fieldName in req.files) {
-        const file = req.files[fieldName];
+      // Handle file uploads if available
+      const files = {};
+      if (req.files) {
         console.log(
-          `Processing file upload for field: ${fieldName}`,
-          file.name
+          "Files received in update request:",
+          Object.keys(req.files)
         );
 
-        try {
-          // Upload file to Firebase Storage using the new document upload method
-          const documentType =
-            fieldName === "passportPhoto"
-              ? "passportPhoto"
-              : fieldName === "academicDocuments"
-              ? "academicDocuments"
-              : fieldName === "idDocument"
-              ? "identificationDocument"
-              : fieldName;
-
-          // Upload to Firebase Storage and get public URL
-          const publicUrl = await applicationService.uploadApplicationDocument(
-            id,
-            documentType,
-            file
-          );
-
+        // Process each uploaded file
+        for (const fieldName in req.files) {
+          const file = req.files[fieldName];
           console.log(
-            `File uploaded successfully to Firebase Storage. Field: ${fieldName}, URL: ${publicUrl}`
+            `Processing file upload for field: ${fieldName}`,
+            file.name
           );
 
-          // Add the public URL to application data
-          files[fieldName] = publicUrl;
-        } catch (fileError) {
-          console.error(`Error uploading file for ${fieldName}:`, fileError);
-          return res.status(500).json({
-            success: false,
-            error: `File upload failed for ${fieldName}: ${fileError.message}`,
-          });
-        }
-      }
+          try {
+            // Upload file to Firebase Storage using the new document upload method
+            const documentType =
+              fieldName === "passportPhoto"
+                ? "passportPhoto"
+                : fieldName === "academicDocuments"
+                ? "academicDocuments"
+                : fieldName === "idDocument"
+                ? "identificationDocument"
+                : fieldName;
 
-      // Merge file data with application data
-      applicationData = { ...applicationData, ...files };
-    }
+            // Upload to Firebase Storage and get public URL
+            const publicUrl =
+              await applicationService.uploadApplicationDocument(
+                id,
+                documentType,
+                file
+              );
 
-    // Check for base64 document data in the request body
-    const documentFields = [
-      "passportPhoto",
-      "academicDocuments",
-      "idDocument",
-      "identificationDocument",
-    ];
-    for (const field of documentFields) {
-      if (
-        applicationData[field] &&
-        typeof applicationData[field] === "string" &&
-        applicationData[field].startsWith("data:")
-      ) {
-        console.log(`Found base64 data for ${field} in request body`);
-        // Data is already in base64 format, no need to process further
-        files[field] = applicationData[field];
-      }
-    }
+            console.log(
+              `File uploaded successfully to Firebase Storage. Field: ${fieldName}, URL: ${publicUrl}`
+            );
 
-    if (
-      !applicationData ||
-      (Object.keys(applicationData).length === 0 && !req.files)
-    ) {
-      return res.status(400).json({
-        success: false,
-        error: "Application data is required",
-      });
-    }
-
-    // Get existing application
-    const existingApplication = await applicationService.getApplicationById(id);
-
-    if (!existingApplication) {
-      return res.status(404).json({
-        success: false,
-        error: "Application not found",
-      });
-    }
-
-    // Update the application with new data
-    const updatedApplication = {
-      ...existingApplication,
-      ...applicationData,
-      updatedAt: new Date().toISOString(),
-    };
-
-    // Add updatedBy field only if user info is available
-    if (req.user) {
-      updatedApplication.updatedBy = {
-        uid: req.user.uid,
-        email: req.user.email,
-        name: req.user.displayName || req.user.email,
-        role: req.user.role,
-      };
-    }
-
-    console.log("Updating application with data:", updatedApplication);
-
-    // Helper function to recursively remove undefined values and sanitize data for Firestore
-    const sanitizeForFirestore = (obj) => {
-      if (!obj || typeof obj !== "object") return;
-
-      Object.keys(obj).forEach((key) => {
-        // Handle undefined values - remove them
-        if (obj[key] === undefined) {
-          console.log(`Removing undefined field: ${key}`);
-          delete obj[key];
-        }
-        // Handle null values - keep them as Firestore accepts null
-        else if (obj[key] === null) {
-          // Firestore accepts null values, so we keep them
-          console.log(`Found null field: ${key} (keeping it)`);
-        }
-        // Handle nested objects recursively
-        else if (
-          obj[key] &&
-          typeof obj[key] === "object" &&
-          !Array.isArray(obj[key])
-        ) {
-          sanitizeForFirestore(obj[key]);
-          // If the nested object is empty after sanitizing, remove it
-          if (Object.keys(obj[key]).length === 0) {
-            console.log(`Removing empty object field: ${key}`);
-            delete obj[key];
+            // Add the public URL to application data
+            files[fieldName] = publicUrl;
+          } catch (fileError) {
+            console.error(`Error uploading file for ${fieldName}:`, fileError);
+            return res.status(500).json({
+              success: false,
+              error: `File upload failed for ${fieldName}: ${fileError.message}`,
+            });
           }
         }
-        // Handle arrays
-        else if (Array.isArray(obj[key])) {
-          // Sanitize each object in the array
-          obj[key].forEach((item) => {
-            if (item && typeof item === "object") {
-              sanitizeForFirestore(item);
-            }
-          });
-          // Filter out undefined values from arrays
-          obj[key] = obj[key].filter((item) => item !== undefined);
-        }
-      });
-    };
 
-    // Sanitize the application data for Firestore
-    sanitizeForFirestore(updatedApplication);
-
-    // Create a clean update object without any problematic values
-    const updateData = {};
-
-    // Only include changed fields to minimize update size
-    Object.keys(updatedApplication).forEach((key) => {
-      // Skip _id or id field as they shouldn't be updated
-      if (key === "_id" || key === "id") {
-        return;
+        // Merge file data with application data
+        applicationData = { ...applicationData, ...files };
       }
-      updateData[key] = updatedApplication[key];
-    });
 
-    console.log("Final update data:", JSON.stringify(updateData, null, 2));
+      // Check for base64 document data in the request body
+      const documentFields = [
+        "passportPhoto",
+        "academicDocuments",
+        "idDocument",
+        "identificationDocument",
+      ];
+      for (const field of documentFields) {
+        if (
+          applicationData[field] &&
+          typeof applicationData[field] === "string" &&
+          applicationData[field].startsWith("data:")
+        ) {
+          console.log(`Found base64 data for ${field} in request body`);
+          // Data is already in base64 format, no need to process further
+          files[field] = applicationData[field];
+        }
+      }
 
-    // Save the updated application
-    await applicationService.db
-      .collection(applicationService.collection)
-      .doc(id)
-      .update(updateData);
+      if (
+        !applicationData ||
+        (Object.keys(applicationData).length === 0 && !req.files)
+      ) {
+        return res.status(400).json({
+          success: false,
+          error: "Application data is required",
+        });
+      }
 
-    res.json({
-      success: true,
-      data: updatedApplication,
-      message: "Application updated successfully",
-    });
-  } catch (error) {
-    console.error("❌ Error updating application:", error);
+      // Get existing application
+      const existingApplication = await applicationService.getApplicationById(
+        id
+      );
 
-    // Check for specific Firestore errors and provide more helpful messages
-    if (error.code === "invalid-argument") {
-      console.error("Invalid data format in the update:", error);
-      return res.status(400).json({
+      if (!existingApplication) {
+        return res.status(404).json({
+          success: false,
+          error: "Application not found",
+        });
+      }
+
+      // Update the application with new data
+      const updatedApplication = {
+        ...existingApplication,
+        ...applicationData,
+        updatedAt: new Date().toISOString(),
+      };
+
+      // Add updatedBy field only if user info is available
+      if (req.user) {
+        updatedApplication.updatedBy = {
+          uid: req.user.uid,
+          email: req.user.email,
+          name: req.user.displayName || req.user.email,
+          role: req.user.role,
+        };
+      }
+
+      console.log("Updating application with data:", updatedApplication);
+
+      // Helper function to recursively remove undefined values and sanitize data for Firestore
+      const sanitizeForFirestore = (obj) => {
+        if (!obj || typeof obj !== "object") return;
+
+        Object.keys(obj).forEach((key) => {
+          // Handle undefined values - remove them
+          if (obj[key] === undefined) {
+            console.log(`Removing undefined field: ${key}`);
+            delete obj[key];
+          }
+          // Handle null values - keep them as Firestore accepts null
+          else if (obj[key] === null) {
+            // Firestore accepts null values, so we keep them
+            console.log(`Found null field: ${key} (keeping it)`);
+          }
+          // Handle nested objects recursively
+          else if (
+            obj[key] &&
+            typeof obj[key] === "object" &&
+            !Array.isArray(obj[key])
+          ) {
+            sanitizeForFirestore(obj[key]);
+            // If the nested object is empty after sanitizing, remove it
+            if (Object.keys(obj[key]).length === 0) {
+              console.log(`Removing empty object field: ${key}`);
+              delete obj[key];
+            }
+          }
+          // Handle arrays
+          else if (Array.isArray(obj[key])) {
+            // Sanitize each object in the array
+            obj[key].forEach((item) => {
+              if (item && typeof item === "object") {
+                sanitizeForFirestore(item);
+              }
+            });
+            // Filter out undefined values from arrays
+            obj[key] = obj[key].filter((item) => item !== undefined);
+          }
+        });
+      };
+
+      // Sanitize the application data for Firestore
+      sanitizeForFirestore(updatedApplication);
+
+      // Create a clean update object without any problematic values
+      const updateData = {};
+
+      // Only include changed fields to minimize update size
+      Object.keys(updatedApplication).forEach((key) => {
+        // Skip _id or id field as they shouldn't be updated
+        if (key === "_id" || key === "id") {
+          return;
+        }
+        updateData[key] = updatedApplication[key];
+      });
+
+      console.log("Final update data:", JSON.stringify(updateData, null, 2));
+
+      // Save the updated application
+      await applicationService.db
+        .collection(applicationService.collection)
+        .doc(id)
+        .update(updateData);
+
+      res.json({
+        success: true,
+        data: updatedApplication,
+        message: "Application updated successfully",
+      });
+    } catch (error) {
+      console.error("❌ Error updating application:", error);
+
+      // Check for specific Firestore errors and provide more helpful messages
+      if (error.code === "invalid-argument") {
+        console.error("Invalid data format in the update:", error);
+        return res.status(400).json({
+          success: false,
+          error: "Invalid data format in the update request",
+          message: error.message,
+          details:
+            "Check for undefined values or invalid data types in your request",
+        });
+      }
+
+      res.status(500).json({
         success: false,
-        error: "Invalid data format in the update request",
-        message: error.message,
-        details:
-          "Check for undefined values or invalid data types in your request",
+        error: error.message,
+        message: "Failed to update application",
       });
     }
-
-    res.status(500).json({
-      success: false,
-      error: error.message,
-      message: "Failed to update application",
-    });
   }
-});
+);
 
 /**
  * Health check endpoint

@@ -33,6 +33,7 @@ const PERMISSIONS = {
   MANAGE_TEAM: "manage_team",
   MANAGE_SETTINGS: "manage_settings",
   EXPORT_DATA: "export_data",
+  CREATE_APPLICATION: "create_application",
 };
 
 const ROLES = {
@@ -71,6 +72,7 @@ const ROLES = {
       PERMISSIONS.MANAGE_TEAM,
       PERMISSIONS.MANAGE_SETTINGS,
       PERMISSIONS.EXPORT_DATA,
+      PERMISSIONS.CREATE_APPLICATION,
     ],
     leadStageAccess: {
       from: LEAD_STAGES.APPLIED,
@@ -86,6 +88,7 @@ const ROLES = {
       PERMISSIONS.DATA_CENTER,
       PERMISSIONS.SETTINGS,
       PERMISSIONS.VIEW_MARKETING_LEADS,
+      PERMISSIONS.CREATE_APPLICATION,
     ],
     leadStageAccess: {
       from: LEAD_STAGES.INTERESTED,
@@ -101,6 +104,7 @@ const ROLES = {
       PERMISSIONS.DATA_CENTER,
       PERMISSIONS.SETTINGS,
       PERMISSIONS.VIEW_ADMISSIONS_LEADS,
+      PERMISSIONS.CREATE_APPLICATION,
     ],
     leadStageAccess: {
       from: LEAD_STAGES.APPLIED,
