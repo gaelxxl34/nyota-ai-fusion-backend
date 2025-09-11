@@ -18,6 +18,11 @@ class RedisCacheService {
       USER_SESSIONS: 1800, // 30 minutes
       ANALYTICS: 600, // 10 minutes
       CONVERSATION_LIST: 300, // 5 minutes (shorter for frequent updates)
+      FACEBOOK_FORMS: 1800, // 30 minutes - Facebook forms don't change often
+      FACEBOOK_PAGES: 3600, // 1 hour - Pages change even less frequently
+      FACEBOOK_LEADS: 300, // 5 minutes - Fresh leads data
+      FACEBOOK_CAMPAIGNS: 1800, // 30 minutes - Campaigns are relatively static
+      FACEBOOK_STATS: 600, // 10 minutes - Stats can be cached longer
     };
 
     // Cache keys prefixes
@@ -32,6 +37,11 @@ class RedisCacheService {
       USER_SESSION: "session:",
       ANALYTICS: "analytics:",
       SYNC_TIMESTAMP: "sync:",
+      FACEBOOK_FORMS: "fb_forms:",
+      FACEBOOK_PAGES: "fb_pages:",
+      FACEBOOK_LEADS: "fb_leads:",
+      FACEBOOK_CAMPAIGNS: "fb_campaigns:",
+      FACEBOOK_STATS: "fb_stats:",
     };
 
     this.initializeRedis();
@@ -408,6 +418,188 @@ class RedisCacheService {
     }
 
     console.log(`🗑️ Invalidated cache for lead: ${leadId}`);
+  }
+
+  // Facebook data caching methods
+  async cacheFacebookPages(pages) {
+    const key = this.KEYS.FACEBOOK_PAGES + "all";
+    const success = await this.set(key, pages, this.TTL.FACEBOOK_PAGES);
+    if (success) {
+      console.log(`💾 Cached ${pages.length} Facebook pages`);
+    }
+    return success;
+  }
+
+  async getCachedFacebookPages() {
+    const key = this.KEYS.FACEBOOK_PAGES + "all";
+    const pages = await this.get(key);
+    if (pages) {
+      console.log(`⚡ Retrieved ${pages.length} Facebook pages from cache`);
+    }
+    return pages;
+  }
+
+  async cacheFacebookLeadForms(forms) {
+    const key = this.KEYS.FACEBOOK_FORMS + "all";
+    const success = await this.set(key, forms, this.TTL.FACEBOOK_FORMS);
+    if (success) {
+      console.log(`💾 Cached ${forms.length} Facebook lead forms`);
+    }
+    return success;
+  }
+
+  async getCachedFacebookLeadForms() {
+    const key = this.KEYS.FACEBOOK_FORMS + "all";
+    const forms = await this.get(key);
+    if (forms) {
+      console.log(
+        `⚡ Retrieved ${forms.length} Facebook lead forms from cache`
+      );
+    }
+    return forms;
+  }
+
+  async cacheFacebookFormLeads(formId, leads) {
+    const key = this.KEYS.FACEBOOK_LEADS + formId;
+    const success = await this.set(key, leads, this.TTL.FACEBOOK_LEADS);
+    if (success) {
+      console.log(`💾 Cached ${leads.length} leads for form ${formId}`);
+    }
+    return success;
+  }
+
+  async getCachedFacebookFormLeads(formId) {
+    const key = this.KEYS.FACEBOOK_LEADS + formId;
+    const leads = await this.get(key);
+    if (leads) {
+      console.log(
+        `⚡ Retrieved ${leads.length} leads from cache for form ${formId}`
+      );
+    }
+    return leads;
+  }
+
+  async cacheFacebookCampaigns(campaigns) {
+    const key = this.KEYS.FACEBOOK_CAMPAIGNS + "all";
+    const success = await this.set(key, campaigns, this.TTL.FACEBOOK_CAMPAIGNS);
+    if (success) {
+      console.log(`💾 Cached ${campaigns.length} Facebook campaigns`);
+    }
+    return success;
+  }
+
+  async getCachedFacebookCampaigns() {
+    const key = this.KEYS.FACEBOOK_CAMPAIGNS + "all";
+    const campaigns = await this.get(key);
+    if (campaigns) {
+      console.log(
+        `⚡ Retrieved ${campaigns.length} Facebook campaigns from cache`
+      );
+    }
+    return campaigns;
+  }
+
+  async cacheFacebookFormStats(formId, stats) {
+    const key = this.KEYS.FACEBOOK_STATS + formId;
+    const success = await this.set(key, stats, this.TTL.FACEBOOK_STATS);
+    if (success) {
+      console.log(`💾 Cached stats for Facebook form ${formId}`);
+    }
+    return success;
+  }
+
+  async getCachedFacebookFormStats(formId) {
+    const key = this.KEYS.FACEBOOK_STATS + formId;
+    const stats = await this.get(key);
+    if (stats) {
+      console.log(`⚡ Retrieved stats from cache for form ${formId}`);
+    }
+    return stats;
+  }
+
+  async cacheFacebookLeadFormsData(data) {
+    const key = this.KEYS.FACEBOOK_FORMS + "comprehensive_data";
+    const success = await this.set(key, data, this.TTL.FACEBOOK_FORMS);
+    if (success) {
+      console.log(
+        `💾 Cached comprehensive Facebook forms data (${
+          data.leadForms?.length || 0
+        } forms, ${data.recentLeads?.length || 0} recent leads)`
+      );
+    }
+    return success;
+  }
+
+  async getCachedFacebookLeadFormsData() {
+    const key = this.KEYS.FACEBOOK_FORMS + "comprehensive_data";
+    const data = await this.get(key);
+    if (data) {
+      console.log(
+        `⚡ Retrieved comprehensive Facebook forms data from cache (${
+          data.leadForms?.length || 0
+        } forms, ${data.recentLeads?.length || 0} recent leads)`
+      );
+    }
+    return data;
+  }
+
+  async cacheFacebookAllLeads(leads) {
+    const key = this.KEYS.FACEBOOK_LEADS + "all_forms_all_leads";
+    const success = await this.set(key, leads, this.TTL.FACEBOOK_LEADS);
+    if (success) {
+      console.log(`💾 Cached ${leads.length} leads from all Facebook forms`);
+    }
+    return success;
+  }
+
+  async getCachedFacebookAllLeads() {
+    const key = this.KEYS.FACEBOOK_LEADS + "all_forms_all_leads";
+    const leads = await this.get(key);
+    if (leads) {
+      console.log(`⚡ Retrieved ${leads.length} leads from cache (all forms)`);
+    }
+    return leads;
+  }
+
+  // Invalidate Facebook-specific cache
+  async invalidateFacebookCache() {
+    const patterns = [
+      this.KEYS.FACEBOOK_FORMS + "*",
+      this.KEYS.FACEBOOK_PAGES + "*",
+      this.KEYS.FACEBOOK_LEADS + "*",
+      this.KEYS.FACEBOOK_CAMPAIGNS + "*",
+      this.KEYS.FACEBOOK_STATS + "*",
+    ];
+
+    let totalInvalidated = 0;
+
+    for (const pattern of patterns) {
+      const keys = await this.keys(pattern);
+      for (const key of keys) {
+        await this.del(key);
+      }
+      totalInvalidated += keys.length;
+    }
+
+    console.log(`🗑️ Invalidated ${totalInvalidated} Facebook cache entries`);
+    return totalInvalidated;
+  }
+
+  async invalidateFacebookFormCache(formId) {
+    const keys = [
+      this.KEYS.FACEBOOK_LEADS + formId,
+      this.KEYS.FACEBOOK_STATS + formId,
+    ];
+
+    for (const key of keys) {
+      await this.del(key);
+    }
+
+    // Also invalidate comprehensive data cache
+    await this.del(this.KEYS.FACEBOOK_FORMS + "comprehensive_data");
+    await this.del(this.KEYS.FACEBOOK_LEADS + "all_forms_all_leads");
+
+    console.log(`🗑️ Invalidated cache for Facebook form: ${formId}`);
   }
 
   // Bulk operations for efficiency

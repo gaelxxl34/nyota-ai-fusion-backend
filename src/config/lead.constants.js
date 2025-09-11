@@ -6,7 +6,8 @@
 // Lead Status Constants - Aligned with conversion funnel
 const LEAD_STATUSES = {
   // Main funnel stages
-  INTERESTED: "INTERESTED", // Initial inquiry/lead capture
+  CONTACTED: "CONTACTED", // Lead contacted through ads/campaigns but not yet engaged
+  INTERESTED: "INTERESTED", // Lead has shown interest (portal registration/engagement)
   APPLIED: "APPLIED", // Application submitted
   MISSING_DOCUMENT: "MISSING_DOCUMENT", // Application missing required documents
   IN_REVIEW: "IN_REVIEW", // Application being reviewed

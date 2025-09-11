@@ -6,6 +6,14 @@ const XLSX = require("xlsx");
 const { authenticateUser } = require("../middleware/auth.middleware");
 const { checkRole } = require("../middleware/permissions.middleware");
 const conversationStatsService = require("../services/conversationStats.service");
+const multer = require("multer");
+const upload = multer();
+
+// Create a requireAdmin middleware
+const requireAdmin = [
+  authenticateUser,
+  checkRole(["superAdmin", "admin", "admissionAdmin"]),
+];
 
 // Get system statistics for admin dashboard
 router.get(
@@ -1720,6 +1728,513 @@ router.post(
       res.status(500).json({
         success: false,
         message: "Failed to generate email report",
+        error: error.message,
+      });
+    }
+  }
+);
+
+// Import Facebook leads with CONTACTED status
+router.post(
+  "/import-facebook-leads",
+  authenticateUser,
+  checkRole(["superAdmin", "admin", "admissionAdmin"]),
+  async (req, res) => {
+    try {
+      console.log(
+        `� Facebook leads import request received from user: ${req.user?.email}`
+      );
+      console.log(
+        `📁 Request files:`,
+        req.files ? Object.keys(req.files) : "No files received"
+      );
+
+      if (!req.files || !req.files.file) {
+        return res.status(400).json({
+          success: false,
+          message: "No file uploaded",
+        });
+      }
+
+      const uploadedFile = req.files.file;
+      console.log(`📁 Processing Facebook leads file: ${uploadedFile.name}`);
+      console.log(`📊 File size: ${uploadedFile.size} bytes`);
+      console.log(`📄 File mimetype: ${uploadedFile.mimetype}`);
+
+      // Validate file type
+      const allowedTypes = [
+        "text/csv",
+        "application/vnd.ms-excel",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      ];
+
+      const isValidType =
+        allowedTypes.includes(uploadedFile.mimetype) ||
+        uploadedFile.name.endsWith(".csv") ||
+        uploadedFile.name.endsWith(".xlsx") ||
+        uploadedFile.name.endsWith(".xls");
+
+      if (!isValidType) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid file type. Only CSV and Excel files are allowed.",
+        });
+      }
+
+      // Validate file size (10MB limit)
+      if (uploadedFile.size > 10 * 1024 * 1024) {
+        return res.status(400).json({
+          success: false,
+          message: "File too large. Maximum size is 10MB.",
+        });
+      }
+
+      let data = [];
+
+      // Parse file based on type
+      if (
+        uploadedFile.mimetype === "text/csv" ||
+        uploadedFile.name.endsWith(".csv")
+      ) {
+        // Parse CSV
+        let csvContent;
+
+        // Check if file is stored in temp file or in memory
+        if (uploadedFile.tempFilePath) {
+          // File is stored in temporary file
+          const fs = require("fs");
+          csvContent = fs.readFileSync(uploadedFile.tempFilePath, "utf8");
+          console.log(
+            `📝 Reading from temp file: ${uploadedFile.tempFilePath}`
+          );
+        } else if (uploadedFile.data) {
+          // File is stored in memory
+          csvContent = uploadedFile.data.toString("utf8");
+          console.log(`📝 Reading from memory buffer`);
+        } else {
+          throw new Error("Unable to access file content");
+        }
+
+        // Remove BOM if present
+        if (csvContent.charCodeAt(0) === 0xfeff) {
+          csvContent = csvContent.slice(1);
+        }
+
+        console.log(
+          `📝 CSV Content preview: ${csvContent.substring(0, 200)}...`
+        );
+        console.log(`📝 CSV Content length: ${csvContent.length}`);
+
+        // Split by different line endings and filter out completely empty lines
+        const lines = csvContent
+          .split(/\r\n|\n|\r/)
+          .map((line) => line.trim())
+          .filter((line) => line.length > 0);
+
+        console.log(`📊 Found ${lines.length} lines in CSV`);
+        console.log(`📊 First few lines: ${JSON.stringify(lines.slice(0, 3))}`);
+
+        if (lines.length === 0) {
+          console.log(
+            `❌ No lines found after parsing. Raw content: ${JSON.stringify(
+              csvContent.substring(0, 100)
+            )}`
+          );
+          return res.status(400).json({
+            success: false,
+            message: "No valid data lines found in CSV file",
+          });
+        }
+
+        data = lines.map((line, lineIndex) => {
+          const result = [];
+          let current = "";
+          let inQuotes = false;
+
+          for (let i = 0; i < line.length; i++) {
+            const char = line[i];
+            if (char === '"') {
+              inQuotes = !inQuotes;
+            } else if (char === "," && !inQuotes) {
+              result.push(current.trim().replace(/^"|"$/g, ""));
+              current = "";
+            } else {
+              current += char;
+            }
+          }
+          result.push(current.trim().replace(/^"|"$/g, ""));
+
+          if (lineIndex === 0) {
+            console.log(`📋 Parsed header row: ${result.join(", ")}`);
+          }
+
+          return result;
+        });
+      } else {
+        // Parse Excel
+        let excelData;
+
+        if (uploadedFile.tempFilePath) {
+          // File is stored in temporary file
+          const fs = require("fs");
+          excelData = fs.readFileSync(uploadedFile.tempFilePath);
+          console.log(
+            `📝 Reading Excel from temp file: ${uploadedFile.tempFilePath}`
+          );
+        } else if (uploadedFile.data) {
+          // File is stored in memory
+          excelData = uploadedFile.data;
+          console.log(`📝 Reading Excel from memory buffer`);
+        } else {
+          throw new Error("Unable to access file content");
+        }
+
+        const workbook = XLSX.read(excelData, { type: "buffer" });
+        const firstSheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[firstSheetName];
+        data = XLSX.utils.sheet_to_json(worksheet, {
+          header: 1,
+          defval: "",
+          raw: false,
+        });
+      }
+
+      if (data.length === 0) {
+        console.log(
+          `❌ No data found in parsed file. Data length: ${data.length}`
+        );
+        return res.status(400).json({
+          success: false,
+          message: "No data found in file",
+        });
+      }
+
+      console.log(`📊 Parsed ${data.length} rows from file`);
+      console.log(`📋 First row: ${JSON.stringify(data[0])}`);
+      if (data.length > 1) {
+        console.log(`📋 Second row: ${JSON.stringify(data[1])}`);
+      }
+
+      // Get headers (first row)
+      const headers = data[0];
+      const rows = data.slice(1);
+
+      if (rows.length === 0) {
+        return res.status(400).json({
+          success: false,
+          message: "No data found in uploaded file",
+        });
+      }
+
+      console.log(`📊 Processing ${rows.length} Facebook leads...`);
+      console.log(`📋 Headers: ${headers.join(", ")}`);
+
+      // Map headers to expected field names (case-insensitive matching)
+      const fieldMapping = {};
+      headers.forEach((header, index) => {
+        const normalizedHeader = header.toLowerCase().trim();
+
+        // Map various possible header names to our expected fields
+        if (
+          normalizedHeader.includes("form") &&
+          normalizedHeader.includes("name")
+        ) {
+          fieldMapping.formName = index;
+        } else if (
+          normalizedHeader === "name" ||
+          normalizedHeader.includes("full name") ||
+          normalizedHeader.includes("fullname")
+        ) {
+          fieldMapping.name = index;
+        } else if (normalizedHeader === "email") {
+          fieldMapping.email = index;
+        } else if (
+          normalizedHeader.includes("phone") ||
+          normalizedHeader.includes("mobile")
+        ) {
+          fieldMapping.phone = index;
+        } else if (
+          normalizedHeader.includes("created") &&
+          normalizedHeader.includes("date")
+        ) {
+          fieldMapping.createdDate = index;
+        } else if (
+          normalizedHeader.includes("program") ||
+          normalizedHeader.includes("course")
+        ) {
+          fieldMapping.preferredProgram = index;
+        } else if (
+          normalizedHeader.includes("education") &&
+          normalizedHeader.includes("level")
+        ) {
+          fieldMapping.highestEducation = index;
+        } else if (normalizedHeader.includes("transfer")) {
+          fieldMapping.transferring = index;
+        } else if (
+          normalizedHeader.includes("application") &&
+          normalizedHeader.includes("timing")
+        ) {
+          fieldMapping.applicationTiming = index;
+        } else if (
+          normalizedHeader.includes("payment") ||
+          normalizedHeader.includes("fees")
+        ) {
+          fieldMapping.paymentMethod = index;
+        }
+      });
+
+      console.log(`📋 Field mapping:`, fieldMapping);
+
+      // Validate required fields exist
+      if (fieldMapping.name === undefined || fieldMapping.email === undefined) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Required columns not found. File must contain 'Name' and 'Email' columns.",
+        });
+      }
+
+      // Initialize services
+      const LeadService = require("../services/leadService");
+      const leadService = new LeadService(db);
+
+      const results = {
+        total: rows.length,
+        created: 0,
+        updated: 0,
+        skipped: 0,
+        failed: 0,
+        errors: [],
+      };
+
+      // Process each row
+      for (let i = 0; i < rows.length; i++) {
+        const row = rows[i];
+        const rowNumber = i + 2; // +2 for 0-based index and header row
+
+        try {
+          // Extract data from CSV row using field mapping
+          const name =
+            fieldMapping.name !== undefined
+              ? row[fieldMapping.name]?.trim()
+              : "";
+          const email =
+            fieldMapping.email !== undefined
+              ? row[fieldMapping.email]?.trim()?.toLowerCase()
+              : "";
+          const phone =
+            fieldMapping.phone !== undefined
+              ? row[fieldMapping.phone]?.trim()
+              : "";
+          const formName =
+            fieldMapping.formName !== undefined
+              ? row[fieldMapping.formName]?.trim()
+              : "";
+          const createdDateStr =
+            fieldMapping.createdDate !== undefined
+              ? row[fieldMapping.createdDate]?.trim()
+              : "";
+
+          // Optional fields
+          const preferredProgram =
+            fieldMapping.preferredProgram !== undefined
+              ? row[fieldMapping.preferredProgram]?.trim()
+              : null;
+          const highestEducation =
+            fieldMapping.highestEducation !== undefined
+              ? row[fieldMapping.highestEducation]?.trim()
+              : null;
+          const transferring =
+            fieldMapping.transferring !== undefined
+              ? row[fieldMapping.transferring]?.trim()
+              : null;
+          const applicationTiming =
+            fieldMapping.applicationTiming !== undefined
+              ? row[fieldMapping.applicationTiming]?.trim()
+              : null;
+          const paymentMethod =
+            fieldMapping.paymentMethod !== undefined
+              ? row[fieldMapping.paymentMethod]?.trim()
+              : null;
+
+          // Validate required fields
+          if (!name || !email) {
+            results.errors.push(
+              `Row ${rowNumber}: Missing required fields (Name or Email)`
+            );
+            results.failed++;
+            continue;
+          }
+
+          // Validate email format
+          const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+          if (!emailRegex.test(email)) {
+            results.errors.push(
+              `Row ${rowNumber}: Invalid email format: ${email}`
+            );
+            results.failed++;
+            continue;
+          }
+
+          // Parse created date - handle multiple Facebook date formats
+          let createdDate = new Date();
+          if (createdDateStr) {
+            try {
+              console.log(`🔍 Parsing date string: "${createdDateStr}"`);
+
+              // Handle Facebook date format "Sep 11, 2025, 08:29 PM"
+              if (
+                createdDateStr.includes(",") &&
+                (createdDateStr.includes("AM") || createdDateStr.includes("PM"))
+              ) {
+                // Format: "Sep 11, 2025, 08:29 PM"
+                // Convert to a format that Date constructor can parse
+                let cleanDateStr = createdDateStr.replace(/,/g, ""); // Remove commas
+                createdDate = new Date(cleanDateStr);
+
+                if (isNaN(createdDate.getTime())) {
+                  // If that fails, try manual parsing
+                  const parts = createdDateStr.split(",");
+                  if (parts.length >= 2) {
+                    const datePart = parts[0].trim() + ", " + parts[1].trim(); // "Sep 11, 2025"
+                    const timePart = parts[2] ? parts[2].trim() : "12:00 AM"; // "08:29 PM"
+                    const combinedDate = datePart + " " + timePart;
+                    createdDate = new Date(combinedDate);
+                  }
+                }
+              }
+              // Handle ISO format dates (2024-01-15)
+              else if (createdDateStr.match(/^\d{4}-\d{2}-\d{2}$/)) {
+                createdDate = new Date(createdDateStr + "T00:00:00");
+              }
+              // Handle MM/DD/YYYY format
+              else if (createdDateStr.match(/^\d{1,2}\/\d{1,2}\/\d{4}$/)) {
+                createdDate = new Date(createdDateStr);
+              }
+              // Handle DD/MM/YYYY format (convert to MM/DD/YYYY)
+              else if (
+                createdDateStr.match(/^\d{1,2}\/\d{1,2}\/\d{4}$/) &&
+                createdDateStr.split("/")[0] > 12
+              ) {
+                const parts = createdDateStr.split("/");
+                createdDate = new Date(`${parts[1]}/${parts[0]}/${parts[2]}`);
+              }
+              // Try standard date parsing for other formats
+              else {
+                createdDate = new Date(createdDateStr);
+              }
+
+              // Validate the parsed date
+              if (isNaN(createdDate.getTime())) {
+                console.warn(
+                  `⚠️ Invalid date format: ${createdDateStr}, using current date`
+                );
+                createdDate = new Date(); // Use current date if invalid
+              } else {
+                console.log(
+                  `✅ Parsed date: "${createdDateStr}" -> ${createdDate.toISOString()}`
+                );
+              }
+            } catch (error) {
+              console.warn(
+                `⚠️ Error parsing date: ${createdDateStr}, error: ${error.message}`
+              );
+              createdDate = new Date(); // Use current date if parse fails
+            }
+          }
+
+          // Check if lead already exists by phone (phone is always provided in Facebook leads)
+          const existingLead = await leadService.findLeadByPhone(phone);
+
+          if (existingLead) {
+            console.log(`⚠️ Lead already exists for phone: ${phone}`);
+            results.errors.push(
+              `Row ${rowNumber}: Lead already exists for phone: ${phone}`
+            );
+            results.skipped++;
+            continue;
+          }
+
+          // Prepare lead contact info
+          const contactInfo = {
+            name: name,
+            email: email,
+            phone: phone,
+            preferredProgram: preferredProgram,
+            source: "FACEBOOK_LEAD",
+            status: "CONTACTED", // Set status to CONTACTED for Facebook leads
+          };
+
+          // Additional data for the lead
+          const additionalData = {
+            formName: formName,
+            highestEducation: highestEducation,
+            transferring: transferring,
+            applicationTiming: applicationTiming,
+            paymentMethod: paymentMethod,
+            createdAt: createdDate,
+            updatedAt: createdDate,
+            submittedBy: req.user
+              ? {
+                  uid: req.user.uid,
+                  email: req.user.email,
+                  name: req.user.name || req.user.email,
+                  role: req.user.role || "admin",
+                }
+              : "facebook-import",
+            // Initialize timeline with CONTACTED status
+            initialTimeline: [
+              {
+                date: createdDate,
+                action: "CREATED",
+                status: "CONTACTED",
+                notes: `Lead imported from Facebook form: ${formName}`,
+                metadata: {
+                  source: "FACEBOOK_LEAD",
+                  formName: formName,
+                  importedBy: req.user?.email || "system",
+                },
+              },
+            ],
+          };
+
+          // Create the lead
+          const newLead = await leadService.createLead(
+            contactInfo,
+            "FACEBOOK_LEAD",
+            additionalData
+          );
+
+          console.log(`✅ Created Facebook lead: ${newLead.id} for ${email}`);
+          results.created++;
+        } catch (error) {
+          console.error(`❌ Error processing row ${rowNumber}:`, error);
+          results.errors.push(
+            `Row ${rowNumber}: Error creating lead - ${error.message}`
+          );
+          results.failed++;
+        }
+      }
+
+      console.log(`📊 Facebook leads import completed:`, results);
+
+      res.json({
+        success: true,
+        message: `Facebook leads import completed. Created: ${results.created}, Failed: ${results.failed}, Skipped: ${results.skipped}`,
+        stats: {
+          total: results.total,
+          created: results.created,
+          failed: results.failed,
+          skipped: results.skipped,
+        },
+        errors: results.errors,
+        results: results,
+      });
+    } catch (error) {
+      console.error("❌ Error importing Facebook leads:", error);
+      res.status(500).json({
+        success: false,
+        message: "Failed to import Facebook leads",
         error: error.message,
       });
     }

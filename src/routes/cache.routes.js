@@ -165,6 +165,23 @@ router.get("/size", async (req, res) => {
       redisCache.KEYS.AI_RESPONSE + "*"
     );
 
+    // Facebook cache keys
+    const facebookFormsKeys = await redisCache.keys(
+      redisCache.KEYS.FACEBOOK_FORMS + "*"
+    );
+    const facebookPagesKeys = await redisCache.keys(
+      redisCache.KEYS.FACEBOOK_PAGES + "*"
+    );
+    const facebookLeadsKeys = await redisCache.keys(
+      redisCache.KEYS.FACEBOOK_LEADS + "*"
+    );
+    const facebookCampaignsKeys = await redisCache.keys(
+      redisCache.KEYS.FACEBOOK_CAMPAIGNS + "*"
+    );
+    const facebookStatsKeys = await redisCache.keys(
+      redisCache.KEYS.FACEBOOK_STATS + "*"
+    );
+
     const cacheInfo = {
       conversations: conversationKeys.length,
       messages: messageKeys.length,
@@ -172,13 +189,31 @@ router.get("/size", async (req, res) => {
       leadNames: leadKeys.length,
       knowledgeBase: knowledgeKeys.length,
       aiResponses: aiResponseKeys.length,
+      facebook: {
+        forms: facebookFormsKeys.length,
+        pages: facebookPagesKeys.length,
+        leads: facebookLeadsKeys.length,
+        campaigns: facebookCampaignsKeys.length,
+        stats: facebookStatsKeys.length,
+        total:
+          facebookFormsKeys.length +
+          facebookPagesKeys.length +
+          facebookLeadsKeys.length +
+          facebookCampaignsKeys.length +
+          facebookStatsKeys.length,
+      },
       total:
         conversationKeys.length +
         messageKeys.length +
         listKeys.length +
         leadKeys.length +
         knowledgeKeys.length +
-        aiResponseKeys.length,
+        aiResponseKeys.length +
+        facebookFormsKeys.length +
+        facebookPagesKeys.length +
+        facebookLeadsKeys.length +
+        facebookCampaignsKeys.length +
+        facebookStatsKeys.length,
     };
 
     res.json({
@@ -201,6 +236,7 @@ router.post("/warmup", async (req, res) => {
     console.log("🔥 Starting cache warmup...");
 
     const startTime = Date.now();
+    const results = {};
 
     // Warm up conversations cache
     const conversationsResult =
@@ -208,10 +244,35 @@ router.post("/warmup", async (req, res) => {
         limit: 50,
         forceRefresh: true,
       });
+    results.conversations = conversationsResult.conversations.length;
 
     console.log(
       `✅ Warmed up ${conversationsResult.conversations.length} conversations`
     );
+
+    // Warm up Facebook cache
+    try {
+      const FacebookLeadFormsService = require("../services/facebookLeadFormsService");
+      const facebookService = new FacebookLeadFormsService();
+
+      const facebookData = await facebookService.getAllLeadFormsData(
+        false,
+        false
+      );
+      results.facebook = {
+        forms: facebookData.leadForms?.length || 0,
+        recentLeads: facebookData.recentLeads?.length || 0,
+        campaigns: facebookData.campaigns?.length || 0,
+        pages: facebookData.pages?.length || 0,
+      };
+
+      console.log(
+        `✅ Warmed up Facebook cache: ${results.facebook.forms} forms, ${results.facebook.recentLeads} recent leads`
+      );
+    } catch (fbError) {
+      console.warn("⚠️ Failed to warm up Facebook cache:", fbError.message);
+      results.facebook = { error: fbError.message };
+    }
 
     const loadTime = Date.now() - startTime;
 
@@ -219,9 +280,7 @@ router.post("/warmup", async (req, res) => {
       success: true,
       message: "Cache warmup completed",
       loadTime: `${loadTime}ms`,
-      itemsWarmed: {
-        conversations: conversationsResult.conversations.length,
-      },
+      itemsWarmed: results,
       timestamp: new Date().toISOString(),
     });
   } catch (error) {
@@ -318,6 +377,11 @@ router.delete("/all", async (req, res) => {
       redisCache.KEYS.KNOWLEDGE_BASE + "*",
       redisCache.KEYS.AI_RESPONSE + "*",
       redisCache.KEYS.ANALYTICS + "*",
+      redisCache.KEYS.FACEBOOK_FORMS + "*",
+      redisCache.KEYS.FACEBOOK_PAGES + "*",
+      redisCache.KEYS.FACEBOOK_LEADS + "*",
+      redisCache.KEYS.FACEBOOK_CAMPAIGNS + "*",
+      redisCache.KEYS.FACEBOOK_STATS + "*",
     ];
 
     let totalCleared = 0;
@@ -337,6 +401,128 @@ router.delete("/all", async (req, res) => {
     });
   } catch (error) {
     console.error("❌ Error during emergency cache clear:", error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
+// Facebook-specific cache management
+router.get("/facebook/status", async (req, res) => {
+  try {
+    const patterns = [
+      redisCache.KEYS.FACEBOOK_FORMS + "*",
+      redisCache.KEYS.FACEBOOK_PAGES + "*",
+      redisCache.KEYS.FACEBOOK_LEADS + "*",
+      redisCache.KEYS.FACEBOOK_CAMPAIGNS + "*",
+      redisCache.KEYS.FACEBOOK_STATS + "*",
+    ];
+
+    const cacheInfo = {
+      forms: 0,
+      pages: 0,
+      leads: 0,
+      campaigns: 0,
+      stats: 0,
+      total: 0,
+    };
+
+    const typeMap = {
+      [redisCache.KEYS.FACEBOOK_FORMS]: "forms",
+      [redisCache.KEYS.FACEBOOK_PAGES]: "pages",
+      [redisCache.KEYS.FACEBOOK_LEADS]: "leads",
+      [redisCache.KEYS.FACEBOOK_CAMPAIGNS]: "campaigns",
+      [redisCache.KEYS.FACEBOOK_STATS]: "stats",
+    };
+
+    for (const pattern of patterns) {
+      const keys = await redisCache.keys(pattern);
+      const basePattern = pattern.replace("*", "");
+      const type = typeMap[basePattern];
+      if (type) {
+        cacheInfo[type] = keys.length;
+        cacheInfo.total += keys.length;
+      }
+    }
+
+    res.json({
+      success: true,
+      facebook: cacheInfo,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error("❌ Error getting Facebook cache status:", error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
+router.post("/facebook/refresh", async (req, res) => {
+  try {
+    console.log("🔄 Manual Facebook cache refresh requested...");
+
+    const FacebookLeadFormsService = require("../services/facebookLeadFormsService");
+    const facebookService = new FacebookLeadFormsService();
+
+    const refreshedData = await facebookService.refreshCache();
+
+    res.json({
+      success: true,
+      message: "Facebook cache refreshed successfully",
+      data: {
+        forms: refreshedData.leadForms?.length || 0,
+        recentLeads: refreshedData.recentLeads?.length || 0,
+        campaigns: refreshedData.campaigns?.length || 0,
+        pages: refreshedData.pages?.length || 0,
+      },
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error("❌ Error refreshing Facebook cache:", error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
+router.delete("/facebook", async (req, res) => {
+  try {
+    console.log("🗑️ Clearing Facebook cache...");
+
+    const totalInvalidated = await redisCache.invalidateFacebookCache();
+
+    res.json({
+      success: true,
+      message: `Cleared ${totalInvalidated} Facebook cache entries`,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error("❌ Error clearing Facebook cache:", error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
+router.delete("/facebook/form/:formId", async (req, res) => {
+  try {
+    const { formId } = req.params;
+    console.log(`🗑️ Clearing cache for Facebook form ${formId}...`);
+
+    await redisCache.invalidateFacebookFormCache(formId);
+
+    res.json({
+      success: true,
+      message: `Cleared cache for Facebook form ${formId}`,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error("❌ Error clearing Facebook form cache:", error);
     res.status(500).json({
       success: false,
       error: error.message,

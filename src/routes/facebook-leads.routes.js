@@ -1,6 +1,6 @@
 /**
  * Facebook Lead Ads Webhook Routes
- * Handles Facebook Lead Ads webhook events for receiving leads
+ * Handles Facebook Lead Ads webhook events for receiving leads with cache invalidation
  */
 
 const express = require("express");
@@ -10,6 +10,9 @@ const { welcomeService } = require("../services/welcomeService");
 const {
   whatsappMessageService,
 } = require("../services/whatsappMessageService");
+const emailService = require("../services/emailService");
+const FacebookLeadWelcomeService = require("../services/facebookLeadWelcomeService");
+const redisCache = require("../services/redisCache.service");
 const logger = require("../utils/logger");
 
 const router = express.Router();
@@ -201,7 +204,7 @@ function verifyWebhookSignature(payload, signature) {
 }
 
 /**
- * Process Facebook leadgen event
+ * Process Facebook leadgen event with cache invalidation
  */
 async function processLeadgenEvent(leadgenData) {
   try {
@@ -228,7 +231,7 @@ async function processLeadgenEvent(leadgenData) {
     console.log("📋 Lead details from Facebook:", leadDetails);
 
     // Create lead in our system
-    await createLeadFromFacebookData(leadDetails, {
+    const createdLead = await createLeadFromFacebookData(leadDetails, {
       page_id,
       form_id,
       adgroup_id,
@@ -236,6 +239,22 @@ async function processLeadgenEvent(leadgenData) {
       created_time,
       leadgen_id,
     });
+
+    // Invalidate Facebook cache since we have new lead data
+    if (form_id) {
+      console.log("🗑️ Invalidating Facebook cache due to new lead");
+      try {
+        await redisCache.invalidateFacebookFormCache(form_id);
+        console.log(
+          `✅ Cache invalidated for form ${form_id} and comprehensive data`
+        );
+      } catch (cacheError) {
+        console.warn("⚠️ Failed to invalidate cache:", cacheError.message);
+        // Don't fail the lead processing if cache invalidation fails
+      }
+    }
+
+    return createdLead;
   } catch (error) {
     console.error("❌ Error processing leadgen event:", error);
     logger.error("Leadgen event processing error", error);
@@ -311,7 +330,7 @@ async function createLeadFromFacebookData(facebookLead, metadata) {
       email: contactInfo.email,
       phone: contactInfo.phone,
       source: "FACEBOOK_LEADS",
-      status: "INTERESTED",
+      status: "CONTACTED", // Facebook leads start as CONTACTED, move to INTERESTED when they engage
       programOfInterest: contactInfo.programOfInterest || null,
       facebookLeadData: {
         leadgen_id: metadata.leadgen_id,
@@ -327,8 +346,8 @@ async function createLeadFromFacebookData(facebookLead, metadata) {
         {
           date: new Date(),
           action: "CREATED",
-          status: "INTERESTED",
-          notes: `Lead created from Facebook Lead Ad (Form: ${metadata.form_id})`,
+          status: "CONTACTED",
+          notes: `Lead created from Facebook Lead Ad (Form: ${metadata.form_id}) - Welcome messages sent`,
         },
       ],
     };
@@ -352,7 +371,7 @@ async function createLeadFromFacebookData(facebookLead, metadata) {
       },
       "FACEBOOK_LEADS",
       {
-        status: "INTERESTED",
+        status: "CONTACTED",
         programOfInterest: contactInfo.programOfInterest,
         facebookLeadData: leadData.facebookLeadData,
         additionalFields: leadData.additionalFields,
@@ -541,13 +560,66 @@ async function updateExistingLeadWithFacebookData(
       `✅ Updated existing lead ${existingLead.id} with Facebook data`
     );
 
-    // Send welcome messages if lead is still INTERESTED
-    if (existingLead.status === "INTERESTED") {
+    // Send welcome messages if lead is still CONTACTED or INTERESTED
+    if (
+      existingLead.status === "CONTACTED" ||
+      existingLead.status === "INTERESTED"
+    ) {
       await sendWelcomeMessages(existingLead);
     }
   } catch (error) {
     console.error("❌ Error updating existing lead:", error);
     throw error;
+  }
+}
+
+/**
+ * Check if a lead has received recent welcome messages (within last 7 days)
+ */
+async function hasRecentWelcomeMessages(lead) {
+  try {
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+
+    // Check lead timeline for recent automated welcome messages
+    const recentWelcomeInteractions = (lead.timeline || []).filter((entry) => {
+      // Check if it's an interaction with campaign metadata
+      if (entry.action !== "INTERACTION" || !entry.metadata) return false;
+
+      // Check if it's from a welcome campaign (either facebook or contacted)
+      const isWelcomeCampaign =
+        entry.metadata.campaignType === "facebook_lead_welcome" ||
+        entry.metadata.campaignType === "contacted_leads_welcome" ||
+        entry.metadata.campaignType === "facebook_lead_nurturing";
+
+      // Check if it's automated (campaign message)
+      const isAutomated = entry.metadata.automated === true;
+
+      // Check if it's recent (within last 7 days)
+      const interactionDate = new Date(entry.timestamp);
+      const isRecent = interactionDate > sevenDaysAgo;
+
+      return isWelcomeCampaign && isAutomated && isRecent;
+    });
+
+    if (recentWelcomeInteractions.length > 0) {
+      const lastWelcomeDate = new Date(
+        Math.max(...recentWelcomeInteractions.map((i) => new Date(i.timestamp)))
+      );
+
+      return {
+        hasRecent: true,
+        lastWelcomeDate,
+        count: recentWelcomeInteractions.length,
+      };
+    }
+
+    return { hasRecent: false };
+  } catch (error) {
+    console.error(
+      `Error checking recent welcome messages for lead ${lead.id}:`,
+      error
+    );
+    return { hasRecent: true, error: error.message }; // Err on side of caution
   }
 }
 
@@ -560,21 +632,50 @@ async function sendWelcomeMessages(lead) {
       `📤 Sending welcome messages to lead: ${lead.name} (${lead.id})`
     );
 
+    // Check if lead has received recent welcome messages
+    const recentCheck = await hasRecentWelcomeMessages(lead);
+
+    if (recentCheck.hasRecent) {
+      if (recentCheck.error) {
+        console.log(
+          `⚠️ Skipping welcome messages for lead ${lead.name} - Error checking recent messages: ${recentCheck.error}`
+        );
+      } else {
+        const daysSince = Math.floor(
+          (new Date() - recentCheck.lastWelcomeDate) / (1000 * 60 * 60 * 24)
+        );
+        console.log(
+          `⏭️ Skipping welcome messages for lead ${lead.name} - Already received welcome message ${daysSince} days ago (${recentCheck.count} recent messages)`
+        );
+      }
+      return {
+        email: {
+          success: false,
+          skipped: true,
+          reason: "Recent message already sent",
+        },
+        whatsapp: {
+          success: false,
+          skipped: true,
+          reason: "Recent message already sent",
+        },
+      };
+    }
+
     const results = {
       email: null,
       whatsapp: null,
     };
 
-    // Send welcome email if email is available
+    // Send welcome email for Facebook leads (same as contacted bulk action)
     if (lead.email) {
       try {
         console.log(`📧 Sending welcome email to ${lead.email}`);
 
-        const emailResult = await welcomeService.sendWelcomeEmail({
-          userEmail: lead.email,
-          userName: lead.name || "Prospective Student",
-          isFirstLogin: true,
-        });
+        const emailResult = await FacebookLeadWelcomeService.sendWelcomeEmail(
+          lead.email,
+          lead.name || "Prospective Student"
+        );
 
         results.email = emailResult;
 
@@ -584,14 +685,16 @@ async function sendWelcomeMessages(lead) {
           // Add interaction record
           await leadService.addInteraction(lead.id, {
             type: "EMAIL",
-            content: "Welcome email sent - Application Portal access",
+            content:
+              "Welcome email sent: Welcome to IUEA! Your journey to success starts here 🎓",
             channel: "EMAIL",
             automated: true,
             direction: "outgoing",
             metadata: {
               messageId: emailResult.messageId,
               provider: emailResult.provider,
-              subject: "Welcome to IUEA Application Portal!",
+              subject:
+                "Welcome to IUEA! Your journey to success starts here 🎓",
               campaignType: "facebook_lead_welcome",
             },
           });
@@ -612,32 +715,13 @@ async function sendWelcomeMessages(lead) {
       try {
         console.log(`📱 Sending WhatsApp welcome message to ${lead.phone}`);
 
-        // Clean phone number for WhatsApp
-        const cleanPhone = lead.phone.replace(/[^\d]/g, "");
-
-        // Use the same template as for first-time student portal users
-        const templatePayload = {
-          messaging_product: "whatsapp",
-          to: cleanPhone,
-          type: "template",
-          template: {
-            name: "whatsapp_validation",
-            language: {
-              code: "en_US",
-            },
-          },
-        };
-
+        // Send WhatsApp using template
+        const whatsappPayload =
+          FacebookLeadWelcomeService.getWelcomeWhatsAppPayload(lead.phone);
         const whatsappResult = await whatsappMessageService.sendTemplateMessage(
-          cleanPhone,
-          templatePayload,
-          {
-            contactName: lead.name,
-            validationType: "welcome",
-            automated: true,
-            leadId: lead.id,
-            source: "facebook_leads",
-          }
+          lead.phone,
+          whatsappPayload,
+          { leadId: lead.id }
         );
 
         results.whatsapp = whatsappResult;
@@ -648,13 +732,14 @@ async function sendWelcomeMessages(lead) {
           // Add interaction record
           await leadService.addInteraction(lead.id, {
             type: "WHATSAPP",
-            content: "WhatsApp welcome message sent",
+            content: `WhatsApp welcome message sent using ${FacebookLeadWelcomeService.getWelcomeWhatsAppTemplate()} template`,
             channel: "WHATSAPP",
             automated: true,
             direction: "outgoing",
             metadata: {
               messageId: whatsappResult.messageId,
-              templateName: "whatsapp_validation",
+              templateName:
+                FacebookLeadWelcomeService.getWelcomeWhatsAppTemplate(),
               campaignType: "facebook_lead_welcome",
             },
           });
@@ -668,56 +753,6 @@ async function sendWelcomeMessages(lead) {
         console.error(`❌ WhatsApp error for ${lead.phone}:`, whatsappError);
         results.whatsapp = { success: false, error: whatsappError.message };
       }
-    }
-
-    // Wait 3 seconds then send follow-up WhatsApp message with application link
-    if (lead.phone && results.whatsapp?.success) {
-      setTimeout(async () => {
-        try {
-          const followUpMessage = `🎓 Ready to take the next step?
-
-Complete your application at our secure portal:
-👉 https://applicant.iuea.ac.ug/
-
-📞 Need help? Our admissions team is here to assist you!
-📧 Email: apply@iuea.ac.ug
-📱 WhatsApp: +256 790 002 000
-
-We're excited to have you join the IUEA family! 🌟`;
-
-          const cleanPhone = lead.phone.replace(/[^\d]/g, "");
-
-          // Send as regular message, not template
-          const followUpResult = await whatsappMessageService.sendMessage(
-            cleanPhone,
-            followUpMessage,
-            "text",
-            {
-              leadId: lead.id,
-              messageType: "follow_up",
-              source: "facebook_leads",
-            }
-          );
-
-          if (followUpResult.success) {
-            console.log(`✅ Follow-up message sent to ${lead.phone}`);
-
-            await leadService.addInteraction(lead.id, {
-              type: "WHATSAPP",
-              content: followUpMessage,
-              channel: "WHATSAPP",
-              automated: true,
-              direction: "outgoing",
-              metadata: {
-                messageType: "follow_up",
-                campaignType: "facebook_lead_welcome",
-              },
-            });
-          }
-        } catch (followUpError) {
-          console.error(`❌ Follow-up message error:`, followUpError);
-        }
-      }, 3000);
     }
 
     console.log(`📊 Welcome messages results for ${lead.name}:`, results);

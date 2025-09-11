@@ -678,7 +678,6 @@ router.get("/config", async (req, res) => {
           features: {
             whatsappIntegration: true,
             emailNotifications: true,
-            autoQualification: true,
           },
         },
       });
@@ -909,336 +908,6 @@ router.get("/analytics/conversations/counts", async (req, res) => {
   }
 });
 
-// ========== LEAD FORMS MANAGEMENT ROUTES ==========
-
-// Get all lead forms
-router.get("/lead-forms", async (req, res) => {
-  try {
-    const db = admin.firestore();
-    const formsSnapshot = await db.collection("leadForms").get();
-
-    const forms = formsSnapshot.docs.map((doc) => ({
-      id: doc.id,
-      ...doc.data(),
-    }));
-
-    res.json({
-      success: true,
-      forms,
-      total: forms.length,
-    });
-  } catch (error) {
-    console.error("Error fetching lead forms:", error);
-    res.status(500).json({
-      success: false,
-      message: "Failed to fetch lead forms",
-      error: error.message,
-    });
-  }
-});
-
-// Create new lead form
-router.post("/lead-forms", async (req, res) => {
-  try {
-    const {
-      name,
-      description,
-      fields,
-      metaConfig,
-      webhookUrl,
-      isActive,
-      campaignId,
-      adsetId,
-      formId,
-    } = req.body;
-
-    if (!name || !fields || !Array.isArray(fields)) {
-      return res.status(400).json({
-        success: false,
-        message: "Name and fields are required",
-      });
-    }
-
-    const db = admin.firestore();
-
-    const formData = {
-      name,
-      description: description || "",
-      fields,
-      metaConfig: metaConfig || {},
-      webhookUrl: webhookUrl || "",
-      isActive: isActive !== undefined ? isActive : true,
-      campaignId: campaignId || "",
-      adsetId: adsetId || "",
-      formId: formId || "",
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      createdBy: req.user.uid,
-      leadCount: 0,
-      conversionRate: 0,
-    };
-
-    const formRef = await db.collection("leadForms").add(formData);
-
-    res.json({
-      success: true,
-      message: "Lead form created successfully",
-      form: {
-        id: formRef.id,
-        ...formData,
-      },
-    });
-  } catch (error) {
-    console.error("Error creating lead form:", error);
-    res.status(500).json({
-      success: false,
-      message: "Failed to create lead form",
-      error: error.message,
-    });
-  }
-});
-
-// Update lead form
-router.put("/lead-forms/:formId", async (req, res) => {
-  try {
-    const { formId } = req.params;
-    const {
-      name,
-      description,
-      fields,
-      metaConfig,
-      webhookUrl,
-      isActive,
-      campaignId,
-      adsetId,
-      formId: metaFormId,
-    } = req.body;
-
-    const db = admin.firestore();
-    const formRef = db.collection("leadForms").doc(formId);
-    const formDoc = await formRef.get();
-
-    if (!formDoc.exists) {
-      return res.status(404).json({
-        success: false,
-        message: "Lead form not found",
-      });
-    }
-
-    const updateData = {
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      updatedBy: req.user.uid,
-    };
-
-    if (name) updateData.name = name;
-    if (description !== undefined) updateData.description = description;
-    if (fields) updateData.fields = fields;
-    if (metaConfig) updateData.metaConfig = metaConfig;
-    if (webhookUrl !== undefined) updateData.webhookUrl = webhookUrl;
-    if (isActive !== undefined) updateData.isActive = isActive;
-    if (campaignId !== undefined) updateData.campaignId = campaignId;
-    if (adsetId !== undefined) updateData.adsetId = adsetId;
-    if (metaFormId !== undefined) updateData.formId = metaFormId;
-
-    await formRef.update(updateData);
-
-    const updatedForm = await formRef.get();
-
-    res.json({
-      success: true,
-      message: "Lead form updated successfully",
-      form: {
-        id: formId,
-        ...updatedForm.data(),
-      },
-    });
-  } catch (error) {
-    console.error("Error updating lead form:", error);
-    res.status(500).json({
-      success: false,
-      message: "Failed to update lead form",
-      error: error.message,
-    });
-  }
-});
-
-// Delete lead form
-router.delete("/lead-forms/:formId", async (req, res) => {
-  try {
-    const { formId } = req.params;
-
-    const db = admin.firestore();
-    const formRef = db.collection("leadForms").doc(formId);
-    const formDoc = await formRef.get();
-
-    if (!formDoc.exists) {
-      return res.status(404).json({
-        success: false,
-        message: "Lead form not found",
-      });
-    }
-
-    await formRef.delete();
-
-    res.json({
-      success: true,
-      message: "Lead form deleted successfully",
-    });
-  } catch (error) {
-    console.error("Error deleting lead form:", error);
-    res.status(500).json({
-      success: false,
-      message: "Failed to delete lead form",
-      error: error.message,
-    });
-  }
-});
-
-// Get lead form statistics
-router.get("/lead-forms/:formId/stats", async (req, res) => {
-  try {
-    const { formId } = req.params;
-    const { timeRange = "30" } = req.query; // days
-
-    const db = admin.firestore();
-    const formRef = db.collection("leadForms").doc(formId);
-    const formDoc = await formRef.get();
-
-    if (!formDoc.exists) {
-      return res.status(404).json({
-        success: false,
-        message: "Lead form not found",
-      });
-    }
-
-    const daysAgo = new Date();
-    daysAgo.setDate(daysAgo.getDate() - parseInt(timeRange));
-
-    // Get leads for this form
-    const leadsQuery = await db
-      .collection("leads")
-      .where("formId", "==", formId)
-      .where("createdAt", ">=", daysAgo)
-      .get();
-
-    const leads = leadsQuery.docs.map((doc) => doc.data());
-
-    // Calculate stats
-    const totalLeads = leads.length;
-    const statusCounts = {};
-    const dailyLeads = {};
-
-    leads.forEach((lead) => {
-      const status = lead.status || "NEW";
-      statusCounts[status] = (statusCounts[status] || 0) + 1;
-
-      const date =
-        lead.createdAt?.toDate?.()?.toISOString?.()?.split("T")[0] || "unknown";
-      dailyLeads[date] = (dailyLeads[date] || 0) + 1;
-    });
-
-    const convertedLeads = leads.filter((lead) =>
-      ["APPLIED", "ADMITTED", "ENROLLED"].includes(lead.status)
-    ).length;
-
-    const conversionRate =
-      totalLeads > 0 ? ((convertedLeads / totalLeads) * 100).toFixed(2) : 0;
-
-    res.json({
-      success: true,
-      stats: {
-        totalLeads,
-        convertedLeads,
-        conversionRate: parseFloat(conversionRate),
-        statusCounts,
-        dailyLeads,
-        timeRange: parseInt(timeRange),
-      },
-    });
-  } catch (error) {
-    console.error("Error fetching lead form stats:", error);
-    res.status(500).json({
-      success: false,
-      message: "Failed to fetch lead form statistics",
-      error: error.message,
-    });
-  }
-});
-
-// Test Meta webhook connection for a specific form
-router.post("/lead-forms/:formId/test-webhook", async (req, res) => {
-  try {
-    const { formId } = req.params;
-
-    const db = admin.firestore();
-    const formRef = db.collection("leadForms").doc(formId);
-    const formDoc = await formRef.get();
-
-    if (!formDoc.exists) {
-      return res.status(404).json({
-        success: false,
-        message: "Lead form not found",
-      });
-    }
-
-    const formData = formDoc.data();
-
-    // Create a test lead payload based on form fields
-    const testPayload = {
-      entry: [
-        {
-          id: "test_page_id",
-          time: Date.now(),
-          changes: [
-            {
-              field: "leadgen",
-              value: {
-                leadgen_id: `test_lead_${Date.now()}`,
-                created_time: Math.floor(Date.now() / 1000),
-                page_id: "test_page_id",
-                form_id: formData.formId || "test_form_id",
-                adgroup_id: formData.adsetId || "test_adset_id",
-                campaign_id: formData.campaignId || "test_campaign_id",
-              },
-            },
-          ],
-        },
-      ],
-    };
-
-    // Mock field data based on form configuration
-    const mockFieldData = formData.fields.map((field) => ({
-      name: field.name,
-      values: [
-        field.name === "email" ? "test@example.com" : `Test ${field.name}`,
-      ],
-    }));
-
-    console.log(`🧪 Testing webhook for form ${formId}:`, {
-      payload: testPayload,
-      fieldData: mockFieldData,
-      webhookUrl: formData.webhookUrl,
-    });
-
-    res.json({
-      success: true,
-      message: "Webhook test completed successfully",
-      testData: {
-        payload: testPayload,
-        mockFieldData,
-        webhookUrl: formData.webhookUrl,
-      },
-    });
-  } catch (error) {
-    console.error("Error testing webhook:", error);
-    res.status(500).json({
-      success: false,
-      message: "Failed to test webhook",
-      error: error.message,
-    });
-  }
-});
-
 // ========== BULK ACTIONS ROUTES ==========
 
 // Get all interested leads for bulk messaging
@@ -1273,6 +942,38 @@ router.get("/bulk-actions/interested-leads", async (req, res) => {
   }
 });
 
+// Get all contacted leads for bulk messaging
+router.get("/bulk-actions/contacted-leads", async (req, res) => {
+  try {
+    const db = admin.firestore();
+    const { LEAD_STATUSES } = require("../config/lead.constants");
+
+    const leadsQuery = await db
+      .collection("leads")
+      .where("status", "==", LEAD_STATUSES.CONTACTED)
+      .orderBy("createdAt", "desc")
+      .get();
+
+    const leads = leadsQuery.docs.map((doc) => ({
+      id: doc.id,
+      ...doc.data(),
+    }));
+
+    res.json({
+      success: true,
+      leads,
+      total: leads.length,
+    });
+  } catch (error) {
+    console.error("Error fetching contacted leads:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch contacted leads",
+      error: error.message,
+    });
+  }
+});
+
 // Start bulk messaging campaign
 router.post("/bulk-actions/send-messages", async (req, res) => {
   try {
@@ -1298,11 +999,11 @@ router.post("/bulk-actions/send-messages", async (req, res) => {
       });
     }
 
-    // For non-interested leads, return early with not implemented message
-    if (leadStatus.toLowerCase() !== "interested") {
+    // For non-supported leads, return early with not implemented message
+    if (!["interested", "contacted"].includes(leadStatus.toLowerCase())) {
       return res.status(400).json({
         success: false,
-        message: `Campaigns for "${leadStatus}" leads are not yet implemented. Only "interested" leads are currently supported.`,
+        message: `Campaigns for "${leadStatus}" leads are not yet implemented. Only "interested" and "contacted" leads are currently supported.`,
       });
     }
 
@@ -1348,32 +1049,64 @@ router.post("/bulk-actions/send-messages", async (req, res) => {
           `📧 Starting campaign: ${campaignName} for ${leadStatus} leads`
         );
 
-        const InterestedLeadsMessenger = require("../scripts/sendInterestedLeadsMessages");
+        // Use appropriate service based on lead status
+        if (leadStatus.toLowerCase() === "interested") {
+          const InterestedLeadsMessenger = require("../scripts/sendInterestedLeadsMessages");
+          const messenger = new InterestedLeadsMessenger(campaignRef);
+          const results = await messenger.processInterestedLeads();
 
-        // Create messenger with campaign reference for real-time updates
-        const messenger = new InterestedLeadsMessenger(campaignRef);
+          // Update final results
+          await campaignRef.update({
+            status: "completed",
+            completedAt: admin.firestore.FieldValue.serverTimestamp(),
+            results: results,
+            [`logs`]: admin.firestore.FieldValue.arrayUnion({
+              timestamp: new Date().toISOString(),
+              type: "success",
+              message: `Campaign completed successfully. Processed: ${
+                results.totalLeads
+              } leads, Emails sent: ${results.emailsSent}, WhatsApp sent: ${
+                results.whatsappSent
+              }, Skipped: ${results.leadsSkipped || 0}, Errors: ${
+                results.errors.length
+              }`,
+            }),
+          });
 
-        const results = await messenger.processInterestedLeads();
+          console.log(
+            `✅ Interested leads campaign completed: ${campaignName}`,
+            results
+          );
+        } else if (leadStatus.toLowerCase() === "contacted") {
+          const ContactedLeadsMessenger = require("../scripts/sendContactedLeadsMessages");
+          const messenger = new ContactedLeadsMessenger(campaignRef);
+          const results = await messenger.processContactedLeads();
 
-        // Update final results
-        await campaignRef.update({
-          status: "completed",
-          completedAt: admin.firestore.FieldValue.serverTimestamp(),
-          results: results,
-          [`logs`]: admin.firestore.FieldValue.arrayUnion({
-            timestamp: new Date().toISOString(),
-            type: "success",
-            message: `Campaign completed successfully. Processed: ${
-              results.totalLeads
-            } leads, Emails sent: ${results.emailsSent}, WhatsApp sent: ${
-              results.whatsappSent
-            }, Skipped: ${results.leadsSkipped || 0}, Errors: ${
-              results.errors.length
-            }`,
-          }),
-        });
+          // Update final results
+          await campaignRef.update({
+            status: "completed",
+            completedAt: admin.firestore.FieldValue.serverTimestamp(),
+            results: results,
+            [`logs`]: admin.firestore.FieldValue.arrayUnion({
+              timestamp: new Date().toISOString(),
+              type: "success",
+              message: `Campaign completed successfully. Processed: ${
+                results.totalLeads
+              } leads, Emails sent: ${results.emailsSent}, WhatsApp sent: ${
+                results.whatsappSent
+              }, Conversations created: ${
+                results.conversationsCreated || 0
+              }, Skipped: ${results.leadsSkipped || 0}, Errors: ${
+                results.errors.length
+              }`,
+            }),
+          });
 
-        console.log(`✅ Campaign completed: ${campaignName}`, results);
+          console.log(
+            `✅ Contacted leads campaign completed: ${campaignName}`,
+            results
+          );
+        }
       } catch (error) {
         console.error("❌ Campaign error:", error);
 
@@ -1515,6 +1248,217 @@ router.delete("/bulk-actions/campaigns/:campaignId", async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Failed to delete campaign",
+      error: error.message,
+    });
+  }
+});
+
+// ========== FACEBOOK LEAD FORMS MANAGEMENT ROUTES ==========
+
+// Get all Facebook lead forms from Meta API with smart caching
+router.get("/facebook-lead-forms", async (req, res) => {
+  try {
+    const fetchAllLeads = req.query.fetchAllLeads === "true";
+    const forceRefresh = req.query.refresh === "true";
+
+    console.log(
+      `🔍 Fetching Facebook lead forms - fetchAllLeads: ${fetchAllLeads}, forceRefresh: ${forceRefresh}`
+    );
+
+    const FacebookLeadFormsService = require("../services/facebookLeadFormsService");
+    const facebookService = new FacebookLeadFormsService();
+
+    let formsData;
+
+    if (forceRefresh) {
+      // Force refresh cache and get fresh data
+      formsData = await facebookService.refreshCache();
+      if (fetchAllLeads && !formsData.allLeadsFetched) {
+        // If we need all leads but cache refresh only got recent, fetch all
+        formsData = await facebookService.getAllLeadFormsData(true, false);
+        await facebookService.cache.cacheFacebookLeadFormsData(formsData);
+      }
+    } else {
+      // Use smart caching
+      formsData = await facebookService.getAllLeadFormsData(
+        fetchAllLeads,
+        true
+      );
+    }
+
+    res.json({
+      success: true,
+      message: `Facebook lead forms fetched successfully${
+        fetchAllLeads ? " (all leads)" : ""
+      }${forceRefresh ? " (refreshed)" : " (cached)"}`,
+      totalRecentLeads: formsData.recentLeads.length,
+      cached: !forceRefresh,
+      lastFetched: formsData.lastFetched || new Date().toISOString(),
+      ...formsData,
+    });
+  } catch (error) {
+    console.error("Error fetching Facebook lead forms:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch Facebook lead forms",
+      error: error.message,
+    });
+  }
+});
+
+// Get all leads from all Facebook forms with caching (must be before parameterized routes)
+router.get("/facebook-lead-forms/all-leads", async (req, res) => {
+  try {
+    const { maxLeadsPerForm = 1000 } = req.query;
+    const forceRefresh = req.query.refresh === "true";
+
+    console.log(
+      `🔍 Fetching ALL leads from all Facebook forms - maxLeadsPerForm: ${maxLeadsPerForm}, forceRefresh: ${forceRefresh}`
+    );
+
+    const FacebookLeadFormsService = require("../services/facebookLeadFormsService");
+    const facebookService = new FacebookLeadFormsService();
+
+    const allLeads = await facebookService.getAllLeadsFromAllForms(
+      null,
+      parseInt(maxLeadsPerForm),
+      !forceRefresh // Use cache unless force refresh
+    );
+
+    res.json({
+      success: true,
+      message: `All Facebook leads fetched successfully${
+        forceRefresh ? " (refreshed)" : " (cached)"
+      }`,
+      leads: allLeads,
+      total: allLeads.length,
+      cached: !forceRefresh,
+    });
+  } catch (error) {
+    console.error("Error fetching all Facebook leads:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch all Facebook leads",
+      error: error.message,
+    });
+  }
+});
+
+// Get detailed statistics for a specific Facebook lead form with caching
+router.get("/facebook-lead-forms/:formId/stats", async (req, res) => {
+  try {
+    const { formId } = req.params;
+    const { pageAccessToken } = req.query;
+    const forceRefresh = req.query.refresh === "true";
+
+    const FacebookLeadFormsService = require("../services/facebookLeadFormsService");
+    const facebookService = new FacebookLeadFormsService();
+
+    const stats = await facebookService.getFormStats(
+      formId,
+      pageAccessToken,
+      !forceRefresh // Use cache unless force refresh
+    );
+
+    res.json({
+      success: true,
+      message: `Form statistics fetched successfully${
+        forceRefresh ? " (refreshed)" : " (cached)"
+      }`,
+      stats,
+      cached: !forceRefresh,
+    });
+  } catch (error) {
+    console.error("Error fetching form statistics:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch form statistics",
+      error: error.message,
+    });
+  }
+});
+
+// Get leads from a specific Facebook form with caching
+router.get("/facebook-lead-forms/:formId/leads", async (req, res) => {
+  try {
+    const { formId } = req.params;
+    const { pageAccessToken, limit = 25 } = req.query;
+    const forceRefresh = req.query.refresh === "true";
+
+    const FacebookLeadFormsService = require("../services/facebookLeadFormsService");
+    const facebookService = new FacebookLeadFormsService();
+
+    const leads = await facebookService.getLeadsFromForm(
+      formId,
+      pageAccessToken,
+      parseInt(limit),
+      !forceRefresh // Use cache unless force refresh
+    );
+
+    res.json({
+      success: true,
+      message: `Form leads fetched successfully${
+        forceRefresh ? " (refreshed)" : " (cached)"
+      }`,
+      leads,
+      total: leads.length,
+      cached: !forceRefresh,
+    });
+  } catch (error) {
+    console.error("Error fetching form leads:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch form leads",
+      error: error.message,
+    });
+  }
+});
+
+// Cache management routes for Facebook data
+router.post("/facebook-lead-forms/refresh-cache", async (req, res) => {
+  try {
+    console.log("🔄 Manual Facebook cache refresh requested");
+
+    const FacebookLeadFormsService = require("../services/facebookLeadFormsService");
+    const facebookService = new FacebookLeadFormsService();
+
+    const refreshedData = await facebookService.refreshCache();
+
+    res.json({
+      success: true,
+      message: "Facebook cache refreshed successfully",
+      data: refreshedData,
+      refreshedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error("Error refreshing Facebook cache:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to refresh Facebook cache",
+      error: error.message,
+    });
+  }
+});
+
+router.get("/facebook-lead-forms/cache-status", async (req, res) => {
+  try {
+    const FacebookLeadFormsService = require("../services/facebookLeadFormsService");
+    const facebookService = new FacebookLeadFormsService();
+
+    const cacheStatus = await facebookService.getCacheStatus();
+    const redisHealth = await facebookService.cache.healthCheck();
+
+    res.json({
+      success: true,
+      cacheStatus,
+      redisHealth,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error("Error checking cache status:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to check cache status",
       error: error.message,
     });
   }

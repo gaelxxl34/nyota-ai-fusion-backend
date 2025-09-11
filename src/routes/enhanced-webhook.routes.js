@@ -285,7 +285,7 @@ router.post("/wordpress", validateWebhookSource, async (req, res) => {
         email,
         phone: validatedPhone || phone,
         message,
-        status: "CONTACTED",
+        status: "CONTACTED", // Website inquiries start as CONTACTED
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
       };
 
@@ -433,7 +433,7 @@ router.post("/google-ads", validateWebhookSource, async (req, res) => {
         email,
         phone: normalizedPhone,
         program: programInterested,
-        status: "CONTACTED",
+        status: "CONTACTED", // Google Ads leads start as CONTACTED
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
       };
       leadId = await leadService.createLead(leadData, LEAD_SOURCES.GOOGLE_ADS);
@@ -1674,7 +1674,7 @@ router.post("/meta-ads", validateWebhookSource, async (req, res) => {
         phone: normalizedPhone || phone,
         program,
         country,
-        status: "INTERESTED", // User initiated contact via Meta Ads form
+        status: "CONTACTED", // Meta Ads leads start as CONTACTED (they submitted form but haven't engaged yet)
         source: LEAD_SOURCES.META_ADS,
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
         // Store original Meta Ads data for reference

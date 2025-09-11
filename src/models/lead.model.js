@@ -3,27 +3,16 @@
  * Straightforward structure without complex indexing
  */
 
-// Import auto-qualification configuration
-const { QUALIFICATION_RULES } = require("../config/autoQualification.config");
 const { LEAD_STATUSES, LEAD_SOURCES } = require("../config/lead.constants");
 
-// Auto-qualification rules (moved to separate config file)
-// Keeping here for backwards compatibility - will be deprecated
-const DEPRECATED_QUALIFICATION_RULES = {
-  // Use AUTO_QUALIFICATION_CONFIG from config file instead
-  PRE_QUALIFIED_INTERACTION_THRESHOLD: 3,
-  QUALIFYING_INTERACTION_TYPES: ["WHATSAPP", "EMAIL", "PHONE", "MEETING"],
-  ELIGIBLE_STATUSES_FOR_AUTO_QUALIFICATION: [
-    LEAD_STATUSES.INTERESTED,
-    LEAD_STATUSES.APPLIED,
-    LEAD_STATUSES.MISSING_DOCUMENT,
-    LEAD_STATUSES.IN_REVIEW,
-  ],
-};
-
 // Status transition rules - Updated for new streamlined funnel
-// INTERESTED → APPLIED → MISSING_DOCUMENT → IN_REVIEW → QUALIFIED → ADMITTED → ENROLLED
+// CONTACTED → INTERESTED → APPLIED → MISSING_DOCUMENT → IN_REVIEW → QUALIFIED → ADMITTED → ENROLLED
 const STATUS_TRANSITIONS = {
+  [LEAD_STATUSES.CONTACTED]: [
+    LEAD_STATUSES.INTERESTED, // CONTACTED leads can naturally progress to INTERESTED when they engage
+    LEAD_STATUSES.APPLIED, // Allow direct application for special cases
+    LEAD_STATUSES.EXPIRED, // Allow expiry for any status
+  ],
   [LEAD_STATUSES.INTERESTED]: [
     LEAD_STATUSES.APPLIED,
     LEAD_STATUSES.MISSING_DOCUMENT, // Allow direct missing document for special cases
@@ -120,7 +109,7 @@ class LeadModel {
       whatsappNumber: contactInfo.whatsappNumber || contactInfo.phone,
 
       // Application Info
-      program: null,
+      program: contactInfo.preferredProgram || contactInfo.program || null,
       applicationSubmitted: false,
       applicationDate: null,
 
@@ -243,61 +232,6 @@ class LeadModel {
       console.error("❌ Error getting current status from timeline:", error);
       return leadData?.status || LEAD_STATUSES.INTERESTED;
     }
-  }
-
-  /**
-   * Check if lead should be automatically qualified based on interactions
-   * Auto-qualification has been disabled as requested
-   */
-  static shouldAutoQualify(leadData, customRules = null) {
-    // Auto-qualification is disabled
-    return {
-      shouldQualify: false,
-      reason: "Auto-qualification is disabled",
-      qualifyingInteractions: [],
-      threshold: 0,
-    };
-  }
-
-  /**
-   * Check if current status is eligible for auto-qualification (private helper)
-   * Auto-qualification has been disabled as requested
-   */
-  static _checkStatusEligibility(currentStatus, rules) {
-    return {
-      eligible: false,
-      result: {
-        shouldQualify: false,
-        reason: "Auto-qualification is disabled",
-        currentStatus,
-      },
-    };
-  }
-
-  /**
-   * Analyze interactions to find qualifying ones (private helper)
-   * Auto-qualification has been disabled as requested
-   */
-  static _analyzeQualifyingInteractions(leadData, rules) {
-    return {
-      count: 0,
-      items: [],
-      meetsThreshold: false,
-      threshold: 0,
-    };
-  }
-
-  /**
-   * Determine if lead should be qualified based on analysis (private helper)
-   * Auto-qualification has been disabled as requested
-   */
-  static _determineQualificationResult(interactionAnalysis, rules) {
-    return {
-      shouldQualify: false,
-      reason: "Auto-qualification is disabled",
-      qualifyingInteractions: [],
-      threshold: 0,
-    };
   }
 
   /**
@@ -456,7 +390,4 @@ class LeadModel {
 module.exports = {
   LeadModel,
   STATUS_TRANSITIONS,
-  // Export both for backwards compatibility
-  QUALIFICATION_RULES: QUALIFICATION_RULES, // From config file
-  DEPRECATED_QUALIFICATION_RULES, // Deprecated inline rules
 };

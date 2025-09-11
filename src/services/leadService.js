@@ -3,10 +3,8 @@
  * Simple CRUD operations and status management
  */
 
-const { LeadModel, QUALIFICATION_RULES } = require("../models/lead.model");
+const { LeadModel } = require("../models/lead.model");
 const { LEAD_STATUSES, LEAD_SOURCES } = require("../config/lead.constants");
-
-// Auto-qualification config import removed as requested
 const { broadcastMessage } = require("./broadcastService");
 
 class LeadService {
@@ -1400,7 +1398,6 @@ class LeadService {
         if (interaction.direction === "incoming") {
           updateData.whatsappIncomingCount =
             (lead.whatsappIncomingCount || 0) + 1;
-          // Auto-qualification removed as requested
         }
       }
 
@@ -1422,7 +1419,7 @@ class LeadService {
 
       console.log(`✅ Interaction added to lead ${leadId}`);
 
-      // Get updated lead data (auto-qualification removed as requested)
+      // Get updated lead data
       const finalLead = await this.getLeadById(leadId);
 
       return finalLead;
@@ -1515,53 +1512,6 @@ class LeadService {
       console.error("❌ Error getting lead stats:", error);
       throw error;
     }
-  }
-
-  /**
-   * Process auto-qualification after interaction (private method)
-   * Auto-qualification has been disabled as requested
-   */
-  async _processAutoQualificationAfterInteraction(leadId) {
-    // Simply return the lead data as auto-qualification has been disabled
-    return await this.getLeadById(leadId);
-  }
-
-  /**
-   * Check if lead is eligible for auto-qualification (private method)
-   * Auto-qualification has been disabled as requested
-   */
-  async _checkAutoQualificationEligibility(leadData) {
-    return { shouldQualify: false, reason: "Auto-qualification is disabled" };
-  }
-
-  /**
-   * Execute the auto-qualification process (private method)
-   * Auto-qualification has been disabled as requested
-   */
-  async _executeAutoQualification(leadId, qualificationResult) {
-    console.log(`Auto-qualification has been disabled for lead ${leadId}`);
-    return await this.getLeadById(leadId);
-  }
-
-  /**
-   * Get auto-qualification configuration (private method)
-   * Auto-qualification has been disabled as requested
-   */
-  _getAutoQualificationConfig() {
-    return {
-      targetStatus: "INTERESTED", // Default status for new leads
-      systemUser: "SYSTEM",
-      generateNotes: () => "Auto-qualification is disabled",
-    };
-  }
-
-  /**
-   * Notify about auto-qualification event (private method)
-   * Auto-qualification has been disabled as requested
-   */
-  async _notifyAutoQualification(leadId, qualificationResult) {
-    // Auto-qualification notification disabled
-    console.log("Auto-qualification notifications disabled");
   }
 
   /**

@@ -532,6 +532,10 @@ This means your admission process is postponed for now.
             application_admitted: `Congratulations 🎓🎉\nYou've been officially admitted to IUEA!\n👉 Download your admission letter and complete enrollment here: https://applicant.iuea.ac.ug/\nWelcome to the IUEA family 🌍`,
             application_deferred: `Hello 👋\nYour application has been deferred to a later intake ⏳\nThis means your admission process is postponed for now.\n👉 Stay updated by checking your portal: https://applicant.iuea.ac.ug/`,
             whatsapp_validation: `Hello👋\n\nThank you for your interest in IUEA! 🎓\nWe've received your message and we're here to help.😊\n\nIs there a specific program you're interested in, or would you like some help with the admission process?`,
+            nurturing_lead_portal_signup: `Hello 👋
+Thank you for showing interest in IUEA 🎓 through our online form!
+The first step toward admission is to create your student portal account. From there, you can start your application and track your progress.
+Would you like to create your account now, or chat with us if you need guidance?`,
           };
 
           // Allow caller to override with explicit equivalent message via metadata
