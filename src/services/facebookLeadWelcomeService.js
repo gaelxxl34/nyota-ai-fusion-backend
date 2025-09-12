@@ -13,10 +13,11 @@ class FacebookLeadWelcomeService {
    */
   static async sendWelcomeEmail(userEmail, userName) {
     try {
-      const firstName = (userName || "").split(" ")[0] || userName || "Prospective Student";
-      
+      const firstName =
+        (userName || "").split(" ")[0] || userName || "Prospective Student";
+
       const subject = "Welcome to IUEA! Your journey to success starts here 🎓";
-      
+
       const emailContent = this.generateWelcomeEmailContent(firstName);
 
       const emailOptions = {
@@ -343,21 +344,29 @@ Address: Kansanga, Kampala, Uganda`;
 
   /**
    * Get standardized WhatsApp template name for welcome messages
+   * @param {string} context - Either 'facebook_lead' or 'contacted_lead' to determine the template
    */
-  static getWelcomeWhatsAppTemplate() {
-    return "welcome_to_iuea";
+  static getWelcomeWhatsAppTemplate(context = "facebook_lead") {
+    // For contacted leads, use nurturing template; for Facebook leads, use welcome template
+    return context === "contacted_lead"
+      ? "nurturing_lead_portal_signup"
+      : "nurturing_lead_portal_signup";
   }
 
   /**
    * Get standardized WhatsApp template payload for welcome messages
+   * @param {string} phoneNumber - The phone number to send to
+   * @param {string} context - Either 'facebook_lead' or 'contacted_lead' to determine the template
    */
-  static getWelcomeWhatsAppPayload(phoneNumber) {
+  static getWelcomeWhatsAppPayload(phoneNumber, context = "facebook_lead") {
+    const templateName = this.getWelcomeWhatsAppTemplate(context);
+
     return {
       messaging_product: "whatsapp",
       to: phoneNumber,
       type: "template",
       template: {
-        name: "welcome_to_iuea",
+        name: templateName,
         language: {
           code: "en_US",
         },

@@ -3,7 +3,7 @@
 /**
  * Script to send welcome email and WhatsApp messages to all leads with "CONTACTED" status
  * Also creates conversations and leads as needed
- * Uses the welcome_to_iuea template for WhatsApp messages
+ * Uses the nurturing_lead_portal_signup template for WhatsApp messages
  */
 
 // Load environment variables
@@ -391,9 +391,11 @@ class ContactedLeadsMessenger {
         lead.id
       );
 
-      // Get the WhatsApp payload from the service
-      const payload =
-        FacebookLeadWelcomeService.getWelcomeWhatsAppPayload(phoneNumber);
+      // Get the WhatsApp payload from the service for contacted leads
+      const payload = FacebookLeadWelcomeService.getWelcomeWhatsAppPayload(
+        phoneNumber,
+        "contacted_lead"
+      );
 
       const result = await this.whatsappService.sendTemplateMessage(
         phoneNumber,
