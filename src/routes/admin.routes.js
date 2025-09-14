@@ -1074,6 +1074,10 @@ router.post(
         notFound: 0,
         failed: 0,
         errors: [],
+        successful: [], // Track successful updates for detailed reporting
+        skipped: [], // Track skipped updates (already in target status)
+        failedDetails: [], // Track failed updates for detailed reporting
+        notFoundDetails: [], // Track not found for detailed reporting
       };
 
       console.log(`📊 Processing ${rows.length} rows for tag updates...`);
@@ -1134,6 +1138,15 @@ router.post(
               `Row ${rowNumber}: No application found for registration number ${regNo}`
             );
             results.notFound++;
+
+            // Track not found for detailed reporting (reuse the notFound array from tag update report structure)
+            if (!results.notFoundDetails) results.notFoundDetails = [];
+            results.notFoundDetails.push({
+              regNo: regNo,
+              tag: tags,
+              reason: "Registration number not found in the system",
+            });
+
             continue;
           }
 
@@ -1169,97 +1182,200 @@ router.post(
 
             // Check tag values and update status accordingly
             let statusChanged = false;
+            let skippedReason = null;
             const tagsLower = tags.toLowerCase();
 
-            // Handle green tags - update ADMITTED to ENROLLED
-            if (tagsLower === "green" && currentData.status === "ADMITTED") {
-              console.log(
-                `🔄 Processing green tag for application ${applicationId}`
-              );
-              console.log(
-                `🔄 Current status: ${currentData.status}, Lead ID: ${currentData.leadId}`
-              );
+            // Handle green tags - update ADMITTED to ENROLLED (only if not already ENROLLED)
+            if (tagsLower === "green") {
+              if (currentData.status === "ENROLLED") {
+                // Already enrolled, skip this update
+                skippedReason = "Already ENROLLED - green tag unnecessary";
+                console.log(
+                  `⏭️ Skipping green tag for ${regNo}: already ENROLLED`
+                );
 
-              // Use ApplicationService to update status which handles both application and lead
-              await applicationService.updateApplicationStatus(
-                applicationId,
-                "ENROLLED",
-                `Status updated to ENROLLED due to green tag from import`,
-                updateData.lastUpdatedBy
-              );
+                // Add to skipped results for reporting
+                if (!results.skipped) results.skipped = [];
+                results.skipped.push({
+                  regNo: regNo,
+                  name: currentData.name,
+                  currentStatus: currentData.status,
+                  requestedTag: tags,
+                  reason: skippedReason,
+                });
+              } else if (currentData.status === "ADMITTED") {
+                console.log(
+                  `🔄 Processing green tag for application ${applicationId}`
+                );
+                console.log(
+                  `🔄 Current status: ${currentData.status}, Lead ID: ${currentData.leadId}`
+                );
 
-              // Also update tags separately since updateApplicationStatus doesn't handle tags
-              await db.collection("applications").doc(applicationId).update({
-                tags: tags,
-                updatedAt: new Date(),
-                lastUpdatedBy: updateData.lastUpdatedBy,
-              });
+                // Use ApplicationService to update status which handles both application and lead
+                await applicationService.updateApplicationStatus(
+                  applicationId,
+                  "ENROLLED",
+                  `Status updated to ENROLLED due to green tag from import`,
+                  updateData.lastUpdatedBy
+                );
 
-              console.log(
-                `✅ Updating status from ADMITTED to ENROLLED for reg no: ${regNo}`
-              );
-              results.enrolled++;
-              statusChanged = true;
+                // Also update tags separately since updateApplicationStatus doesn't handle tags
+                await db.collection("applications").doc(applicationId).update({
+                  tags: tags,
+                  updatedAt: new Date(),
+                  lastUpdatedBy: updateData.lastUpdatedBy,
+                });
+
+                console.log(
+                  `✅ Updating status from ADMITTED to ENROLLED for reg no: ${regNo}`
+                );
+                results.enrolled++;
+                statusChanged = true;
+
+                // Track successful update for detailed reporting
+                results.successful.push({
+                  regNo: regNo,
+                  name: currentData.name,
+                  previousStatus: currentData.status,
+                  newStatus: "ENROLLED",
+                  tag: tags,
+                  updatedAt: new Date(),
+                });
+              } else {
+                // Wrong status for green tag (not ADMITTED)
+                skippedReason = `Cannot apply green tag to ${currentData.status} status - green tags only work for ADMITTED applications`;
+                console.log(
+                  `⚠️ Cannot apply green tag to ${regNo}: current status is ${currentData.status}, not ADMITTED`
+                );
+
+                // Add to skipped results for reporting
+                if (!results.skipped) results.skipped = [];
+                results.skipped.push({
+                  regNo: regNo,
+                  name: currentData.name,
+                  currentStatus: currentData.status,
+                  requestedTag: tags,
+                  reason: skippedReason,
+                });
+              }
             }
-            // Handle yellow tags - update to DEFERRED
+            // Handle yellow tags - update to DEFERRED (only if not already DEFERRED)
             else if (tagsLower === "yellow") {
-              console.log(
-                `🔄 Processing yellow tag for application ${applicationId}`
-              );
-              console.log(
-                `🔄 Current status: ${currentData.status}, Lead ID: ${currentData.leadId}`
-              );
+              if (currentData.status === "DEFERRED") {
+                // Already deferred, skip this update
+                skippedReason = "Already DEFERRED - yellow tag unnecessary";
+                console.log(
+                  `⏭️ Skipping yellow tag for ${regNo}: already DEFERRED`
+                );
 
-              // Use ApplicationService to update status
-              await applicationService.updateApplicationStatus(
-                applicationId,
-                "DEFERRED",
-                `Status updated to DEFERRED due to yellow tag from import`,
-                updateData.lastUpdatedBy
-              );
+                // Add to skipped results for reporting
+                if (!results.skipped) results.skipped = [];
+                results.skipped.push({
+                  regNo: regNo,
+                  name: currentData.name,
+                  currentStatus: currentData.status,
+                  requestedTag: tags,
+                  reason: skippedReason,
+                });
+              } else {
+                console.log(
+                  `🔄 Processing yellow tag for application ${applicationId}`
+                );
+                console.log(
+                  `🔄 Current status: ${currentData.status}, Lead ID: ${currentData.leadId}`
+                );
 
-              // Also update tags separately
-              await db.collection("applications").doc(applicationId).update({
-                tags: tags,
-                updatedAt: new Date(),
-                lastUpdatedBy: updateData.lastUpdatedBy,
-              });
+                // Use ApplicationService to update status
+                await applicationService.updateApplicationStatus(
+                  applicationId,
+                  "DEFERRED",
+                  `Status updated to DEFERRED due to yellow tag from import`,
+                  updateData.lastUpdatedBy
+                );
 
-              console.log(
-                `✅ Updating status to DEFERRED for reg no: ${regNo}`
-              );
-              results.deferred++;
-              statusChanged = true;
+                // Also update tags separately
+                await db.collection("applications").doc(applicationId).update({
+                  tags: tags,
+                  updatedAt: new Date(),
+                  lastUpdatedBy: updateData.lastUpdatedBy,
+                });
+
+                console.log(
+                  `✅ Updating status to DEFERRED for reg no: ${regNo}`
+                );
+                results.deferred++;
+                statusChanged = true;
+
+                // Track successful update for detailed reporting
+                results.successful.push({
+                  regNo: regNo,
+                  name: currentData.name,
+                  previousStatus: currentData.status,
+                  newStatus: "DEFERRED",
+                  tag: tags,
+                  updatedAt: new Date(),
+                });
+              }
             }
-            // Handle red tags - update to EXPIRED
+            // Handle red tags - update to EXPIRED (only if not already EXPIRED)
             else if (tagsLower === "red") {
-              console.log(
-                `🔄 Processing red tag for application ${applicationId}`
-              );
-              console.log(
-                `🔄 Current status: ${currentData.status}, Lead ID: ${currentData.leadId}`
-              );
+              if (currentData.status === "EXPIRED") {
+                // Already expired, skip this update
+                skippedReason = "Already EXPIRED - red tag unnecessary";
+                console.log(
+                  `⏭️ Skipping red tag for ${regNo}: already EXPIRED`
+                );
 
-              // Use ApplicationService to update status
-              await applicationService.updateApplicationStatus(
-                applicationId,
-                "EXPIRED",
-                `Status updated to EXPIRED due to red tag from import`,
-                updateData.lastUpdatedBy
-              );
+                // Add to skipped results for reporting
+                if (!results.skipped) results.skipped = [];
+                results.skipped.push({
+                  regNo: regNo,
+                  name: currentData.name,
+                  currentStatus: currentData.status,
+                  requestedTag: tags,
+                  reason: skippedReason,
+                });
+              } else {
+                console.log(
+                  `🔄 Processing red tag for application ${applicationId}`
+                );
+                console.log(
+                  `🔄 Current status: ${currentData.status}, Lead ID: ${currentData.leadId}`
+                );
 
-              // Also update tags separately
-              await db.collection("applications").doc(applicationId).update({
-                tags: tags,
-                updatedAt: new Date(),
-                lastUpdatedBy: updateData.lastUpdatedBy,
-              });
+                // Use ApplicationService to update status
+                await applicationService.updateApplicationStatus(
+                  applicationId,
+                  "EXPIRED",
+                  `Status updated to EXPIRED due to red tag from import`,
+                  updateData.lastUpdatedBy
+                );
 
-              console.log(`✅ Updating status to EXPIRED for reg no: ${regNo}`);
-              results.expired++;
-              statusChanged = true;
+                // Also update tags separately
+                await db.collection("applications").doc(applicationId).update({
+                  tags: tags,
+                  updatedAt: new Date(),
+                  lastUpdatedBy: updateData.lastUpdatedBy,
+                });
+
+                console.log(
+                  `✅ Updating status to EXPIRED for reg no: ${regNo}`
+                );
+                results.expired++;
+                statusChanged = true;
+
+                // Track successful update for detailed reporting
+                results.successful.push({
+                  regNo: regNo,
+                  name: currentData.name,
+                  previousStatus: currentData.status,
+                  newStatus: "EXPIRED",
+                  tag: tags,
+                  updatedAt: new Date(),
+                });
+              }
             } else {
-              // Just update tags and add timeline entry
+              // Just update tags and add timeline entry for non-status tags
               const timelineEntry = {
                 date: new Date(),
                 action: "TAGS_UPDATED",
@@ -1287,16 +1403,36 @@ router.post(
           console.error(`❌ Error processing row ${rowNumber}:`, error);
           results.errors.push(`Row ${rowNumber}: ${error.message}`);
           results.failed++;
+
+          // Track failed update for detailed reporting
+          if (!results.failedDetails) results.failedDetails = [];
+          results.failedDetails.push({
+            regNo: regNo || "Unknown",
+            tag: tags || "Unknown",
+            reason: error.message,
+          });
         }
       }
 
       console.log(`📊 Tag import completed:`, results);
 
+      // Include skipped count in the message
+      const skippedCount = results.skipped ? results.skipped.length : 0;
+
       res.json({
         success: true,
-        message: `Tag import completed. ${results.updated} updated, ${results.enrolled} enrolled, ${results.deferred} deferred, ${results.expired} expired, ${results.notFound} not found, ${results.failed} failed`,
-        stats: results,
+        message: `Tag import completed. ${results.updated} updated, ${results.enrolled} enrolled, ${results.deferred} deferred, ${results.expired} expired, ${results.notFound} not found, ${results.failed} failed, ${skippedCount} skipped (already in target status)`,
+        stats: {
+          ...results,
+          skipped: skippedCount,
+        },
         errors: results.errors.slice(0, 10), // Limit errors in response
+        updateDetails: {
+          successful: results.successful || [],
+          failed: results.failedDetails || [], // We'll need to update this structure too
+          notFound: results.notFoundDetails || [],
+          skipped: results.skipped || [], // Add skipped items to the detailed report
+        },
       });
     } catch (error) {
       console.error("❌ Error during tag import:", error);

@@ -311,6 +311,10 @@ function startServer() {
     const facebookLeadsRoutes = require("./routes/facebook-leads.routes");
     app.use("/api/facebook-leads", facebookLeadsRoutes);
     logger.info("Facebook Lead Ads webhook routes loaded");
+
+    // Initialize Facebook Hybrid Leads Service
+    // Note: The service is initialized in the routes file and starts automatically
+    logger.info("Facebook Hybrid Leads Service initializing with routes...");
   } catch (error) {
     logger.warn("Facebook Lead Ads routes not loaded:", error.message);
   }

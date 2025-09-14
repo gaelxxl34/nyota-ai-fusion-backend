@@ -1,6 +1,7 @@
 /**
- * Facebook Lead Ads Webhook Routes
- * Handles Facebook Lead Ads webhook events for receiving leads with cache invalidation
+ * Facebook Lead Ads Webhook Routes - HYBRID VERSION
+ * Handles Facebook Lead Ads webhook events with periodic polling backup
+ * Ensures no leads are missed even if webhooks fail
  */
 
 const express = require("express");
@@ -15,7 +16,19 @@ const FacebookLeadWelcomeService = require("../services/facebookLeadWelcomeServi
 const redisCache = require("../services/redisCache.service");
 const logger = require("../utils/logger");
 
+// Import the new hybrid service
+const FacebookHybridLeadsService = require("../services/facebookHybridLeadsService");
+
 const router = express.Router();
+
+// Initialize hybrid service
+let hybridService = null;
+try {
+  hybridService = new FacebookHybridLeadsService();
+  logger.info("✅ Facebook Hybrid Leads Service initialized in routes");
+} catch (error) {
+  logger.error("❌ Failed to initialize Facebook Hybrid Leads Service:", error);
+}
 
 /**
  * Middleware to capture raw body for signature verification
@@ -204,12 +217,17 @@ function verifyWebhookSignature(payload, signature) {
 }
 
 /**
- * Process Facebook leadgen event with cache invalidation
+ * Process Facebook leadgen event with cache invalidation and hybrid tracking
  */
 async function processLeadgenEvent(leadgenData) {
   try {
     const { leadgen_id, page_id, form_id, adgroup_id, ad_id, created_time } =
       leadgenData;
+
+    // Record webhook activity in hybrid service
+    if (hybridService) {
+      hybridService.recordWebhookActivity(leadgen_id);
+    }
 
     // Check if this is a test/dummy lead from Facebook (IDs with all 4s)
     if (leadgen_id && leadgen_id.toString().match(/^4+$/)) {
@@ -218,7 +236,7 @@ async function processLeadgenEvent(leadgenData) {
       return;
     }
 
-    console.log("🔄 Processing leadgen event:", leadgenData);
+    console.log("🔄 Processing leadgen event (WEBHOOK):", leadgenData);
 
     // Fetch lead details using Facebook Graph API
     const leadDetails = await fetchLeadDetailsFromFacebook(leadgen_id);
@@ -238,6 +256,7 @@ async function processLeadgenEvent(leadgenData) {
       ad_id,
       created_time,
       leadgen_id,
+      source: "WEBHOOK", // Mark as webhook source
     });
 
     // Invalidate Facebook cache since we have new lead data
@@ -253,6 +272,12 @@ async function processLeadgenEvent(leadgenData) {
         // Don't fail the lead processing if cache invalidation fails
       }
     }
+
+    logger.info("✅ Webhook lead processed successfully", {
+      leadId: createdLead.id,
+      leadgenId: leadgen_id,
+      source: "WEBHOOK",
+    });
 
     return createdLead;
   } catch (error) {
@@ -762,5 +787,145 @@ async function sendWelcomeMessages(lead) {
     throw error;
   }
 }
+
+// ============ HYBRID SERVICE MANAGEMENT ENDPOINTS ============
+
+/**
+ * Get hybrid service statistics
+ * GET /api/facebook-leads/hybrid/stats
+ */
+router.get("/hybrid/stats", (req, res) => {
+  try {
+    if (!hybridService) {
+      return res.status(503).json({
+        success: false,
+        error: "Hybrid service not available",
+      });
+    }
+
+    const stats = hybridService.getStats();
+    res.json({
+      success: true,
+      data: stats,
+      message: "Hybrid service statistics retrieved",
+    });
+  } catch (error) {
+    logger.error("Error getting hybrid stats:", error);
+    res.status(500).json({
+      success: false,
+      error: "Failed to get hybrid service statistics",
+    });
+  }
+});
+
+/**
+ * Manually trigger polling
+ * POST /api/facebook-leads/hybrid/poll
+ */
+router.post("/hybrid/poll", async (req, res) => {
+  try {
+    if (!hybridService) {
+      return res.status(503).json({
+        success: false,
+        error: "Hybrid service not available",
+      });
+    }
+
+    logger.info("🚀 Manual polling triggered via API");
+
+    // Trigger polling in background
+    hybridService.triggerManualPoll().catch((error) => {
+      logger.error("Manual polling error:", error);
+    });
+
+    res.json({
+      success: true,
+      message: "Manual polling triggered",
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    logger.error("Error triggering manual poll:", error);
+    res.status(500).json({
+      success: false,
+      error: "Failed to trigger manual polling",
+    });
+  }
+});
+
+/**
+ * Enable/disable polling
+ * POST /api/facebook-leads/hybrid/toggle
+ */
+router.post("/hybrid/toggle", (req, res) => {
+  try {
+    if (!hybridService) {
+      return res.status(503).json({
+        success: false,
+        error: "Hybrid service not available",
+      });
+    }
+
+    const { enabled } = req.body;
+
+    if (typeof enabled !== "boolean") {
+      return res.status(400).json({
+        success: false,
+        error: "enabled field must be a boolean",
+      });
+    }
+
+    hybridService.setPollingEnabled(enabled);
+
+    res.json({
+      success: true,
+      message: `Polling ${enabled ? "enabled" : "disabled"}`,
+      enabled,
+    });
+  } catch (error) {
+    logger.error("Error toggling polling:", error);
+    res.status(500).json({
+      success: false,
+      error: "Failed to toggle polling",
+    });
+  }
+});
+
+/**
+ * Get hybrid service health check
+ * GET /api/facebook-leads/hybrid/health
+ */
+router.get("/hybrid/health", (req, res) => {
+  try {
+    const health = {
+      hybridServiceAvailable: !!hybridService,
+      timestamp: new Date().toISOString(),
+      environment: process.env.NODE_ENV || "development",
+      pollingEnabled: hybridService ? hybridService.isPollingEnabled : false,
+    };
+
+    if (hybridService) {
+      const stats = hybridService.getStats();
+      health.stats = {
+        webhooksReceived: stats.webhooksReceived,
+        pollingRuns: stats.pollingRuns,
+        leadsFoundByPolling: stats.leadsFoundByPolling,
+        lastWebhookTime: stats.lastWebhookTime,
+        lastPollingTime: stats.lastPollingTime,
+        pollingInterval: stats.pollingInterval,
+      };
+    }
+
+    res.json({
+      success: true,
+      data: health,
+    });
+  } catch (error) {
+    logger.error("Error getting hybrid health:", error);
+    res.status(500).json({
+      success: false,
+      error: "Failed to get hybrid service health",
+    });
+  }
+});
 
 module.exports = router;
