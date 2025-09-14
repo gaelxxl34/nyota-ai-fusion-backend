@@ -9,7 +9,7 @@ const redisCache = require("./redisCache.service");
 class FacebookLeadFormsService {
   constructor() {
     this.accessToken = process.env.FACEBOOK_ACCESS_TOKEN;
-    this.baseUrl = "https://graph.facebook.com/v18.0";
+    this.baseUrl = "https://graph.facebook.com/v20.0";
     this.cache = redisCache;
   }
 
