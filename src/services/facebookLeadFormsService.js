@@ -14,6 +14,61 @@ class FacebookLeadFormsService {
   }
 
   /**
+   * Detect the type of access token being used
+   */
+  async detectTokenType() {
+    try {
+      const response = await axios.get(`${this.baseUrl}/me`, {
+        params: {
+          access_token: this.accessToken,
+          fields: "id,name",
+        },
+      });
+
+      const tokenInfo = response.data;
+
+      // Try to detect if it's a page by attempting to get page-specific fields
+      try {
+        const pageCheckResponse = await axios.get(
+          `${this.baseUrl}/${tokenInfo.id}`,
+          {
+            params: {
+              access_token: this.accessToken,
+              fields: "category,fan_count",
+            },
+          }
+        );
+
+        // If we get a category field, it's a page
+        if (pageCheckResponse.data.category) {
+          return {
+            type: "page",
+            id: tokenInfo.id,
+            name: tokenInfo.name,
+            category: pageCheckResponse.data.category,
+            fanCount: pageCheckResponse.data.fan_count,
+          };
+        }
+      } catch (pageCheckError) {
+        // If page check fails, it's likely a user token
+      }
+
+      // Default to user token
+      return {
+        type: "user",
+        id: tokenInfo.id,
+        name: tokenInfo.name,
+      };
+    } catch (error) {
+      console.error(
+        "❌ Error detecting token type:",
+        error.response?.data || error.message
+      );
+      throw new Error("Failed to detect token type");
+    }
+  }
+
+  /**
    * Get all accessible Facebook pages with caching
    */
   async getFacebookPages(useCache = true) {
@@ -27,14 +82,89 @@ class FacebookLeadFormsService {
       }
 
       console.log("📄 Fetching Facebook pages from Meta API...");
-      const response = await axios.get(`${this.baseUrl}/me/accounts`, {
+
+      // First, check what type of token we have
+      const tokenInfoResponse = await axios.get(`${this.baseUrl}/me`, {
         params: {
           access_token: this.accessToken,
-          fields: "id,name,access_token,tasks",
+          fields: "id,name",
         },
       });
 
-      const pages = response.data.data || [];
+      const tokenInfo = tokenInfoResponse.data;
+      let pages = [];
+
+      // Try to detect if this is a page token by checking for page-specific fields
+      try {
+        const pageCheckResponse = await axios.get(
+          `${this.baseUrl}/${tokenInfo.id}`,
+          {
+            params: {
+              access_token: this.accessToken,
+              fields: "category,fan_count",
+            },
+          }
+        );
+
+        if (pageCheckResponse.data.category) {
+          console.log("🏷️ Detected Page Access Token");
+          // This is a page token, so we return the page itself
+          pages = [
+            {
+              id: tokenInfo.id,
+              name: tokenInfo.name,
+              access_token: this.accessToken,
+              tasks: [
+                "ADVERTISE",
+                "ANALYZE",
+                "CREATE_CONTENT",
+                "MESSAGING",
+                "MODERATE",
+                "MANAGE",
+              ],
+            },
+          ];
+        }
+      } catch (pageCheckError) {
+        console.log("👤 Detected User Access Token");
+        // This is a user token, fetch managed pages
+        try {
+          const response = await axios.get(`${this.baseUrl}/me/accounts`, {
+            params: {
+              access_token: this.accessToken,
+              fields: "id,name,access_token,tasks",
+            },
+          });
+          pages = response.data.data || [];
+        } catch (accountsError) {
+          console.warn(
+            "⚠️ Could not fetch /me/accounts, trying alternative approach..."
+          );
+          console.warn(
+            "   Error:",
+            accountsError.response?.data?.error?.message ||
+              accountsError.message
+          );
+          // Fallback: treat the current token as a page token
+          pages = [
+            {
+              id: tokenInfo.id,
+              name: tokenInfo.name,
+              access_token: this.accessToken,
+              tasks: [
+                "ADVERTISE",
+                "ANALYZE",
+                "CREATE_CONTENT",
+                "MESSAGING",
+                "MODERATE",
+                "MANAGE",
+              ],
+            },
+          ];
+        }
+      }
+
+      console.log(`📄 Found ${pages.length} accessible page(s)`);
 
       // Cache the result
       if (useCache) {
@@ -173,14 +303,58 @@ class FacebookLeadFormsService {
     try {
       // For now, we don't cache ad accounts separately as they're part of campaigns caching
       console.log("💼 Fetching ad accounts from Meta API...");
-      const response = await axios.get(`${this.baseUrl}/me/adaccounts`, {
+
+      // Check token type first
+      const tokenInfoResponse = await axios.get(`${this.baseUrl}/me`, {
         params: {
           access_token: this.accessToken,
-          fields: "id,name,account_status,currency,timezone_name",
+          fields: "id,name",
         },
       });
 
-      const accounts = response.data.data || [];
+      const tokenInfo = tokenInfoResponse.data;
+      let accounts = [];
+
+      // Try to detect if this is a page token
+      try {
+        const pageCheckResponse = await axios.get(
+          `${this.baseUrl}/${tokenInfo.id}`,
+          {
+            params: {
+              access_token: this.accessToken,
+              fields: "category",
+            },
+          }
+        );
+
+        if (pageCheckResponse.data.category) {
+          console.log("🏷️ Page token detected - limited ad account access");
+          // Page tokens typically don't have access to ad accounts
+          return [];
+        }
+      } catch (pageCheckError) {
+        // Not a page token, continue with user token logic
+      }
+
+      // User token - try to get ad accounts
+      try {
+        const response = await axios.get(`${this.baseUrl}/me/adaccounts`, {
+          params: {
+            access_token: this.accessToken,
+            fields: "id,name,account_status,currency,timezone_name",
+          },
+        });
+        accounts = response.data.data || [];
+      } catch (adAccountsError) {
+        console.warn(
+          "⚠️ Could not fetch ad accounts:",
+          adAccountsError.response?.data?.error?.message ||
+            adAccountsError.message
+        );
+        // Return empty array instead of failing
+        return [];
+      }
+
       console.log(`💼 Found ${accounts.length} ad accounts`);
       return accounts;
     } catch (error) {
