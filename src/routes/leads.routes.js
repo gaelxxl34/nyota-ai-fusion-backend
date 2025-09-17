@@ -10,6 +10,7 @@ const ConversationService = require("../services/conversationService");
 const { getFirestore } = require("firebase-admin/firestore");
 const { LEAD_STATUSES, LEAD_SOURCES } = require("../config/lead.constants");
 const { authenticateUser } = require("../middleware/auth.middleware");
+const { LeadModel } = require("../models/lead.model");
 
 const router = express.Router();
 
@@ -418,6 +419,77 @@ router.get(
 );
 
 /**
+ * Get marketing agents for assignment
+ * GET /api/leads/marketing-agents
+ */
+router.get("/marketing-agents", async (req, res) => {
+  try {
+    console.log("📋 Fetching marketing agents for lead assignment...");
+
+    // Get all users with marketing agent role
+    const usersSnapshot = await db
+      .collection("users")
+      .where("role", "==", "marketingAgent")
+      .get();
+
+    console.log(
+      `📋 Found ${usersSnapshot.docs.length} users with marketingAgent role`
+    );
+
+    const marketingAgents = [];
+
+    // Process each marketing agent
+    for (const doc of usersSnapshot.docs) {
+      const user = doc.data();
+      console.log(`📋 Processing user: ${user.email}, role: ${user.role}`);
+
+      // Count assigned leads for this agent
+      const assignedLeadsCount = await db
+        .collection("leads")
+        .where("assignedTo", "==", user.email)
+        .where("status", "in", ["CONTACTED", "INTERESTED"])
+        .count()
+        .get();
+
+      marketingAgents.push({
+        uid: doc.id,
+        name: user.displayName || user.name || user.email.split("@")[0],
+        email: user.email,
+        avatar: user.photoURL || null,
+        assignedCount: assignedLeadsCount.data().count,
+        status:
+          user.lastActiveAt && new Date() - new Date(user.lastActiveAt) < 300000
+            ? "online"
+            : "offline",
+        conversionRate: user.conversionRate || 0,
+        maxCapacity: user.maxLeadCapacity || 50,
+        role: "marketingAgent",
+      });
+    }
+
+    // Sort by availability (least assigned first)
+    marketingAgents.sort((a, b) => {
+      const aAvailability = (a.maxCapacity - a.assignedCount) / a.maxCapacity;
+      const bAvailability = (b.maxCapacity - b.assignedCount) / b.maxCapacity;
+      return bAvailability - aAvailability;
+    });
+
+    console.log(`✅ Found ${marketingAgents.length} marketing agents`);
+
+    res.json({
+      success: true,
+      data: marketingAgents,
+    });
+  } catch (error) {
+    console.error("❌ Error fetching marketing agents:", error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
+/**
  * Get lead by ID
  * GET /api/leads/:id
  */
@@ -547,25 +619,190 @@ router.put("/:id", authenticateUser, ensureLeadService, async (req, res) => {
  * Add interaction to lead
  * POST /api/leads/:id/interactions
  */
-router.post("/:id/interactions", ensureLeadService, async (req, res) => {
-  try {
-    const { id } = req.params;
-    const interactionData = req.body;
+router.post(
+  "/:id/interactions",
+  authenticateUser,
+  ensureLeadService,
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+      const interactionData = req.body;
 
-    const lead = await leadService.addInteraction(id, interactionData);
+      // Validate required fields
+      if (!interactionData.type) {
+        return res.status(400).json({
+          success: false,
+          error: "Interaction type is required",
+        });
+      }
 
-    res.json({
-      success: true,
-      data: lead,
-    });
-  } catch (error) {
-    console.error("❌ Error adding interaction:", error);
-    res.status(500).json({
-      success: false,
-      error: error.message,
-    });
+      if (!interactionData.notes || interactionData.notes.trim() === "") {
+        return res.status(400).json({
+          success: false,
+          error: "Interaction notes are required",
+        });
+      }
+
+      // Add authenticated user info to interaction data
+      if (req.user) {
+        interactionData.agentInfo = {
+          uid: req.user.uid,
+          email: req.user.email,
+          name: req.user.displayName || req.user.name || req.user.email,
+          role: req.user.role,
+        };
+
+        // Set agent field if not provided
+        if (!interactionData.agent) {
+          interactionData.agent =
+            req.user.displayName || req.user.name || req.user.email;
+        }
+      }
+
+      console.log(`📝 API: Adding interaction to lead ${id}:`, {
+        type: interactionData.type,
+        direction: interactionData.direction,
+        outcome: interactionData.outcome,
+        agent: interactionData.agent,
+        hasNextAction: !!interactionData.nextAction,
+      });
+
+      const lead = await leadService.addInteraction(id, interactionData);
+
+      res.json({
+        success: true,
+        data: lead,
+        message: "Interaction logged successfully",
+      });
+    } catch (error) {
+      console.error("❌ Error adding interaction:", error);
+      res.status(500).json({
+        success: false,
+        error: error.message,
+      });
+    }
   }
-});
+);
+
+/**
+ * Get interactions for a lead
+ * GET /api/leads/:id/interactions
+ */
+router.get(
+  "/:id/interactions",
+  authenticateUser,
+  ensureLeadService,
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+      const {
+        type,
+        outcome,
+        agent,
+        limit = 50,
+        offset = 0,
+        sortBy = "date",
+        sortOrder = "desc",
+      } = req.query;
+
+      const lead = await leadService.getLeadById(id);
+      if (!lead) {
+        return res.status(404).json({
+          success: false,
+          error: "Lead not found",
+        });
+      }
+
+      // Extract interactions from timeline
+      let interactions = (lead.timeline || [])
+        .filter((entry) => entry.action === "INTERACTION" && entry.interaction)
+        .map((entry) => ({
+          id: entry.interaction.id,
+          date: entry.date,
+          type: entry.interaction.type,
+          direction: entry.interaction.direction,
+          duration: entry.interaction.duration,
+          outcome: entry.interaction.outcome,
+          sentiment: entry.interaction.sentiment,
+          interactionTag: entry.interaction.interactionTag,
+          priority: entry.interaction.priority,
+          agent: entry.interaction.agent,
+          agentId: entry.interaction.agentId,
+          notes: entry.notes,
+          nextAction: entry.interaction.nextAction,
+          nextActionDate: entry.interaction.nextActionDate,
+          subject: entry.interaction.subject,
+          attachments: entry.interaction.attachments || [],
+          conversationId: entry.interaction.conversationId,
+          conversionImpact: entry.interaction.conversionImpact,
+          createdAt: entry.interaction.createdAt,
+          // Map to frontend expected format
+          timestamp: entry.date,
+          status: "completed",
+        }));
+
+      // Apply filters
+      if (type) {
+        interactions = interactions.filter((i) =>
+          i.type.toLowerCase().includes(type.toLowerCase())
+        );
+      }
+      if (outcome) {
+        interactions = interactions.filter((i) => i.outcome === outcome);
+      }
+      if (agent) {
+        interactions = interactions.filter(
+          (i) =>
+            i.agent?.toLowerCase().includes(agent.toLowerCase()) ||
+            i.agentId === agent
+        );
+      }
+
+      // Sort interactions
+      interactions.sort((a, b) => {
+        let valueA = a[sortBy];
+        let valueB = b[sortBy];
+
+        if (sortBy === "date" || sortBy === "timestamp") {
+          valueA = new Date(valueA);
+          valueB = new Date(valueB);
+        }
+
+        if (sortOrder === "desc") {
+          return valueB > valueA ? 1 : -1;
+        } else {
+          return valueA > valueB ? 1 : -1;
+        }
+      });
+
+      // Apply pagination
+      const parsedLimit = parseInt(limit);
+      const parsedOffset = parseInt(offset);
+      const paginatedInteractions = interactions.slice(
+        parsedOffset,
+        parsedOffset + parsedLimit
+      );
+
+      res.json({
+        success: true,
+        data: paginatedInteractions,
+        pagination: {
+          total: interactions.length,
+          limit: parsedLimit,
+          offset: parsedOffset,
+          hasMore: parsedOffset + parsedLimit < interactions.length,
+        },
+        summary: lead.interactionSummary || {},
+      });
+    } catch (error) {
+      console.error("❌ Error getting lead interactions:", error);
+      res.status(500).json({
+        success: false,
+        error: error.message,
+      });
+    }
+  }
+);
 
 /**
  * Set follow-up date
@@ -825,6 +1062,178 @@ router.get("/export", ensureLeadService, async (req, res) => {
     });
   }
 });
+
+/**
+ * Assign a single lead to a user
+ * POST /api/leads/:leadId/assign
+ */
+router.post(
+  "/:leadId/assign",
+  authenticateUser,
+  ensureLeadService,
+  async (req, res) => {
+    try {
+      const { leadId } = req.params;
+      const { assignTo, notes } = req.body;
+
+      if (!leadId) {
+        return res.status(400).json({
+          success: false,
+          error: "Lead ID is required",
+        });
+      }
+
+      // Get current user making the assignment
+      const assignedBy = {
+        email: req.user.email,
+        name: req.user.name || req.user.displayName || req.user.email,
+        uid: req.user.uid,
+        role: req.user.role,
+      };
+
+      console.log(
+        `📋 Assigning lead ${leadId} to ${assignTo?.name || "unassigned"}`
+      );
+
+      // Get the lead
+      const lead = await leadService.getLeadById(leadId);
+
+      if (!lead) {
+        return res.status(404).json({
+          success: false,
+          error: "Lead not found",
+        });
+      }
+
+      // Use the LeadModel.assignLead method for assignment
+      const updatedLead = LeadModel.assignLead(
+        lead,
+        assignTo,
+        assignedBy,
+        notes
+      );
+
+      // Update the lead in Firestore
+      await db.collection("leads").doc(leadId).update({
+        assignedTo: updatedLead.assignedTo,
+        assignment: updatedLead.assignment,
+        updatedAt: updatedLead.updatedAt,
+        timeline: updatedLead.timeline,
+      });
+
+      console.log(
+        `✅ Lead ${leadId} assigned to ${assignTo?.email || "unassigned"}`
+      );
+
+      res.json({
+        success: true,
+        data: {
+          leadId,
+          assignedTo: assignTo
+            ? {
+                email: assignTo.email,
+                name: assignTo.name,
+              }
+            : null,
+          assignment: updatedLead.assignment,
+        },
+      });
+    } catch (error) {
+      console.error("❌ Error assigning lead:", error);
+      res.status(500).json({
+        success: false,
+        error: error.message,
+      });
+    }
+  }
+);
+
+/**
+ * Bulk assign leads to marketing agents
+ * POST /api/leads/bulk-assign
+ */
+router.post(
+  "/bulk-assign",
+  authenticateUser,
+  ensureLeadService,
+  async (req, res) => {
+    try {
+      const { leadIds, assignTo, assignedBy } = req.body;
+
+      if (!leadIds || !Array.isArray(leadIds) || leadIds.length === 0) {
+        return res.status(400).json({
+          success: false,
+          error: "Lead IDs required",
+        });
+      }
+
+      console.log(
+        `📋 Bulk assigning ${leadIds.length} leads to ${
+          assignTo?.name || "unassigned"
+        }`
+      );
+
+      const results = { assigned: 0, failed: 0, errors: [] };
+      const timestamp = new Date();
+
+      // Process each lead
+      for (const leadId of leadIds) {
+        try {
+          const lead = await leadService.getLeadById(leadId);
+
+          if (!lead) {
+            results.errors.push({ leadId, error: "Lead not found" });
+            results.failed++;
+            continue;
+          }
+
+          // Use the LeadModel.assignLead method for consistent assignment logic
+          const updatedLead = LeadModel.assignLead(
+            lead,
+            assignTo,
+            assignedBy,
+            assignTo
+              ? `Bulk assigned to ${assignTo.name}`
+              : "Unassigned in bulk operation"
+          );
+
+          // Update the lead in Firestore
+          await db.collection("leads").doc(leadId).update({
+            assignedTo: updatedLead.assignedTo,
+            assignment: updatedLead.assignment,
+            updatedAt: updatedLead.updatedAt,
+            timeline: updatedLead.timeline,
+          });
+
+          results.assigned++;
+
+          console.log(
+            `✅ Lead ${leadId} assigned to ${assignTo?.email || "unassigned"}`
+          );
+        } catch (error) {
+          console.error(`❌ Error assigning lead ${leadId}:`, error);
+          results.errors.push({ leadId, error: error.message });
+          results.failed++;
+        }
+      }
+
+      console.log(
+        `✅ Bulk assignment completed: ${results.assigned} assigned, ${results.failed} failed`
+      );
+
+      res.json({
+        success: true,
+        results,
+      });
+    } catch (error) {
+      console.error("❌ Error in bulk assignment:", error);
+      res.status(500).json({
+        success: false,
+        error: error.message,
+      });
+    }
+  }
+);
 
 module.exports = router;
 module.exports.initLeadService = initLeadService;

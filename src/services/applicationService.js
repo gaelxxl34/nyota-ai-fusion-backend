@@ -909,7 +909,7 @@ We're excited about your interest in joining our academic community. Here's what
 
 **Next Steps:**
 1. Our admissions team will review your application within 3-5 business days
-2. You may be contacted for additional documents or an interview
+2. You may be contacted for additional documents
 3. We'll keep you updated on your application progress
 
 **Questions?** Feel free to reply to this message or call our admissions office.

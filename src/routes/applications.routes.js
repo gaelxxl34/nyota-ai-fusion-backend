@@ -1599,7 +1599,6 @@ router.put("/:id/status", ensureApplicationService, async (req, res) => {
           REJECTED: "rejected",
           IN_REVIEW: "IN_REVIEW",
           PENDING: "pending",
-          INTERVIEW_SCHEDULED: "interview_scheduled",
           DOCUMENTS_REQUIRED: "documents_required",
           MISSING_DOCUMENT: "MISSING_DOCUMENT", // Add missing document mapping
           ON_HOLD: "on_hold",

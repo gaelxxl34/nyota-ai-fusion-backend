@@ -23,7 +23,7 @@ class ApplicationEmailService {
    * @param {string} applicationData.applicantEmail - Applicant's email
    * @param {string} applicationData.applicantName - Applicant's name
    * @param {string} applicationData.courseName - Course name
-   * @param {string} applicationData.status - New status (pending, approved, rejected, interview_scheduled, etc.)
+   * @param {string} applicationData.status - New status (pending, approved, rejected, on_hold, etc.)
    * @param {string} applicationData.additionalInfo - Additional information or comments
    */
   async sendStatusChangeNotification(applicationData) {
@@ -34,9 +34,6 @@ class ApplicationEmailService {
         courseName,
         status,
         additionalInfo,
-        interviewDate,
-        interviewTime,
-        interviewLocation,
       } = applicationData;
 
       // Helper function to format status names for display
@@ -846,7 +843,7 @@ This means your admission process is postponed for now.
                 <ol style="color: #0c5460; margin: 0; padding-left: 20px;">
                   <li style="margin-bottom: 10px;">Our admissions team is currently reviewing your application</li>
                   <li style="margin-bottom: 10px;">We'll be in touch shortly with the next steps</li>
-                  <li style="margin-bottom: 10px;">You may be contacted for additional documents or an interview</li>
+                  <li style="margin-bottom: 10px;">You may be contacted for additional documents</li>
                   <li style="margin-bottom: 10px;">Check your email regularly for updates</li>
                 </ol>
               </div>
@@ -910,7 +907,7 @@ ${modeOfStudy ? `- Mode of Study: ${modeOfStudy}` : ""}
 WHAT HAPPENS NEXT?
 1. Our admissions team is currently reviewing your application
 2. We'll be in touch shortly with the next steps
-3. You may be contacted for additional documents or an interview
+3. You may be contacted for additional documents
 4. Check your email regularly for updates
 
 In the meantime, if you have any questions or need assistance, let me know how I can support you. 😊

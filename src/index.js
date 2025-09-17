@@ -201,6 +201,24 @@ function startServer() {
     logger.warn("Lead routes not loaded:", error.message);
   }
 
+  // Lead assignment routes
+  try {
+    const leadAssignmentRoutes = require("./routes/lead-assignment.routes");
+    app.use("/api/lead-assignment", leadAssignmentRoutes);
+    logger.info("Lead assignment routes loaded");
+  } catch (error) {
+    logger.warn("Lead assignment routes not loaded:", error.message);
+  }
+
+  // Lead assignment routes
+  try {
+    const leadAssignmentRoutes = require("./routes/lead-assignment.routes");
+    app.use("/api/lead-assignment", leadAssignmentRoutes);
+    logger.info("Lead assignment routes loaded");
+  } catch (error) {
+    logger.warn("Lead assignment routes not loaded:", error.message);
+  }
+
   // Application management routes
   try {
     const { getFirestore } = require("firebase-admin/firestore");

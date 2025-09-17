@@ -23,23 +23,42 @@ router.get(
       const userDocs = await Promise.all(
         users.map(async (user) => {
           const userDoc = await db.collection("users").doc(user.uid).get();
+          const userData = userDoc.data() || {};
+
+          // Only use explicitly defined roles from role field, don't check jobRole
+          const role = userData.role || user.customClaims?.role;
+
+          console.log(
+            `User ${user.email}: customClaims.role=${user.customClaims?.role}, firestore.role=${userData.role}, final.role=${role}`
+          );
+
           return {
             id: user.uid,
             email: user.email || "",
-            name: user.displayName || userDoc.data()?.name || "Unnamed User",
-            role: user.customClaims?.role || userDoc.data()?.role || "admin",
-            jobRole: userDoc.data()?.jobRole,
-            status: userDoc.data()?.status || "active",
+            name: user.displayName || userData.name || "Unnamed User",
+            role: role,
+            status: userData.status,
             createdAt: user.metadata.creationTime,
             lastSignIn: user.metadata.lastSignInTime,
           };
         })
       );
 
-      // Filter out super admins from the list
-      const teamMembers = userDocs.filter((user) => user.role !== "superAdmin");
+      // Filter out super admins and users without defined roles from the list
+      const teamMembers = userDocs.filter(
+        (user) =>
+          user.role !== "superAdmin" &&
+          user.role !== undefined &&
+          user.role !== null
+      );
 
-      console.log(`Found ${teamMembers.length} team members`);
+      console.log(
+        `Found ${teamMembers.length} team members (before super admin filter: ${userDocs.length})`
+      );
+      console.log(
+        "Team members breakdown:",
+        teamMembers.map((u) => ({ email: u.email, role: u.role }))
+      );
 
       res.json({
         success: true,
@@ -63,7 +82,7 @@ router.post(
   checkRole(["superAdmin", "admin", "admissionAdmin"]),
   async (req, res) => {
     try {
-      const { email, name, role, jobRole } = req.body;
+      const { email, name, role } = req.body;
 
       if (!email || !name || !role) {
         return res.status(400).json({
@@ -88,18 +107,14 @@ router.post(
       await admin.auth().setCustomUserClaims(userRecord.uid, { role });
 
       // Create user document in Firestore
-      await db
-        .collection("users")
-        .doc(userRecord.uid)
-        .set({
-          email,
-          name,
-          role,
-          jobRole: jobRole || role,
-          status: "active",
-          createdAt: admin.firestore.FieldValue.serverTimestamp(),
-          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-        });
+      await db.collection("users").doc(userRecord.uid).set({
+        email,
+        name,
+        role,
+        status: "active",
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
 
       res.json({
         success: true,
@@ -109,7 +124,6 @@ router.post(
           email,
           name,
           role,
-          jobRole: jobRole || role,
           status: "active",
         },
       });
@@ -135,7 +149,7 @@ router.put(
   async (req, res) => {
     try {
       const { id } = req.params;
-      const { name, role, jobRole, status } = req.body;
+      const { name, role, status } = req.body;
 
       const updates = {};
       if (name) updates.displayName = name;
@@ -156,7 +170,6 @@ router.put(
       };
       if (name) firestoreUpdates.name = name;
       if (role) firestoreUpdates.role = role;
-      if (jobRole) firestoreUpdates.jobRole = jobRole;
       if (status) firestoreUpdates.status = status;
 
       await db.collection("users").doc(id).update(firestoreUpdates);
@@ -239,9 +252,8 @@ router.get(
         id: userRecord.uid,
         email: userRecord.email,
         name: userRecord.displayName || userData.name || "Unnamed User",
-        role: userRecord.customClaims?.role || userData.role || "teamMember",
-        jobRole: userData.jobRole,
-        status: userData.status || "active",
+        role: userData.role || userRecord.customClaims?.role,
+        status: userData.status,
         createdAt: userRecord.metadata.creationTime,
         lastSignIn: userRecord.metadata.lastSignInTime,
       };

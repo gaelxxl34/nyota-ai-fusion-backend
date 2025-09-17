@@ -1357,74 +1357,76 @@ class LeadService {
         throw new Error("Lead not found");
       }
 
-      const interaction = {
-        date: interactionData.timestamp
-          ? new Date(interactionData.timestamp)
-          : new Date(),
-        type: interactionData.type || "NOTE",
-        content: interactionData.content || "",
-        channel: interactionData.channel || "SYSTEM",
-        automated: interactionData.automated || false,
-        direction: interactionData.direction || "outgoing",
-        messageId: interactionData.messageId || null,
-        metadata: {
-          ...interactionData.metadata,
-          messageType: interactionData.metadata?.messageType || "text",
-          isBusinessMessage:
-            interactionData.metadata?.isBusinessMessage || false,
-        },
+      console.log(`📝 Adding enhanced interaction to lead ${leadId}:`, {
+        type: interactionData.type,
+        outcome: interactionData.outcome,
+        agent: interactionData.agent,
+        hasNotes: !!interactionData.notes,
+      });
+
+      // Get current user/agent information if available
+      const agent = interactionData.agentInfo || {
+        name: interactionData.agent || "Unknown",
+        uid: interactionData.agentId || null,
+        email: interactionData.agentEmail || null,
       };
 
-      // Add to timeline with enhanced metadata
-      const timeline = LeadModel.addTimelineEntry(
+      // Use enhanced interaction entry method
+      const { timeline, interaction } = LeadModel.addInteractionEntry(
         lead.timeline || [],
-        "INTERACTION",
+        interactionData,
         lead.status,
-        interaction.content,
+        agent
+      );
+
+      // Update interaction summary
+      const updatedInteractionSummary = LeadModel.updateInteractionSummary(
+        lead,
         interaction
       );
 
-      // Prepare update data with message counting
+      // Prepare update data
       const updateData = {
         timeline,
-        totalInteractions: (lead.totalInteractions || 0) + 1,
-        lastInteractionAt: new Date(),
+        interactionSummary: updatedInteractionSummary,
+
+        // Update legacy fields for backwards compatibility
+        totalInteractions: updatedInteractionSummary.totalInteractions,
+        lastInteractionAt: interaction.createdAt,
+        nextFollowUpDate: interaction.nextActionDate || lead.nextFollowUpDate,
+
+        // Update main lead fields
         updatedAt: new Date(),
       };
 
-      // Track WhatsApp specific counters
-      if (interaction.type === "WHATSAPP") {
-        updateData.whatsappMessageCount = (lead.whatsappMessageCount || 0) + 1;
-        if (interaction.direction === "incoming") {
+      // Update WhatsApp specific counters (legacy compatibility)
+      if (
+        interaction.type === "WHATSAPP_MESSAGE" ||
+        interaction.type === "WHATSAPP_CALL"
+      ) {
+        updateData.whatsappMessageCount =
+          updatedInteractionSummary.whatsappMessageCount +
+          updatedInteractionSummary.whatsappCallCount;
+        if (interactionData.direction === "incoming") {
           updateData.whatsappIncomingCount =
             (lead.whatsappIncomingCount || 0) + 1;
         }
       }
 
-      // If this is a human interaction from certain channels and lead is in INTERESTED status,
-      // we can leave it as INTERESTED since user has already shown interest
-      const isContactChannel = [
-        "WHATSAPP",
-        "EMAIL",
-        "PHONE",
-        "MEETING",
-      ].includes(interaction.channel);
-      const isIncomingHumanInteraction =
-        interaction.direction === "incoming" && !interaction.automated;
-
-      // No automatic status changes - let users manually progress leads through the funnel
-      // INTERESTED → APPLIED → IN_REVIEW → QUALIFIED → ADMITTED → ENROLLED
-
       await this.db.collection(this.collection).doc(leadId).update(updateData);
 
-      console.log(`✅ Interaction added to lead ${leadId}`);
+      console.log(`✅ Enhanced interaction added to lead ${leadId}:`, {
+        interactionId: interaction.id,
+        type: interaction.type,
+        outcome: interaction.outcome,
+        conversionImpact: interaction.conversionImpact,
+      });
 
       // Get updated lead data
       const finalLead = await this.getLeadById(leadId);
-
       return finalLead;
     } catch (error) {
-      console.error("❌ Error adding interaction:", error);
+      console.error("❌ Error adding enhanced interaction:", error);
       throw error;
     }
   }

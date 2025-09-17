@@ -114,10 +114,54 @@ class LeadModel {
       applicationDate: null,
 
       // Assignment
-      assignedTo: null,
+      assignedTo: null, // Email of the assigned user
+      assignment: {
+        assignedTo: null, // Email of the assigned user (redundant for backwards compatibility)
+        assignedToName: null, // Display name of the assigned user
+        assignedBy: null, // Email of the user who made the assignment
+        assignedByName: null, // Display name of the user who made the assignment
+        assignedAt: null, // Timestamp when the assignment was made
+        previousAssignee: null, // Previous assignee before current assignment
+        notes: null, // Optional notes about the assignment
+      },
       priority: "MEDIUM",
 
-      // Tracking
+      // Enhanced Interaction Tracking
+      interactionSummary: {
+        totalInteractions: 0,
+        phoneCallCount: 0,
+        whatsappMessageCount: 0,
+        whatsappCallCount: 0,
+        emailCount: 0,
+        meetingCount: 0,
+        smsCount: 0,
+
+        // Outcome tracking
+        positiveInteractions: 0,
+        neutralInteractions: 0,
+        negativeInteractions: 0,
+
+        // Recent activity
+        lastInteractionDate: null,
+        lastInteractionType: null,
+        lastInteractionOutcome: null,
+        lastAgentId: null,
+        lastAgentName: null,
+
+        // Follow-up tracking
+        nextFollowUpDate: null,
+        nextFollowUpAction: null,
+        nextFollowUpPriority: null,
+
+        // Engagement metrics
+        engagementLevel: "low", // low, medium, high
+        conversionScore: 0.0, // 0-1 probability
+        responseRate: 0.0, // Response rate to outreach
+        createdAt: now,
+        updatedAt: now,
+      },
+
+      // Tracking (Legacy fields for backwards compatibility)
       totalInteractions: 0,
       lastInteractionAt: null,
       nextFollowUpDate: null,
@@ -258,6 +302,305 @@ class LeadModel {
   }
 
   /**
+   * Add enhanced interaction timeline entry
+   * @param {Array} timeline - Current timeline array
+   * @param {Object} interactionData - Rich interaction data from frontend
+   * @param {string} currentStatus - Current lead status
+   * @param {Object} agent - Agent who logged the interaction
+   * @returns {Object} Object containing updated timeline and interaction summary
+   */
+  static addInteractionEntry(
+    timeline,
+    interactionData,
+    currentStatus,
+    agent = null
+  ) {
+    const now = new Date();
+
+    // Generate unique interaction ID
+    const interactionId = `int_${Date.now()}_${Math.random()
+      .toString(36)
+      .substr(2, 9)}`;
+
+    // Map frontend interaction types to consistent backend types
+    const typeMapping = {
+      phone: "PHONE_CALL",
+      whatsapp_message: "WHATSAPP_MESSAGE",
+      whatsapp_call: "WHATSAPP_CALL",
+      meeting: "MEETING",
+      email: "EMAIL",
+      sms: "SMS",
+    };
+
+    // Create enhanced interaction entry
+    const entry = {
+      date: now,
+      action: "INTERACTION",
+      status: currentStatus,
+      notes: interactionData.notes || "",
+
+      // Enhanced interaction-specific data
+      interaction: {
+        // Core interaction details
+        id: interactionId,
+        type:
+          typeMapping[interactionData.type] ||
+          interactionData.type?.toUpperCase() ||
+          "OTHER",
+        direction: interactionData.direction || "outgoing",
+        duration: interactionData.duration
+          ? parseInt(interactionData.duration)
+          : null,
+
+        // Outcome and sentiment
+        outcome: interactionData.outcome || "neutral",
+        sentiment:
+          interactionData.sentiment || interactionData.outcome || "neutral",
+        interactionTag: interactionData.interactionTag || null,
+
+        // Calculate priority from interaction tag
+        priority: this.calculateInteractionPriority(
+          interactionData.interactionTag
+        ),
+
+        // Agent information
+        agent:
+          agent?.name ||
+          agent?.displayName ||
+          interactionData.agent ||
+          "Unknown",
+        agentId: agent?.uid || agent?.id || null,
+        agentEmail: agent?.email || null,
+
+        // Follow-up planning
+        nextAction: interactionData.nextAction || null,
+        nextActionDate: interactionData.nextActionDate
+          ? new Date(interactionData.nextActionDate)
+          : null,
+        nextActionPriority: this.calculateNextActionPriority(
+          interactionData.nextAction,
+          interactionData.outcome
+        ),
+
+        // Communication details
+        subject: interactionData.subject || null,
+        channel: this.getChannelFromType(interactionData.type),
+
+        // References and attachments
+        attachments: interactionData.attachments || [],
+        relatedMessageId: interactionData.relatedMessageId || null,
+        conversationId: interactionData.conversationId || null,
+
+        // Analytics and tracking
+        responseTime: interactionData.responseTime || null,
+        customerSatisfaction: interactionData.customerSatisfaction || null,
+        conversionImpact: this.calculateConversionImpact(
+          interactionData.interactionTag,
+          interactionData.outcome
+        ),
+
+        // System metadata
+        automated: interactionData.automated || false,
+        source: interactionData.source || "manual",
+        createdAt: now,
+        updatedAt: now,
+      },
+    };
+
+    const updatedTimeline = [...timeline, entry];
+
+    return {
+      timeline: updatedTimeline,
+      currentStatus: currentStatus,
+      interaction: entry.interaction,
+    };
+  }
+
+  /**
+   * Calculate interaction priority based on interaction tag
+   */
+  static calculateInteractionPriority(interactionTag) {
+    if (!interactionTag) return "medium";
+
+    // High priority - strong conversion signals
+    const highPriorityTags = [
+      "application_started",
+      "application_submitted",
+      "application_assistance",
+      "campus_visit",
+      "parent_meeting",
+    ];
+
+    // Low priority - negative conversion signals
+    const lowPriorityTags = [
+      "scholarship_info",
+      "financial_assistance",
+      "payment_plan_inquiry",
+      "lead_closed",
+    ];
+
+    if (highPriorityTags.includes(interactionTag)) return "high";
+    if (lowPriorityTags.includes(interactionTag)) return "low";
+    return "medium";
+  }
+
+  /**
+   * Calculate next action priority
+   */
+  static calculateNextActionPriority(nextAction, outcome) {
+    if (!nextAction) return "medium";
+
+    if (outcome === "positive") return "high";
+    if (outcome === "negative") return "low";
+    return "medium";
+  }
+
+  /**
+   * Get communication channel from interaction type
+   */
+  static getChannelFromType(type) {
+    const channelMapping = {
+      phone: "PHONE",
+      whatsapp_message: "WHATSAPP",
+      whatsapp_call: "WHATSAPP",
+      meeting: "IN_PERSON",
+      email: "EMAIL",
+      sms: "SMS",
+    };
+
+    return channelMapping[type] || "OTHER";
+  }
+
+  /**
+   * Calculate conversion impact score
+   */
+  static calculateConversionImpact(interactionTag, outcome) {
+    let baseScore = 0;
+
+    // Base score from outcome
+    switch (outcome) {
+      case "positive":
+        baseScore = 0.3;
+        break;
+      case "neutral":
+        baseScore = 0.1;
+        break;
+      case "negative":
+        baseScore = -0.2;
+        break;
+      default:
+        baseScore = 0;
+    }
+
+    // Adjustment based on interaction tag
+    const tagMultipliers = {
+      application_started: 2.0,
+      application_submitted: 3.0,
+      application_assistance: 1.8,
+      campus_visit: 2.2,
+      parent_meeting: 1.9,
+      document_shared: 1.2,
+      follow_up_scheduled: 1.1,
+      scholarship_info: 0.5,
+      financial_assistance: 0.4,
+      payment_plan_inquiry: 0.3,
+      lead_closed: 0.0,
+    };
+
+    const multiplier = tagMultipliers[interactionTag] || 1.0;
+    return Math.max(-1.0, Math.min(1.0, baseScore * multiplier));
+  }
+
+  /**
+   * Update interaction summary counters
+   */
+  static updateInteractionSummary(lead, interaction) {
+    const summary = lead.interactionSummary || {};
+
+    // Update counters
+    const updatedSummary = {
+      totalInteractions: (summary.totalInteractions || 0) + 1,
+      phoneCallCount: summary.phoneCallCount || 0,
+      whatsappMessageCount: summary.whatsappMessageCount || 0,
+      whatsappCallCount: summary.whatsappCallCount || 0,
+      emailCount: summary.emailCount || 0,
+      meetingCount: summary.meetingCount || 0,
+      smsCount: summary.smsCount || 0,
+
+      // Outcome counters
+      positiveInteractions: summary.positiveInteractions || 0,
+      neutralInteractions: summary.neutralInteractions || 0,
+      negativeInteractions: summary.negativeInteractions || 0,
+
+      // Update specific counters
+      lastInteractionDate: interaction.createdAt,
+      lastInteractionType: interaction.type,
+      lastInteractionOutcome: interaction.outcome,
+      lastAgentId: interaction.agentId,
+      lastAgentName: interaction.agent,
+
+      // Next follow-up
+      nextFollowUpDate: interaction.nextActionDate,
+      nextFollowUpAction: interaction.nextAction,
+      nextFollowUpPriority: interaction.nextActionPriority,
+
+      // Conversion metrics
+      engagementLevel: this.calculateEngagementLevel(
+        summary.totalInteractions + 1,
+        interaction.outcome
+      ),
+      updatedAt: new Date(),
+    };
+
+    // Increment specific type counters
+    switch (interaction.type) {
+      case "PHONE_CALL":
+        updatedSummary.phoneCallCount++;
+        break;
+      case "WHATSAPP_MESSAGE":
+        updatedSummary.whatsappMessageCount++;
+        break;
+      case "WHATSAPP_CALL":
+        updatedSummary.whatsappCallCount++;
+        break;
+      case "EMAIL":
+        updatedSummary.emailCount++;
+        break;
+      case "MEETING":
+        updatedSummary.meetingCount++;
+        break;
+      case "SMS":
+        updatedSummary.smsCount++;
+        break;
+    }
+
+    // Increment outcome counters
+    switch (interaction.outcome) {
+      case "positive":
+        updatedSummary.positiveInteractions++;
+        break;
+      case "neutral":
+        updatedSummary.neutralInteractions++;
+        break;
+      case "negative":
+        updatedSummary.negativeInteractions++;
+        break;
+    }
+
+    return updatedSummary;
+  }
+
+  /**
+   * Calculate engagement level based on interaction count and recent outcomes
+   */
+  static calculateEngagementLevel(totalInteractions, lastOutcome) {
+    if (totalInteractions >= 10 && lastOutcome === "positive") return "high";
+    if (totalInteractions >= 5 && lastOutcome !== "negative") return "medium";
+    if (lastOutcome === "negative") return "low";
+    return "medium";
+  }
+
+  /**
    * Update lead status
    * Ensures the status field and timeline remain synchronized
    */
@@ -314,6 +657,79 @@ class LeadModel {
       ...leadData,
       status: timelineStatus,
       updatedAt: new Date(),
+    };
+  }
+
+  /**
+   * Assign a lead to a user
+   * @param {Object} leadData - The lead to assign
+   * @param {Object} assignTo - The user to assign the lead to (null to unassign)
+   * @param {Object} assignedBy - The user making the assignment
+   * @param {String} notes - Optional notes about the assignment
+   * @returns {Object} The updated lead data
+   */
+  static assignLead(leadData, assignTo, assignedBy, notes = "") {
+    if (!leadData) throw new Error("Lead data is required");
+    if (!assignedBy)
+      throw new Error("Assignment must specify who assigned the lead");
+
+    const timestamp = new Date();
+    const previousAssignee = leadData.assignedTo;
+    const isReassignment =
+      previousAssignee && assignTo && previousAssignee !== assignTo.email;
+    const isUnassignment = previousAssignee && !assignTo;
+
+    // Create assignment object
+    const assignment = {
+      assignedTo: assignTo ? assignTo.email : null,
+      assignedToName: assignTo ? assignTo.name || assignTo.displayName : null,
+      assignedBy: assignedBy.email,
+      assignedByName: assignedBy.name || assignedBy.displayName,
+      assignedAt: timestamp,
+      previousAssignee: previousAssignee,
+      notes: notes || "",
+    };
+
+    // Create timeline entry
+    let action = "ASSIGNED";
+    if (isReassignment) action = "REASSIGNED";
+    if (isUnassignment) action = "UNASSIGNED";
+
+    const entryNotes =
+      notes ||
+      (assignTo
+        ? isReassignment
+          ? `Lead reassigned from ${previousAssignee} to ${
+              assignTo.name || assignTo.email
+            }`
+          : `Lead assigned to ${assignTo.name || assignTo.email}`
+        : "Lead unassigned");
+
+    const timelineEntry = {
+      date: timestamp,
+      action,
+      status: leadData.status,
+      notes: entryNotes,
+      metadata: {
+        previousAssignee,
+        newAssignee: assignTo?.email,
+        assignedBy: assignedBy.email,
+        assignedByName: assignedBy.name || assignedBy.displayName,
+      },
+    };
+
+    // Create the updated timeline
+    const timeline = Array.isArray(leadData.timeline)
+      ? [...leadData.timeline, timelineEntry]
+      : [timelineEntry];
+
+    // Return updated lead data
+    return {
+      ...leadData,
+      assignedTo: assignTo ? assignTo.email : null, // For backwards compatibility
+      assignment,
+      updatedAt: timestamp,
+      timeline,
     };
   }
 
