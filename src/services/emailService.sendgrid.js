@@ -68,7 +68,7 @@ class SendGridEmailService {
               name: "IUEA Admissions Office",
             }
           : {
-              email: process.env.EMAIL_REPLY_TO || "info@iuea.ac.ug",
+              email: process.env.EMAIL_REPLY_TO || "apply@iuea.ac.ug",
               name: "IUEA Admissions Office",
             },
         subject,
@@ -165,7 +165,7 @@ class SendGridEmailService {
               <p style="margin: 10px 0;">Visit our application portal at:</p>
               <a href="https://applicant.iuea.ac.ug/" style="background-color: #7a0000; color: white; padding: 12px 25px; text-decoration: none; border-radius: 5px; font-size: 16px; font-weight: bold; display: inline-block;">Application Portal</a>
             </div>
-            <p style="font-size: 16px;">For any assistance, contact us at <a href="mailto:info@iuea.ac.ug" style="color: #7a0000;">info@iuea.ac.ug</a>.</p>
+            <p style="font-size: 16px;">For any assistance, contact us at <a href="mailto:apply@iuea.ac.ug" style="color: #7a0000;">apply@iuea.ac.ug</a>.</p>
             <br>
             <p style="font-size: 16px;">Best regards,<br>
             <strong>IUEA Nyota AI Team</strong><br>
@@ -191,7 +191,7 @@ If you didn't request this password reset, please ignore this email and your pas
 
 You can access your application portal at: https://applicant.iuea.ac.ug/
 
-For any assistance, contact us at info@iuea.ac.ug.
+For any assistance, contact us at apply@iuea.ac.ug.
 
 Best regards,
 IUEA Nyota AI Team
@@ -255,7 +255,7 @@ International University of East Africa`,
               <p style="margin: 10px 0;">Check your application status and updates in our application portal:</p>
               <a href="https://applicant.iuea.ac.ug/" style="background-color: #7a0000; color: white; padding: 15px 30px; text-decoration: none; border-radius: 5px; font-size: 16px; font-weight: bold; display: inline-block;">Application Portal</a>
             </div>
-            <p style="font-size: 16px;">If you have any questions about your application status, please don't hesitate to contact our admissions office at <a href="mailto:info@iuea.ac.ug" style="color: #7a0000;">info@iuea.ac.ug</a> or call us at +256 414 373 747.</p>
+            <p style="font-size: 16px;">If you have any questions about your application status, please don't hesitate to contact our admissions office at <a href="mailto:apply@iuea.ac.ug" style="color: #7a0000;">apply@iuea.ac.ug</a> or call us at +256 414 373 747.</p>
             <br>
             <p style="font-size: 16px;">Best regards,<br>
             <strong>IUEA Admissions Team</strong><br>

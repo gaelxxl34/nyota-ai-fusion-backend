@@ -15,6 +15,24 @@ const LeadService = require("../services/leadService");
 const router = express.Router();
 const db = getFirestore();
 
+// Helper to deep-sanitize objects for Firestore (replace undefined with null & remove functions)
+function sanitizeForFirestore(value) {
+  if (value === undefined) return null; // Firestore disallows undefined
+  if (value === null) return null;
+  if (Array.isArray(value)) return value.map((v) => sanitizeForFirestore(v));
+  if (value instanceof Date) return value; // Dates are fine
+  if (typeof value === "object") {
+    const cleaned = {};
+    for (const [k, v] of Object.entries(value)) {
+      if (typeof v === "function") continue; // skip functions
+      const sanitized = sanitizeForFirestore(v);
+      cleaned[k] = sanitized;
+    }
+    return cleaned;
+  }
+  return value; // primitives
+}
+
 // Initialize lead service if needed
 let leadService;
 
@@ -25,6 +43,101 @@ const ensureLeadService = (req, res, next) => {
   }
   next();
 };
+
+/**
+ * IMPORTANT: Order parameterized routes AFTER literal ones.
+ * The previous ordering had "/:leadId" BEFORE "/bulk" so POST /bulk
+ * was incorrectly treated as assigning leadId="bulk" and returned 404 (Lead not found).
+ * We move the bulk route above the parameterized route to fix the 404.
+ */
+
+/**
+ * Bulk assign leads to users
+ * POST /api/lead-assignment/bulk
+ */
+router.post(
+  "/bulk",
+  authenticateUser,
+  checkRole(["superAdmin", "admin", "admissionAdmin", "marketingManager"]),
+  ensureLeadService,
+  async (req, res) => {
+    try {
+      const { leadIds, assignTo, notes } = req.body;
+
+      if (!leadIds || !Array.isArray(leadIds) || leadIds.length === 0) {
+        return res.status(400).json({
+          success: false,
+          error: "Lead IDs required",
+        });
+      }
+
+      const assignedBy = {
+        email: req.user.email,
+        name: req.user.name || req.user.displayName || req.user.email,
+        uid: req.user.uid,
+        role: req.user.role,
+      };
+
+      console.log(
+        `📋 Bulk assigning ${leadIds.length} leads to ${
+          assignTo?.name || "unassigned"
+        }`
+      );
+
+      const results = { assigned: 0, failed: 0, errors: [] };
+
+      for (const leadId of leadIds) {
+        try {
+          const lead = await leadService.getLeadById(leadId);
+
+          if (!lead) {
+            results.errors.push({ leadId, error: "Lead not found" });
+            results.failed++;
+            continue;
+          }
+
+          const updatedLead = LeadModel.assignLead(
+            lead,
+            assignTo,
+            assignedBy,
+            notes ||
+              (assignTo
+                ? `Bulk assigned to ${assignTo.name}`
+                : "Unassigned in bulk operation")
+          );
+
+          // Sanitize updated lead fragment to avoid undefined values
+          const updatePayload = sanitizeForFirestore({
+            assignedTo: updatedLead.assignedTo,
+            assignment: updatedLead.assignment,
+            updatedAt: updatedLead.updatedAt,
+            timeline: updatedLead.timeline,
+          });
+
+          await db.collection("leads").doc(leadId).update(updatePayload);
+
+          results.assigned++;
+          console.log(
+            `✅ Lead ${leadId} assigned to ${assignTo?.email || "unassigned"}`
+          );
+        } catch (error) {
+          console.error(`❌ Error assigning lead ${leadId}:`, error);
+          results.errors.push({ leadId, error: error.message });
+          results.failed++;
+        }
+      }
+
+      console.log(
+        `✅ Bulk assignment completed: ${results.assigned} assigned, ${results.failed} failed`
+      );
+
+      res.json({ success: true, results });
+    } catch (error) {
+      console.error("❌ Error in bulk assignment:", error);
+      res.status(500).json({ success: false, error: error.message });
+    }
+  }
+);
 
 /**
  * Assign a single lead to a user
@@ -47,7 +160,6 @@ router.post(
         });
       }
 
-      // Get current user making the assignment
       const assignedBy = {
         email: req.user.email,
         name: req.user.name || req.user.displayName || req.user.email,
@@ -59,17 +171,14 @@ router.post(
         `📋 Assigning lead ${leadId} to ${assignTo?.name || "unassigned"}`
       );
 
-      // Get the lead
       const lead = await leadService.getLeadById(leadId);
 
       if (!lead) {
-        return res.status(404).json({
-          success: false,
-          error: "Lead not found",
-        });
+        return res
+          .status(404)
+          .json({ success: false, error: "Lead not found" });
       }
 
-      // Use the LeadModel.assignLead method for assignment
       const updatedLead = LeadModel.assignLead(
         lead,
         assignTo,
@@ -77,13 +186,14 @@ router.post(
         notes
       );
 
-      // Update the lead in Firestore
-      await db.collection("leads").doc(leadId).update({
+      const updatePayload = sanitizeForFirestore({
         assignedTo: updatedLead.assignedTo,
         assignment: updatedLead.assignment,
         updatedAt: updatedLead.updatedAt,
         timeline: updatedLead.timeline,
       });
+
+      await db.collection("leads").doc(leadId).update(updatePayload);
 
       console.log(
         `✅ Lead ${leadId} assigned to ${assignTo?.email || "unassigned"}`
@@ -94,116 +204,14 @@ router.post(
         data: {
           leadId,
           assignedTo: assignTo
-            ? {
-                email: assignTo.email,
-                name: assignTo.name,
-              }
+            ? { email: assignTo.email, name: assignTo.name }
             : null,
           assignment: updatedLead.assignment,
         },
       });
     } catch (error) {
       console.error("❌ Error assigning lead:", error);
-      res.status(500).json({
-        success: false,
-        error: error.message,
-      });
-    }
-  }
-);
-
-/**
- * Bulk assign leads to users
- * POST /api/lead-assignment/bulk
- */
-router.post(
-  "/bulk",
-  authenticateUser,
-  checkRole(["superAdmin", "admin", "admissionAdmin", "marketingManager"]),
-  ensureLeadService,
-  async (req, res) => {
-    try {
-      const { leadIds, assignTo, notes } = req.body;
-
-      if (!leadIds || !Array.isArray(leadIds) || leadIds.length === 0) {
-        return res.status(400).json({
-          success: false,
-          error: "Lead IDs required",
-        });
-      }
-
-      // Get current user making the assignment
-      const assignedBy = {
-        email: req.user.email,
-        name: req.user.name || req.user.displayName || req.user.email,
-        uid: req.user.uid,
-        role: req.user.role,
-      };
-
-      console.log(
-        `📋 Bulk assigning ${leadIds.length} leads to ${
-          assignTo?.name || "unassigned"
-        }`
-      );
-
-      const results = { assigned: 0, failed: 0, errors: [] };
-
-      // Process each lead
-      for (const leadId of leadIds) {
-        try {
-          const lead = await leadService.getLeadById(leadId);
-
-          if (!lead) {
-            results.errors.push({ leadId, error: "Lead not found" });
-            results.failed++;
-            continue;
-          }
-
-          // Use the LeadModel.assignLead method for consistent assignment logic
-          const updatedLead = LeadModel.assignLead(
-            lead,
-            assignTo,
-            assignedBy,
-            notes ||
-              (assignTo
-                ? `Bulk assigned to ${assignTo.name}`
-                : "Unassigned in bulk operation")
-          );
-
-          // Update the lead in Firestore
-          await db.collection("leads").doc(leadId).update({
-            assignedTo: updatedLead.assignedTo,
-            assignment: updatedLead.assignment,
-            updatedAt: updatedLead.updatedAt,
-            timeline: updatedLead.timeline,
-          });
-
-          results.assigned++;
-
-          console.log(
-            `✅ Lead ${leadId} assigned to ${assignTo?.email || "unassigned"}`
-          );
-        } catch (error) {
-          console.error(`❌ Error assigning lead ${leadId}:`, error);
-          results.errors.push({ leadId, error: error.message });
-          results.failed++;
-        }
-      }
-
-      console.log(
-        `✅ Bulk assignment completed: ${results.assigned} assigned, ${results.failed} failed`
-      );
-
-      res.json({
-        success: true,
-        results,
-      });
-    } catch (error) {
-      console.error("❌ Error in bulk assignment:", error);
-      res.status(500).json({
-        success: false,
-        error: error.message,
-      });
+      res.status(500).json({ success: false, error: error.message });
     }
   }
 );

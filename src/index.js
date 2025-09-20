@@ -141,6 +141,15 @@ function startServer() {
   // Import and set up routes
   app.use("/api/auth", require("./routes/auth.routes"));
 
+  // Authentication Email routes (for custom branded emails)
+  try {
+    const authEmailRoutes = require("./routes/authEmail.routes");
+    app.use("/api/auth", authEmailRoutes);
+    logger.info("Authentication Email routes loaded");
+  } catch (error) {
+    logger.warn("Authentication Email routes not loaded:", error.message);
+  }
+
   // Super Admin routes (Super Admin only)
   try {
     const superAdminRoutes = require("./routes/super-admin.routes");

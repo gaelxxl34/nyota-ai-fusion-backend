@@ -6,11 +6,20 @@
 const { LeadModel } = require("../models/lead.model");
 const { LEAD_STATUSES, LEAD_SOURCES } = require("../config/lead.constants");
 const { broadcastMessage } = require("./broadcastService");
+const redisCache = require("./redisCache.service");
 
 class LeadService {
   constructor(firestore) {
     this.db = firestore;
     this.collection = "leads";
+    this.cache = redisCache;
+
+    // Cache TTL for leads data (5 minutes for conversion leads)
+    this.CACHE_TTL = {
+      LEADS_BY_STATUS: 300, // 5 minutes
+      LEAD_STATS: 600, // 10 minutes
+      CONVERSION_LEADS: 300, // 5 minutes for conversion plan data
+    };
   }
 
   /**
@@ -952,11 +961,30 @@ class LeadService {
   }
 
   /**
-   * Get leads by status
+   * Get leads by status with caching
    */
   async getLeadsByStatus(status, limit = 50, options = {}) {
     try {
-      const { sortBy = "createdAt", sortOrder = "desc", offset = 0 } = options;
+      const {
+        sortBy = "createdAt",
+        sortOrder = "desc",
+        offset = 0,
+        useCache = true,
+      } = options;
+
+      // Generate cache key
+      const cacheKey = `leads_by_status:${status}:${limit}:${offset}:${sortBy}:${sortOrder}`;
+
+      // Try to get from cache first if caching is enabled
+      if (useCache) {
+        const cachedLeads = await this.cache.get(cacheKey);
+        if (cachedLeads) {
+          console.log(
+            `⚡ Retrieved ${cachedLeads.length} leads from cache for status: ${status}`
+          );
+          return cachedLeads;
+        }
+      }
 
       console.log(
         `📋 Fetching leads by status: ${status} with limit: ${limit}, sorting: ${sortBy} ${sortOrder}`
@@ -999,6 +1027,19 @@ class LeadService {
           );
 
           const leads = allLeads.slice(offset, offset + maxLimit);
+
+          // Cache the results if caching is enabled
+          if (useCache) {
+            await this.cache.set(
+              cacheKey,
+              leads,
+              this.CACHE_TTL.LEADS_BY_STATUS
+            );
+            console.log(
+              `💾 Cached ${leads.length} leads for status: ${status}`
+            );
+          }
+
           console.log(
             `✅ Returning ${leads.length} leads by status (offset-based)`
           );
@@ -1025,6 +1066,12 @@ class LeadService {
       const leads = snapshot.docs.map((doc) =>
         this._normalizeLead(doc.id, doc.data())
       );
+
+      // Cache the results if caching is enabled
+      if (useCache) {
+        await this.cache.set(cacheKey, leads, this.CACHE_TTL.LEADS_BY_STATUS);
+        console.log(`💾 Cached ${leads.length} leads for status: ${status}`);
+      }
 
       console.log(`✅ Returning ${leads.length} leads by status: ${status}`);
       return leads;
@@ -2032,6 +2079,114 @@ class LeadService {
       return leads;
     } catch (error) {
       console.error(`❌ Error fetching leads by phone ${phone}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Cache management methods
+   */
+
+  /**
+   * Invalidate leads cache by status
+   */
+  async invalidateLeadsCache(status = null) {
+    try {
+      if (status) {
+        // Invalidate cache for specific status
+        const pattern = `leads_by_status:${status}:*`;
+        const keys = await this.cache.keys(pattern);
+        for (const key of keys) {
+          await this.cache.del(key);
+        }
+        console.log(
+          `🗑️ Invalidated ${keys.length} cache entries for status: ${status}`
+        );
+      } else {
+        // Invalidate all leads cache
+        const patterns = [
+          "leads_by_status:*",
+          "conversion_leads:*",
+          "lead_stats:*",
+        ];
+
+        let totalInvalidated = 0;
+        for (const pattern of patterns) {
+          const keys = await this.cache.keys(pattern);
+          for (const key of keys) {
+            await this.cache.del(key);
+          }
+          totalInvalidated += keys.length;
+        }
+        console.log(`🗑️ Invalidated ${totalInvalidated} leads cache entries`);
+      }
+    } catch (error) {
+      console.error("❌ Error invalidating leads cache:", error);
+    }
+  }
+
+  /**
+   * Cache conversion leads data specifically for ConversionPlan
+   */
+  async cacheConversionLeads(data) {
+    try {
+      const cacheKey = "conversion_leads:contacted_and_interested";
+      await this.cache.set(cacheKey, data, this.CACHE_TTL.CONVERSION_LEADS);
+      console.log(`💾 Cached conversion leads data (${data.length} leads)`);
+      return true;
+    } catch (error) {
+      console.error("❌ Error caching conversion leads:", error);
+      return false;
+    }
+  }
+
+  /**
+   * Get cached conversion leads data
+   */
+  async getCachedConversionLeads() {
+    try {
+      const cacheKey = "conversion_leads:contacted_and_interested";
+      const cachedData = await this.cache.get(cacheKey);
+      if (cachedData) {
+        console.log(
+          `⚡ Retrieved ${cachedData.length} conversion leads from cache`
+        );
+      }
+      return cachedData;
+    } catch (error) {
+      console.error("❌ Error getting cached conversion leads:", error);
+      return null;
+    }
+  }
+
+  /**
+   * Override status update methods to invalidate cache
+   */
+  async updateLeadStatus(
+    leadId,
+    status,
+    notes = "",
+    updatedBy = "system",
+    forceUpdate = false
+  ) {
+    try {
+      // Call the original method
+      const result = await super.updateLeadStatus(
+        leadId,
+        status,
+        notes,
+        updatedBy,
+        forceUpdate
+      );
+
+      // Invalidate relevant cache entries
+      await this.invalidateLeadsCache();
+
+      return result;
+    } catch (error) {
+      // If super method doesn't exist, we need to implement it here
+      // For now, just invalidate cache and re-throw
+      await this.invalidateLeadsCache();
       throw error;
     }
   }

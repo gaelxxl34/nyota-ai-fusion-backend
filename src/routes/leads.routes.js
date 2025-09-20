@@ -140,6 +140,122 @@ router.get("/config", (req, res) => {
 });
 
 /**
+ * Get conversion leads (CONTACTED + INTERESTED) with caching
+ * GET /api/leads/conversion
+ */
+router.get("/conversion", ensureLeadService, async (req, res) => {
+  try {
+    const {
+      limit = 10000,
+      offset = 0,
+      sortBy = "createdAt",
+      sortOrder = "desc",
+      useCache = true,
+    } = req.query;
+
+    console.log(`📋 API: Fetching conversion leads (CONTACTED + INTERESTED)`);
+
+    // Check cache first if enabled
+    if (useCache === "true" || useCache === true) {
+      const cachedData = await leadService.getCachedConversionLeads();
+      if (cachedData) {
+        console.log(
+          `⚡ Retrieved ${cachedData.length} conversion leads from cache`
+        );
+        return res.json({
+          success: true,
+          data: cachedData,
+          cached: true,
+          pagination: {
+            limit: cachedData.length,
+            offset: 0,
+            hasMore: false,
+            count: cachedData.length,
+          },
+        });
+      }
+    }
+
+    // Fetch fresh data
+    const statusPromises = ["CONTACTED", "INTERESTED"].map(async (status) => {
+      try {
+        console.log(`📊 Fetching leads for status: ${status}`);
+        const leads = await leadService.getLeadsByStatus(
+          status,
+          parseInt(limit),
+          {
+            sortBy,
+            sortOrder,
+            offset: parseInt(offset),
+            useCache: false, // Don't use individual status cache when building conversion cache
+          }
+        );
+
+        return leads.map((lead) => ({
+          ...lead,
+          status: status.toLowerCase(),
+          contactedDate: lead.createdAt,
+          priority: (() => {
+            const currentDate = new Date();
+            const leadDate = new Date(lead.createdAt);
+            const daysDifference = Math.floor(
+              (currentDate - leadDate) / (1000 * 60 * 60 * 24)
+            );
+
+            if (daysDifference <= 3) return "high";
+            else if (daysDifference <= 10) return "medium";
+            else return "low";
+          })(),
+        }));
+      } catch (error) {
+        console.error(`❌ Error fetching leads for status ${status}:`, error);
+        return [];
+      }
+    });
+
+    // Wait for both status fetches to complete
+    const statusResults = await Promise.all(statusPromises);
+    const allLeads = statusResults.flat();
+
+    // Sort by creation date (newest first)
+    allLeads.sort((a, b) => {
+      const dateA =
+        a.createdAt instanceof Date ? a.createdAt : new Date(a.createdAt || 0);
+      const dateB =
+        b.createdAt instanceof Date ? b.createdAt : new Date(b.createdAt || 0);
+      return dateB - dateA;
+    });
+
+    console.log(`✅ API: Combined ${allLeads.length} conversion leads`);
+
+    // Cache the results if caching is enabled
+    if (useCache === "true" || useCache === true) {
+      await leadService.cacheConversionLeads(allLeads);
+    }
+
+    res.json({
+      success: true,
+      data: allLeads,
+      cached: false,
+      pagination: {
+        limit: allLeads.length,
+        offset: 0,
+        hasMore: false,
+        count: allLeads.length,
+      },
+    });
+  } catch (error) {
+    console.error("❌ Error getting conversion leads:", error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      data: [],
+      cached: false,
+    });
+  }
+});
+
+/**
  * Get lead statistics
  * GET /api/leads/stats
  */
