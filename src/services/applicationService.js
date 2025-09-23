@@ -12,6 +12,21 @@ const {
 const { LEAD_STATUSES } = require("../config/lead.constants");
 const metaConversionsApi = require("./metaConversionsApi.service");
 
+// Lightweight logger with levels (error < warn < info < debug)
+const LOG_LEVEL = process.env.LOG_LEVEL || "info"; // set LOG_LEVEL=debug for verbose output
+const LOG_ORDER = { error: 0, warn: 1, info: 2, debug: 3 };
+const _log = (level, ...args) => {
+  if ((LOG_ORDER[level] ?? 2) <= (LOG_ORDER[LOG_LEVEL] ?? 2)) {
+    const fn = level === "debug" ? "log" : level; // map debug to console.log
+    // eslint-disable-next-line no-console
+    console[fn](...args);
+  }
+};
+const logDebug = (...args) => _log("debug", ...args);
+const logInfo = (...args) => _log("info", ...args);
+const logWarn = (...args) => _log("warn", ...args);
+const logError = (...args) => _log("error", ...args);
+
 class ApplicationService {
   constructor(firestore, leadService, whatsappMessageService, storageService) {
     this.db = firestore;
@@ -24,6 +39,66 @@ class ApplicationService {
 
     if (!this.storageService) {
       throw new Error("StorageService is required for ApplicationService");
+    }
+  }
+
+  /**
+   * Add academic document to application (similar to student portal approach)
+   * @param {string} applicationId - Application ID
+   * @param {string} documentUrl - Document URL to add
+   */
+  async addAcademicDocument(applicationId, documentUrl) {
+    try {
+      console.log(
+        `📤 Adding academic document to application ${applicationId}: ${documentUrl}`
+      );
+
+      // Get current application data
+      const docRef = this.db.collection(this.collection).doc(applicationId);
+      const docSnapshot = await docRef.get();
+
+      if (!docSnapshot.exists) {
+        throw new Error(`Application ${applicationId} not found`);
+      }
+
+      const currentData = docSnapshot.data();
+      const currentAcademicDocs = currentData.academicDocuments || [];
+
+      // Ensure it's an array
+      const docsArray = Array.isArray(currentAcademicDocs)
+        ? currentAcademicDocs
+        : currentAcademicDocs
+        ? [currentAcademicDocs]
+        : [];
+
+      // Check for duplicates
+      if (docsArray.includes(documentUrl)) {
+        console.log(
+          `⚠️ Document already exists in array, skipping: ${documentUrl}`
+        );
+        return { success: true, message: "Document already exists" };
+      }
+
+      // Add new document
+      const updatedDocs = [...docsArray, documentUrl];
+
+      // Update Firestore
+      await docRef.update({
+        academicDocuments: updatedDocs,
+        updatedAt: new Date().toISOString(),
+      });
+
+      console.log(
+        `✅ Successfully added academic document. Total count: ${updatedDocs.length}`
+      );
+      return {
+        success: true,
+        message: "Academic document added successfully",
+        count: updatedDocs.length,
+      };
+    } catch (error) {
+      console.error(`❌ Failed to add academic document:`, error);
+      throw error;
     }
   }
 
@@ -125,6 +200,74 @@ class ApplicationService {
         );
       } else {
         console.warn(`⚠️ Failed to delete old ${documentType}:`, error);
+      }
+    }
+  }
+
+  /**
+   * Delete a document from Firebase Storage using its URL
+   * @param {string} documentUrl - The full URL of the document to delete
+   */
+  async _deleteDocumentByUrl(documentUrl) {
+    if (!documentUrl || documentUrl === "" || documentUrl === null) {
+      console.log(`ℹ️ No document URL provided for deletion`);
+      return;
+    }
+
+    // Skip base64 data (legacy data that doesn't need storage cleanup)
+    if (typeof documentUrl === "string" && documentUrl.startsWith("data:")) {
+      console.log(`ℹ️ Document is base64 data, no storage cleanup needed`);
+      return;
+    }
+
+    // Handle Firebase Storage URLs
+    if (
+      typeof documentUrl === "string" &&
+      (documentUrl.includes("storage.googleapis.com") ||
+        documentUrl.includes("firebasestorage.googleapis.com"))
+    ) {
+      try {
+        // Extract storage path from different possible Firebase Storage URL formats
+        let storagePath = null;
+
+        // Format 1: https://storage.googleapis.com/{bucket}/{path}
+        if (documentUrl.includes("storage.googleapis.com")) {
+          const urlParts = documentUrl.split("storage.googleapis.com/")[1];
+          if (urlParts) {
+            // Remove bucket name to get the file path
+            storagePath = urlParts.split("/").slice(1).join("/");
+          }
+        }
+        // Format 2: https://firebasestorage.googleapis.com/v0/b/{bucket}/o/{path}?alt=media&token={token}
+        else if (documentUrl.includes("firebasestorage.googleapis.com")) {
+          // Extract the path portion after /o/ and before the query parameters
+          const match = documentUrl.match(/\/o\/([^?]+)/);
+          if (match && match[1]) {
+            storagePath = decodeURIComponent(match[1]);
+          }
+        }
+
+        console.log(`🔍 Debug - Original URL: ${documentUrl}`);
+        console.log(`🔍 Debug - Parsed storage path: ${storagePath}`);
+
+        if (!storagePath) {
+          console.warn(
+            `⚠️ Could not parse storage path from URL: ${documentUrl}`
+          );
+          return;
+        }
+
+        console.log(`🗑️ Deleting document from path: ${storagePath}`);
+
+        // Delete the file from Firebase Storage
+        await this.storageService.deleteFile(storagePath);
+        console.log(`✅ Successfully deleted document from storage`);
+      } catch (parseError) {
+        console.warn(
+          `⚠️ Error parsing or deleting document from storage:`,
+          parseError
+        );
+        throw parseError;
       }
     }
   }
@@ -235,6 +378,66 @@ class ApplicationService {
         return publicUrl;
       }
 
+      // Handle multer-style file objects which may have a 'buffer' property
+      if (file && file.buffer && Buffer.isBuffer(file.buffer)) {
+        console.log("📁 Found multer-style file with buffer property");
+        const mimeType = file.mimetype || "application/octet-stream";
+        const publicUrl = await this.storageService.storeFile(
+          file.buffer,
+          storagePath,
+          mimeType
+        );
+        console.log(`✅ Multer-style file uploaded successfully: ${publicUrl}`);
+        return publicUrl;
+      }
+
+      // Handle simple file object with size, name, and mimetype but no buffer/data
+      // This might happen with certain form-data implementations
+      if (
+        file &&
+        typeof file === "object" &&
+        file.size &&
+        file.name &&
+        file.mimetype &&
+        !file.data &&
+        !file.buffer &&
+        !file.tempFilePath
+      ) {
+        // In this case, we need to get the actual file content from somewhere
+        // We'll check if there's a raw property or arrayBuffer method
+        let fileData = null;
+
+        if (file.arrayBuffer && typeof file.arrayBuffer === "function") {
+          // Modern File API
+          try {
+            fileData = Buffer.from(await file.arrayBuffer());
+            console.log("📁 Extracted file data using arrayBuffer method");
+          } catch (e) {
+            console.error("❌ Failed to use arrayBuffer method:", e);
+          }
+        }
+
+        if (!fileData && file._buf) {
+          // Some libraries store the raw content in _buf
+          fileData = file._buf;
+          console.log("📁 Found file data in _buf property");
+        }
+
+        if (fileData) {
+          const publicUrl = await this.storageService.storeFile(
+            fileData,
+            storagePath,
+            file.mimetype
+          );
+          console.log(`✅ Alternative file upload successful: ${publicUrl}`);
+          return publicUrl;
+        } else {
+          console.error(
+            "❌ File object has metadata but no accessible content"
+          );
+        }
+      }
+
       // Handle base64 data strings
       if (typeof file === "string" && file.startsWith("data:")) {
         console.log("🔄 Converting base64 data to buffer...");
@@ -254,8 +457,10 @@ class ApplicationService {
       console.error("❌ Unsupported file format. File object:", {
         hasData: !!file?.data,
         hasTempFilePath: !!file?.tempFilePath,
+        hasBuffer: !!file?.buffer,
         hasName: !!file?.name,
         hasSize: !!file?.size,
+        hasMimetype: !!file?.mimetype,
         isBuffer: Buffer.isBuffer(file),
         type: typeof file,
         keys: file ? Object.keys(file).slice(0, 10) : [], // Only show first 10 keys
@@ -1052,19 +1257,15 @@ IUEA Admissions Team`;
    */
   async updateApplicationByEmail(email, updateData) {
     try {
-      console.log(
-        `🔍 ApplicationService: Updating application for email: ${email}`
-      );
-      console.log(
-        `🔍 ApplicationService: Update data keys:`,
-        Object.keys(updateData)
-      );
-      console.log(
-        `🔍 ApplicationService: Update data values:`,
-        Object.keys(updateData).map(
-          (key) => `${key}: ${typeof updateData[key]} = ${updateData[key]}`
-        )
-      );
+      logInfo(`📝 Updating application for email: ${email}`);
+
+      // Special logging for academic documents
+      if (updateData.newAcademicDocuments) {
+        logDebug(`📤 newAcademicDocuments detected`, {
+          isArray: Array.isArray(updateData.newAcademicDocuments),
+          length: updateData.newAcademicDocuments.length,
+        });
+      }
 
       // First, get the applications by email to find the most recent one
       const applications = await this.getApplicationsByEmail(email);
@@ -1193,11 +1394,15 @@ IUEA Admissions Team`;
         updateData.status &&
         Object.keys(updateData).filter(
           (key) =>
-            !["updatedBy", "updatedAt"].includes(key) &&
-            updateData[key] !== undefined
+            ![
+              "updatedBy",
+              "updatedAt",
+              "newAcademicDocuments",
+              "removeAcademicDocuments",
+            ].includes(key) && updateData[key] !== undefined
         ).length <= 3; // status, statusNote, notes typically
 
-      console.log(`🔍 Update analysis:`, {
+      logDebug(`🔍 Update analysis:`, {
         totalKeys: Object.keys(updateData).length,
         filteredKeys: Object.keys(updateData).filter(
           (key) =>
@@ -1208,7 +1413,15 @@ IUEA Admissions Team`;
         hasStatus: !!updateData.status,
         hasPassportPhoto: !!updateData.passportPhoto,
         hasAcademicDocuments: !!updateData.academicDocuments,
+        hasNewAcademicDocuments: !!updateData.newAcademicDocuments,
+        hasRemoveAcademicDocuments: !!updateData.removeAcademicDocuments,
         hasIdentificationDocument: !!updateData.identificationDocument,
+        newAcademicDocsCount: updateData.newAcademicDocuments
+          ? updateData.newAcademicDocuments.length
+          : 0,
+        removeAcademicDocsCount: updateData.removeAcademicDocuments
+          ? updateData.removeAcademicDocuments.length
+          : 0,
       });
 
       if (!isStatusOnlyUpdate) {
@@ -1217,7 +1430,7 @@ IUEA Admissions Team`;
           updateData.passportPhoto !== latestApplication.passportPhoto &&
           this._isValidFileData(updateData.passportPhoto)
         ) {
-          console.log("📤 Uploading new passport photo to Firebase Storage...");
+          logInfo("📤 Uploading new passport photo...");
           applicationUpdate.passportPhoto =
             await this.uploadApplicationDocument(
               latestApplication.id,
@@ -1226,15 +1439,417 @@ IUEA Admissions Team`;
               latestApplication.email
             );
         }
+        // Handle academic documents with multi-document support
+        // Normalize existing docs into URL strings and dedupe
+        let currentAcademicDocs = latestApplication.academicDocuments || [];
+        if (!Array.isArray(currentAcademicDocs)) {
+          currentAcademicDocs = currentAcademicDocs
+            ? [currentAcademicDocs]
+            : [];
+        }
+        const toUrl = (doc) => {
+          if (!doc) return "";
+          if (typeof doc === "string") return doc.trim();
+          if (typeof doc === "object") {
+            const candidate =
+              doc.url || doc.href || doc.downloadURL || doc.link || "";
+            return typeof candidate === "string" ? candidate.trim() : "";
+          }
+          return "";
+        };
+        // Work with a normalized set of URLs
+        let currentDocUrls = Array.from(
+          new Set(currentAcademicDocs.map(toUrl).filter((u) => u))
+        );
+
+        // Flag to determine if this update is only adding academic documents (no removals or other non-document updates)
+        // Needs to be in outer scope because we reference it later when deciding whether to perform a bulk update
+        let isOnlyAddingDocuments = false;
+
+        // Handle academic document removals first
+        if (
+          updateData.removeAcademicDocuments &&
+          Array.isArray(updateData.removeAcademicDocuments)
+        ) {
+          logInfo(
+            `🗑️ Removing ${updateData.removeAcademicDocuments.length} academic documents...`
+          );
+
+          // Debug current array
+          logInfo(`📋 Current academic docs before removal: `, currentDocUrls);
+          logInfo(`📋 URLs to remove: `, updateData.removeAcademicDocuments);
+
+          // Remove documents from storage and filter from array
+          for (const urlToRemove of updateData.removeAcademicDocuments) {
+            try {
+              // Delete from Firebase Storage
+              await this._deleteDocumentByUrl(urlToRemove);
+              logInfo(`✅ Deleted academic document from storage`);
+
+              // Remove from normalized URL list - this is the critical part
+              const urlsBeforeRemoval = currentDocUrls.length;
+              logInfo(`🔍 Attempting to remove URL: ${urlToRemove}`);
+
+              // First try exact match
+              currentDocUrls = currentDocUrls.filter((u) => u !== urlToRemove);
+              const urlsAfterExactMatch = currentDocUrls.length;
+
+              if (urlsBeforeRemoval === urlsAfterExactMatch) {
+                logWarn(`⚠️ Exact URL not found, trying simplified match...`);
+
+                // Try simplified URL match (without query parameters)
+                const simplifiedUrlToRemove = urlToRemove.split("?")[0];
+                logInfo(
+                  `🔍 Simplified URL to remove: ${simplifiedUrlToRemove}`
+                );
+
+                currentDocUrls = currentDocUrls.filter((url) => {
+                  const simplifiedUrl = url.split("?")[0];
+                  const isMatch = simplifiedUrl === simplifiedUrlToRemove;
+                  if (isMatch) {
+                    logInfo(`✅ Found match using simplified URL: ${url}`);
+                  }
+                  return !isMatch;
+                });
+
+                const urlsAfterSimplifiedMatch = currentDocUrls.length;
+
+                if (urlsAfterExactMatch === urlsAfterSimplifiedMatch) {
+                  logWarn(`⚠️ No URL matches found for: ${urlToRemove}`);
+                  logInfo(`📝 Available URLs in array:`);
+                  currentDocUrls.forEach((url, index) => {
+                    logInfo(`  ${index + 1}. ${url}`);
+                  });
+                } else {
+                  logInfo(`✅ Successfully removed URL using simplified match`);
+                }
+              } else {
+                logInfo(`✅ Successfully removed URL using exact match`);
+              }
+            } catch (deleteError) {
+              logWarn(
+                `⚠️ Could not delete academic document from storage`,
+                deleteError
+              );
+            }
+          }
+
+          // Debug after removal
+          logInfo(`📋 Academic docs after removal: `, currentDocUrls);
+        }
+
+        // Handle adding new academic documents
+        if (
+          updateData.newAcademicDocuments &&
+          Array.isArray(updateData.newAcademicDocuments)
+        ) {
+          logInfo(
+            `📤 Adding ${updateData.newAcademicDocuments.length} academic document(s)...`
+          );
+
+          // Preprocess: upload any base64 or file-like items to Firebase Storage, replace with URLs
+          try {
+            // If there are documents marked for removal in this same request,
+            // ensure we DO NOT re-add them from newAcademicDocuments due to client resending full arrays
+            if (
+              Array.isArray(updateData.removeAcademicDocuments) &&
+              updateData.removeAcademicDocuments.length > 0
+            ) {
+              const removedExact = new Set(
+                updateData.removeAcademicDocuments
+                  .filter((u) => typeof u === "string")
+                  .map((u) => u.trim())
+              );
+              const removedSimplified = new Set(
+                Array.from(removedExact).map((u) => u.split("?")[0])
+              );
+
+              const beforeFilterCount = updateData.newAcademicDocuments.length;
+              updateData.newAcademicDocuments =
+                updateData.newAcademicDocuments.filter((item) => {
+                  // Convert potential object into URL-like string for comparison when possible
+                  let candidate = null;
+                  if (typeof item === "string") {
+                    candidate = item.trim();
+                  } else if (item && typeof item === "object") {
+                    candidate = (
+                      item.url ||
+                      item.href ||
+                      item.downloadURL ||
+                      item.link ||
+                      ""
+                    ).trim();
+                  }
+
+                  if (!candidate) return true; // non-URL items (file objects/base64) should pass through
+
+                  const simplified = candidate.split("?")[0];
+                  const shouldExclude =
+                    removedExact.has(candidate) ||
+                    removedSimplified.has(simplified);
+                  if (shouldExclude) {
+                    logInfo(
+                      `🚫 Skipping re-adding removed document: ${candidate}`
+                    );
+                    return false;
+                  }
+                  return true;
+                });
+
+              const afterFilterCount = updateData.newAcademicDocuments.length;
+              if (beforeFilterCount !== afterFilterCount) {
+                logInfo(
+                  `🧹 Filtered ${
+                    beforeFilterCount - afterFilterCount
+                  } item(s) from newAcademicDocuments that were marked for removal`
+                );
+              }
+            }
+
+            const toUpload = [];
+            const passthrough = [];
+
+            const isFirebaseUrl = (s) =>
+              typeof s === "string" &&
+              (s.includes("firebasestorage.googleapis.com") ||
+                s.includes("storage.googleapis.com"));
+            const isHttpUrl = (s) =>
+              typeof s === "string" && /^https?:\/\//i.test(s);
+
+            for (const item of updateData.newAcademicDocuments) {
+              // File object from express-fileupload
+              if (
+                item &&
+                typeof item === "object" &&
+                (item.data ||
+                  item.buffer ||
+                  item.tempFilePath ||
+                  // Check if it has mimetype or name indicating it's a file
+                  (item.mimetype && item.name))
+              ) {
+                logDebug("📤 Found file object in newAcademicDocuments", {
+                  name: item.name || "unknown",
+                  size: item.size || "unknown",
+                  mimetype: item.mimetype || "unknown",
+                });
+                toUpload.push({ kind: "fileLike", data: item });
+                continue;
+              }
+
+              // Base64 string
+              if (typeof item === "string" && item.startsWith("data:")) {
+                toUpload.push({ kind: "base64", data: item });
+                continue;
+              }
+
+              // Already a URL (Firebase or external) -> pass through
+              if (
+                typeof item === "string" &&
+                (isFirebaseUrl(item) || isHttpUrl(item))
+              ) {
+                passthrough.push(item.trim());
+                continue;
+              }
+
+              // Buffer-like object with numeric keys
+              if (
+                item &&
+                typeof item === "object" &&
+                Object.keys(item).length > 0 &&
+                Object.keys(item).every((k) => !isNaN(k) && k !== "length")
+              ) {
+                logDebug("📤 Found buffer-like object in newAcademicDocuments");
+                toUpload.push({ kind: "fileLike", data: item });
+                continue;
+              }
+
+              // Fallback: if it's a non-empty string, treat as URL
+              if (typeof item === "string" && item.trim()) {
+                passthrough.push(item.trim());
+              } else {
+                logWarn("⚠️ Skipping unrecognized academic document item", {
+                  type: typeof item,
+                  keys:
+                    item && typeof item === "object"
+                      ? Object.keys(item)
+                      : undefined,
+                });
+              }
+            }
+
+            if (toUpload.length > 0) {
+              logInfo(
+                `📤 Uploading ${toUpload.length} academic document(s) to Firebase Storage...`
+              );
+            }
+
+            const uploadedUrls = [];
+            for (const entry of toUpload) {
+              try {
+                const url = await this.uploadApplicationDocument(
+                  latestApplication.id,
+                  "academicDocuments",
+                  entry.data,
+                  latestApplication.email
+                );
+                uploadedUrls.push(url);
+              } catch (e) {
+                logWarn(
+                  "⚠️ Failed to upload an academic document, skipping",
+                  e
+                );
+              }
+            }
+
+            // Replace newAcademicDocuments with consolidated list of URLs
+            updateData.newAcademicDocuments = [...passthrough, ...uploadedUrls];
+
+            logDebug("📄 newAcademicDocuments after upload pass", {
+              total: updateData.newAcademicDocuments.length,
+              firebaseUrls: updateData.newAcademicDocuments.filter((u) =>
+                isFirebaseUrl(u)
+              ).length,
+            });
+          } catch (prepErr) {
+            logWarn(
+              "⚠️ Preprocessing newAcademicDocuments failed, continuing with raw values",
+              prepErr
+            );
+          }
+
+          // If we're only adding documents (no removals or other changes), use the atomic method
+          const documentRelatedFields = [
+            "academicDocuments",
+            "passportPhoto",
+            "identificationDocument",
+          ];
+          const nonDocumentUpdates = Object.keys(applicationUpdate).filter(
+            (key) => !documentRelatedFields.includes(key)
+          );
+          isOnlyAddingDocuments =
+            updateData.newAcademicDocuments.length > 0 &&
+            (!updateData.removeAcademicDocuments ||
+              updateData.removeAcademicDocuments.length === 0) &&
+            nonDocumentUpdates.length === 0; // No non-document updates pending
+
+          logDebug(`🔍 isOnlyAddingDocuments check`, {
+            newDocsCount: updateData.newAcademicDocuments.length,
+            removeDocsCount: updateData.removeAcademicDocuments?.length || 0,
+            nonDocumentUpdates: nonDocumentUpdates,
+            isOnlyAddingDocuments,
+          });
+
+          if (isOnlyAddingDocuments) {
+            logInfo(`🔄 Using atomic addition approach`);
+
+            try {
+              for (const newDocUrl of updateData.newAcademicDocuments) {
+                if (
+                  newDocUrl &&
+                  typeof newDocUrl === "string" &&
+                  newDocUrl.trim() !== ""
+                ) {
+                  await this.addAcademicDocument(
+                    latestApplication.id,
+                    newDocUrl.trim()
+                  );
+                }
+              }
+
+              logInfo(`✅ Academic documents added (atomic)`);
+
+              // Update local array for consistency in return value
+              for (const newDocUrl of updateData.newAcademicDocuments) {
+                if (
+                  newDocUrl &&
+                  typeof newDocUrl === "string" &&
+                  newDocUrl.trim() !== ""
+                ) {
+                  if (!currentAcademicDocs.includes(newDocUrl.trim())) {
+                    currentAcademicDocs.push(newDocUrl.trim());
+                  }
+                }
+              }
+
+              // Skip the bulk update since we did atomic updates
+              logInfo(
+                `⏭️ Skipped bulk academic documents update (atomic used)`
+              );
+            } catch (atomicError) {
+              logWarn(
+                `❌ Atomic document addition failed, falling back to bulk update`,
+                atomicError
+              );
+              // Fall through to the bulk update approach below
+            }
+          }
+
+          // Bulk update approach (fallback or when doing other changes too)
+          logDebug(`📋 Current academic docs before add`, currentDocUrls);
+          logDebug(
+            `📋 New academic docs to add`,
+            updateData.newAcademicDocuments
+          );
+
+          // Validate and add each new document URL
+          for (const newDocUrl of updateData.newAcademicDocuments) {
+            if (
+              newDocUrl &&
+              typeof newDocUrl === "string" &&
+              newDocUrl.trim() !== ""
+            ) {
+              // Avoid duplicates
+              if (!currentDocUrls.includes(newDocUrl.trim())) {
+                currentDocUrls.push(newDocUrl.trim());
+                logInfo(`✅ Added academic document`);
+              } else {
+                logDebug(`⚠️ Skipping duplicate academic document`);
+              }
+            } else {
+              logWarn(`⚠️ Invalid academic document URL format`);
+            }
+          }
+
+          logDebug(
+            `📋 Academic docs after add (total: ${currentDocUrls.length})`
+          );
+        }
+
+        // Update the application with the modified academic documents array if any changes were made
+        // BUT only if we're not using atomic updates (which handle their own database updates)
+        if (
+          !isOnlyAddingDocuments && // Only do bulk update if NOT using atomic approach
+          ((updateData.newAcademicDocuments &&
+            updateData.newAcademicDocuments.length > 0) ||
+            (updateData.removeAcademicDocuments &&
+              updateData.removeAcademicDocuments.length > 0))
+        ) {
+          // Ensure the array is clean (no null, undefined, or empty strings)
+          const cleanedAcademicDocs = Array.from(
+            new Set(
+              currentDocUrls
+                .map((doc) => (typeof doc === "string" ? doc.trim() : ""))
+                .filter((doc) => doc)
+            )
+          );
+
+          applicationUpdate.academicDocuments = cleanedAcademicDocs;
+          logInfo(
+            `📦 Writing academic documents array (count: ${cleanedAcademicDocs.length})`
+          );
+          logDebug(`📦 Final academic documents array`, cleanedAcademicDocs);
+        } else if (isOnlyAddingDocuments) {
+          logInfo(`⏭️ Skipped bulk academic documents update (atomic used)`);
+        }
+
+        // Handle single academic document upload (legacy support)
         if (
           updateData.academicDocuments &&
           updateData.academicDocuments !==
             latestApplication.academicDocuments &&
           this._isValidFileData(updateData.academicDocuments)
         ) {
-          console.log(
-            "📤 Uploading new academic documents to Firebase Storage..."
-          );
+          logInfo("📤 Uploading single academic document (legacy mode)...");
           applicationUpdate.academicDocuments =
             await this.uploadApplicationDocument(
               latestApplication.id,
@@ -1249,9 +1864,7 @@ IUEA Admissions Team`;
             latestApplication.identificationDocument &&
           this._isValidFileData(updateData.identificationDocument)
         ) {
-          console.log(
-            "📤 Uploading new identification document to Firebase Storage..."
-          );
+          logInfo("📤 Uploading new identification document...");
           applicationUpdate.identificationDocument =
             await this.uploadApplicationDocument(
               latestApplication.id,
@@ -1261,9 +1874,7 @@ IUEA Admissions Team`;
             );
         }
       } else {
-        console.log(
-          "📝 Status-only update detected, skipping file processing..."
-        );
+        logInfo("📝 Status-only update detected, skipping file processing...");
       }
 
       // Parse updatedBy field if it's a JSON string
@@ -1290,7 +1901,7 @@ IUEA Admissions Team`;
             };
           }
         } catch (parseError) {
-          console.warn("❌ Failed to parse updatedBy field:", parseError);
+          logWarn("❌ Failed to parse updatedBy field:", parseError);
           parsedUpdatedBy = null;
         }
       }
@@ -1301,7 +1912,7 @@ IUEA Admissions Team`;
 
       if (updateData.status && updateData.status !== latestApplication.status) {
         hasStatusChange = true;
-        console.log(
+        logInfo(
           `📝 Status change detected: ${latestApplication.status} → ${updateData.status}`
         );
       }
@@ -1365,34 +1976,65 @@ IUEA Admissions Team`;
         applicationUpdate.lastUpdatedBy = parsedUpdatedBy;
       }
 
-      // Debug: Log the final update object
-      console.log(
-        `🔍 Final applicationUpdate object:`,
-        JSON.stringify(applicationUpdate, null, 2)
-      );
-      console.log(`🔍 ApplicationUpdate keys:`, Object.keys(applicationUpdate));
-      console.log(
-        `🔍 Checking for undefined values:`,
+      // Debug: Log the final update object (condensed)
+      logDebug(`🔍 ApplicationUpdate keys:`, Object.keys(applicationUpdate));
+      logDebug(
+        `🔍 Undefined value keys:`,
         Object.keys(applicationUpdate).filter(
           (key) => applicationUpdate[key] === undefined
         )
       );
 
-      // Update the application document
-      await this.db
-        .collection(this.collection)
-        .doc(latestApplication.id)
-        .update(applicationUpdate);
+      // Update the application document (only if there are changes to make)
+      if (Object.keys(applicationUpdate).length > 0) {
+        try {
+          logInfo(
+            `🔄 Updating application ${latestApplication.id} in Firestore...`
+          );
+          logDebug(
+            `🔄 Update fields: ${Object.keys(applicationUpdate).join(", ")}`
+          );
 
-      console.log(
-        `✅ ApplicationService: Successfully updated application ${latestApplication.id} for email: ${email}`
-      );
+          await this.db
+            .collection(this.collection)
+            .doc(latestApplication.id)
+            .update(applicationUpdate);
+
+          logInfo(
+            `✅ Application updated ${latestApplication.id} for email: ${email}`
+          );
+        } catch (firestoreError) {
+          logError(
+            `❌ Firestore update failed for application ${latestApplication.id}:`,
+            firestoreError
+          );
+
+          // Log specific error details
+          if (firestoreError.code) {
+            logError(`💥 Firestore error code: ${firestoreError.code}`);
+          }
+          if (firestoreError.message) {
+            logError(`💥 Firestore error message: ${firestoreError.message}`);
+          }
+
+          // Re-throw with more context
+          throw new Error(
+            `Failed to update application: ${
+              firestoreError.message || firestoreError
+            }`
+          );
+        }
+      } else {
+        logInfo(
+          `ℹ️ No bulk updates needed for application ${latestApplication.id} (atomic updates may have been used)`
+        );
+      }
 
       // Synchronize lead if status was updated and leadId exists
       if (updateData.status && latestApplication.leadId) {
         try {
-          console.log(
-            `🔄 Synchronizing lead ${latestApplication.leadId} status to match application status: ${updateData.status}`
+          logInfo(
+            `🔄 Synchronizing lead ${latestApplication.leadId} status to ${updateData.status}`
           );
 
           // Also sync shared fields like name, email, phone, program
@@ -1436,11 +2078,11 @@ IUEA Admissions Team`;
             );
           }
 
-          console.log(
+          logInfo(
             `✅ Lead ${latestApplication.leadId} synchronized with application ${latestApplication.id}`
           );
         } catch (leadError) {
-          console.error(
+          logWarn(
             `⚠️ Failed to synchronize lead for application ${latestApplication.id}:`,
             leadError
           );
@@ -1455,10 +2097,7 @@ IUEA Admissions Team`;
         ...applicationUpdate,
       };
     } catch (error) {
-      console.error(
-        "❌ ApplicationService: Error updating application by email:",
-        error
-      );
+      logError("❌ Error updating application by email:", error);
       throw error;
     }
   }

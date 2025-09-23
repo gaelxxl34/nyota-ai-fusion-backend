@@ -985,36 +985,69 @@ router.put("/email/:email", ensureApplicationService, async (req, res) => {
 
       // Process each uploaded file
       for (const fieldName in req.files) {
-        const file = req.files[fieldName];
+        const fileOrFiles = req.files[fieldName];
         console.log(
           `Processing file upload for field: ${fieldName}`,
-          file.name
+          Array.isArray(fileOrFiles)
+            ? `${fileOrFiles.length} files`
+            : fileOrFiles.name
         );
 
         try {
-          // Upload file to Firebase Storage using the document upload method
-          const documentType =
-            fieldName === "passportPhoto"
-              ? "passportPhoto"
-              : fieldName === "academicDocuments"
-              ? "academicDocuments"
-              : fieldName === "idDocument"
-              ? "identificationDocument"
-              : fieldName;
+          // Handle multiple academic documents
+          if (fieldName === "newAcademicDocuments") {
+            const filesToUpload = Array.isArray(fileOrFiles)
+              ? fileOrFiles
+              : [fileOrFiles];
+            const uploadedUrls = [];
 
-          // Upload to Firebase Storage and get public URL
-          const publicUrl = await applicationService.uploadApplicationDocument(
-            "temp", // We don't need applicationId for this operation
-            documentType,
-            file
-          );
+            for (const file of filesToUpload) {
+              console.log(`Uploading academic document: ${file.name}`);
+              const publicUrl =
+                await applicationService.uploadApplicationDocument(
+                  "temp", // We don't need applicationId for this operation
+                  "academicDocuments",
+                  file
+                );
+              uploadedUrls.push(publicUrl);
+            }
 
-          console.log(
-            `File uploaded successfully to Firebase Storage. Field: ${fieldName}, URL: ${publicUrl}`
-          );
+            files.newAcademicDocuments = uploadedUrls;
+            console.log(
+              `Successfully uploaded ${uploadedUrls.length} academic documents`
+            );
+          }
+          // Handle single file uploads (passport, ID document)
+          else {
+            const file = Array.isArray(fileOrFiles)
+              ? fileOrFiles[0]
+              : fileOrFiles;
 
-          // Add the public URL to application data
-          files[fieldName] = publicUrl;
+            // Upload file to Firebase Storage using the document upload method
+            const documentType =
+              fieldName === "passportPhoto"
+                ? "passportPhoto"
+                : fieldName === "academicDocuments"
+                ? "academicDocuments"
+                : fieldName === "idDocument"
+                ? "identificationDocument"
+                : fieldName;
+
+            // Upload to Firebase Storage and get public URL
+            const publicUrl =
+              await applicationService.uploadApplicationDocument(
+                "temp", // We don't need applicationId for this operation
+                documentType,
+                file
+              );
+
+            console.log(
+              `File uploaded successfully to Firebase Storage. Field: ${fieldName}, URL: ${publicUrl}`
+            );
+
+            // Add the public URL to application data
+            files[fieldName] = publicUrl;
+          }
         } catch (fileError) {
           console.error(`Error uploading file for ${fieldName}:`, fileError);
           return res.status(500).json({
@@ -1026,6 +1059,113 @@ router.put("/email/:email", ensureApplicationService, async (req, res) => {
 
       // Merge file data with application data
       applicationData = { ...applicationData, ...files };
+    }
+
+    // Parse JSON fields that come as strings from multipart form data
+    if (
+      applicationData.removeAcademicDocuments &&
+      typeof applicationData.removeAcademicDocuments === "string"
+    ) {
+      try {
+        applicationData.removeAcademicDocuments = JSON.parse(
+          applicationData.removeAcademicDocuments
+        );
+        console.log(
+          "✅ Parsed removeAcademicDocuments:",
+          applicationData.removeAcademicDocuments
+        );
+      } catch (parseError) {
+        console.warn("⚠️ Failed to parse removeAcademicDocuments:", parseError);
+        applicationData.removeAcademicDocuments = [];
+      }
+    }
+
+    // Normalize newAcademicDocuments that may arrive as a JSON string or plain object with numeric keys
+    if (applicationData.newAcademicDocuments) {
+      // If it's a stringified JSON, try to parse it
+      if (typeof applicationData.newAcademicDocuments === "string") {
+        try {
+          const parsed = JSON.parse(applicationData.newAcademicDocuments);
+          applicationData.newAcademicDocuments = parsed;
+          console.log("✅ Parsed newAcademicDocuments from string");
+        } catch (e) {
+          console.warn(
+            "⚠️ Failed to parse newAcademicDocuments string, leaving as-is"
+          );
+        }
+      }
+      // If it's a plain object with numeric keys (e.g., {0: url, 1: url}) convert to array
+      if (
+        applicationData.newAcademicDocuments &&
+        !Array.isArray(applicationData.newAcademicDocuments) &&
+        typeof applicationData.newAcademicDocuments === "object"
+      ) {
+        const values = Object.values(applicationData.newAcademicDocuments);
+        applicationData.newAcademicDocuments = values;
+        console.log(
+          "✅ Normalized newAcademicDocuments object to array",
+          values.length
+        );
+      }
+    }
+
+    // Some clients may send multiple docs under academicDocuments, map to newAcademicDocuments when appropriate
+    if (
+      !applicationData.newAcademicDocuments &&
+      applicationData.academicDocuments &&
+      (Array.isArray(applicationData.academicDocuments) ||
+        (typeof applicationData.academicDocuments === "object" &&
+          applicationData.academicDocuments !== null)) &&
+      typeof applicationData.academicDocuments !== "string"
+    ) {
+      const asArray = Array.isArray(applicationData.academicDocuments)
+        ? applicationData.academicDocuments
+        : Object.values(applicationData.academicDocuments);
+      // Only map if resulting array has stringy values
+      if (asArray.length > 0) {
+        applicationData.newAcademicDocuments = asArray;
+        delete applicationData.academicDocuments;
+        console.log(
+          `✅ Mapped academicDocuments (${asArray.length}) to newAcademicDocuments`
+        );
+      }
+    }
+
+    // If academicDocuments is a JSON string, try to parse and map to newAcademicDocuments
+    if (
+      !applicationData.newAcademicDocuments &&
+      applicationData.academicDocuments &&
+      typeof applicationData.academicDocuments === "string"
+    ) {
+      const str = applicationData.academicDocuments.trim();
+      if (str.startsWith("[") || str.startsWith("{")) {
+        try {
+          const parsed = JSON.parse(str);
+          const arr = Array.isArray(parsed) ? parsed : Object.values(parsed);
+          if (arr.length > 0) {
+            applicationData.newAcademicDocuments = arr;
+            delete applicationData.academicDocuments;
+            console.log(
+              `✅ Parsed and mapped academicDocuments string to newAcademicDocuments (${arr.length})`
+            );
+          }
+        } catch (e) {
+          console.warn(
+            "⚠️ Failed to parse academicDocuments string, leaving as-is"
+          );
+        }
+      }
+    }
+
+    if (
+      applicationData.updatedBy &&
+      typeof applicationData.updatedBy === "string"
+    ) {
+      try {
+        applicationData.updatedBy = JSON.parse(applicationData.updatedBy);
+      } catch (parseError) {
+        console.warn("⚠️ Failed to parse updatedBy:", parseError);
+      }
     }
 
     // Check for base64 document data in the request body
@@ -1044,6 +1184,49 @@ router.put("/email/:email", ensureApplicationService, async (req, res) => {
         console.log(`Found base64 data for ${field} in request body`);
         // Data is already in base64 format, no need to process further
         files[field] = applicationData[field];
+      }
+    }
+
+    // Merge any base64-detected files into applicationData as well
+    if (Object.keys(files).length > 0) {
+      applicationData = { ...applicationData, ...files };
+    }
+
+    // Normalize identificationDocument: when sent as array/object, pick first value
+    if (applicationData.identificationDocument) {
+      const idDoc = applicationData.identificationDocument;
+      if (Array.isArray(idDoc)) {
+        applicationData.identificationDocument = idDoc[0];
+        console.log(
+          "✅ Normalized identificationDocument array to single value"
+        );
+      } else if (typeof idDoc === "object" && idDoc !== null) {
+        const values = Object.values(idDoc);
+        if (values.length > 0) {
+          applicationData.identificationDocument = values[0];
+          console.log(
+            "✅ Normalized identificationDocument object to single value"
+          );
+        }
+      } else if (typeof idDoc === "string") {
+        // If it's a JSON string representing array/object, try to parse and pick first
+        const str = idDoc.trim();
+        if (str.startsWith("[") || str.startsWith("{")) {
+          try {
+            const parsed = JSON.parse(str);
+            const first = Array.isArray(parsed)
+              ? parsed[0]
+              : Object.values(parsed)[0];
+            if (first) {
+              applicationData.identificationDocument = first;
+              console.log(
+                "✅ Parsed identificationDocument string to single value"
+              );
+            }
+          } catch (e) {
+            // ignore
+          }
+        }
       }
     }
 

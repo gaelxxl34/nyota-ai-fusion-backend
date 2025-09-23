@@ -28,6 +28,8 @@
     "express-fileupload": "^1.5.2",
     "firebase": "^11.10.0",
     "firebase-admin": "^11.10.1",
+    "google-ads-api": "^21.0.1",
+    "googleapis": "^160.0.0",
     "ioredis": "^5.7.0",
     "jsonwebtoken": "^9.0.2",
     "multer": "^2.0.2",

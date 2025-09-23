@@ -28,32 +28,42 @@ class MetaConversionsApiService {
   }
 
   /**
-   * Map application status to Meta event names
+   * Map application status to Meta event names (matches backend system exactly)
    */
   mapStatusToMetaEvent(status) {
     const statusEventMap = {
-      INTERESTED: "Lead", // Standard event
+      // Main conversion funnel - matching your backend exactly
+      CONTACTED: "InitiateCheckout", // Standard event - Initial contact
+      INTERESTED: "Lead", // Standard event - Shows interest
       APPLIED: "SubmitApplication", // Standard event - Application submitted
-      IN_REVIEW: "ApplicationInReview", // Custom event
+      MISSING_DOCUMENT: "MissingDocument", // Custom event - Missing required documents
+      IN_REVIEW: "ApplicationInReview", // Custom event - Under review
       QUALIFIED: "QualifiedLead", // Standard event - Qualified lead
-      ADMITTED: "Admitted", // Standard event - Student admitted
+      ADMITTED: "CompleteRegistration", // Standard event - Student admitted
       ENROLLED: "Purchase", // Standard event - ULTIMATE GOAL!
+      // Terminal statuses
+      DEFERRED: "ApplicationDeferred", // Custom event - Application deferred
+      EXPIRED: "ApplicationExpired", // Custom event - Application expired
     };
 
     return statusEventMap[status] || "Lead";
   }
 
   /**
-   * Calculate conversion value based on status
+   * Calculate conversion value based on status (matches backend system exactly)
    */
   calculateConversionValue(status) {
     const valueMap = {
-      INTERESTED: 1,
-      APPLIED: 3,
-      IN_REVIEW: 2,
-      QUALIFIED: 5,
-      ADMITTED: 10,
-      ENROLLED: 15, // Highest value for enrolled students
+      CONTACTED: 0.5, // Initial contact
+      INTERESTED: 1, // Shows interest
+      APPLIED: 3, // Application submitted
+      MISSING_DOCUMENT: 2.5, // Missing docs (between applied and review)
+      IN_REVIEW: 4, // Under review
+      QUALIFIED: 6, // Meets requirements
+      ADMITTED: 12, // Officially admitted
+      ENROLLED: 20, // Successfully enrolled - ULTIMATE GOAL!
+      DEFERRED: 1, // Application deferred
+      EXPIRED: 0, // Application expired
     };
 
     return valueMap[status] || 0;

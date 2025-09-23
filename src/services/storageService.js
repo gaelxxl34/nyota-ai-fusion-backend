@@ -208,20 +208,105 @@ class StorageService {
     try {
       console.log(`🗑️ Attempting to delete file: ${storagePath}`);
 
+      // Clean up the path if it contains Firebase Storage URL components
+      if (
+        storagePath.includes("firebasestorage.googleapis.com") ||
+        storagePath.includes("storage.googleapis.com")
+      ) {
+        console.log(
+          `⚠️ Path appears to be a full URL, extracting file path...`
+        );
+
+        if (storagePath.includes("/o/")) {
+          // Extract path after /o/
+          const match = storagePath.match(/\/o\/([^?]+)/);
+          if (match && match[1]) {
+            storagePath = decodeURIComponent(match[1]);
+            console.log(`🔄 Extracted file path from URL: ${storagePath}`);
+          }
+        }
+      } else if (storagePath.startsWith("b/") && storagePath.includes("/o/")) {
+        // Extract just the file path after /o/
+        const match = storagePath.match(/\/o\/(.+?)($|\?)/);
+        if (match && match[1]) {
+          storagePath = decodeURIComponent(match[1]);
+          console.log(`🔄 Corrected storage path: ${storagePath}`);
+        }
+      }
+
       // Use Admin SDK for delete operations (has full permissions)
       const bucket = admin.storage().bucket();
+
+      // Log the bucket name for debugging
+      console.log(`🪣 Using bucket: ${bucket.name}`);
+
+      // Ensure the path doesn't start with a slash
+      if (storagePath.startsWith("/")) {
+        storagePath = storagePath.substring(1);
+        console.log(`🔄 Removed leading slash: ${storagePath}`);
+      }
+
       const file = bucket.file(storagePath);
+      console.log(`🔎 Checking if file exists at path: ${storagePath}`);
 
       // Check if file exists first
       const [exists] = await file.exists();
       if (!exists) {
         console.log(`ℹ️ File does not exist: ${storagePath}`);
+
+        // Try to list files with similar paths for debugging
+        try {
+          const parentPath = storagePath.split("/").slice(0, -1).join("/");
+          console.log(`📂 Checking parent directory: ${parentPath}`);
+
+          const [files] = await bucket.getFiles({
+            prefix: parentPath,
+          });
+
+          console.log(`📂 Found ${files.length} files in parent directory:`);
+          files.slice(0, 5).forEach((f) => console.log(`- ${f.name}`));
+          if (files.length > 5) console.log(`... and ${files.length - 5} more`);
+
+          // Try a fuzzy match
+          const baseName = storagePath.split("/").pop();
+          console.log(`� Looking for files similar to: ${baseName}`);
+
+          const similarFiles = files.filter((f) => {
+            const fileName = f.name.split("/").pop();
+            // Check if it contains major parts of the filename (without tokens)
+            const baseNameParts = baseName.split("_");
+            if (baseNameParts.length >= 3) {
+              return baseNameParts
+                .slice(0, 3)
+                .every((part) => fileName.includes(part));
+            }
+            return fileName.includes(baseName.split("_").pop());
+          });
+
+          if (similarFiles.length > 0) {
+            console.log(`🔍 Found ${similarFiles.length} similar files:`);
+            similarFiles.forEach((f) => console.log(`- ${f.name}`));
+            console.log(
+              `⚠️ File not found, but similar files exist. Will NOT delete similar files for safety.`
+            );
+          } else {
+            console.log(`ℹ️ No similar files found in directory.`);
+          }
+        } catch (listErr) {
+          console.log(
+            `⚠️ Could not list files in parent directory: ${listErr.message}`
+          );
+        }
+
+        // Return without error - file doesn't exist is not a critical error
+        console.log(
+          `ℹ️ File deletion skipped - file does not exist: ${storagePath}`
+        );
         return;
       }
 
       // Delete the file using Admin SDK
       await file.delete();
-
       console.log(`✅ File deleted successfully: ${storagePath}`);
     } catch (error) {
       console.error(`Error deleting file ${storagePath}:`, error);

@@ -428,10 +428,8 @@ class LeadService {
     }
   }
 
-  /**
-   * Update lead status
-   */
-  async updateLeadStatus(
+  // Core implementation for updating lead status (used internally and by cache-wrapping method)
+  async _updateLeadStatusCore(
     leadId,
     newStatus,
     notes = "",
@@ -447,12 +445,10 @@ class LeadService {
       let updatedLead;
 
       if (forceUpdate) {
-        // Admin force update - bypass transition rules
         console.log(
           `⚠️ Force updating lead ${leadId} status from ${lead.status} to ${newStatus}`
         );
 
-        // Create timeline entry manually
         const timelineEntry = {
           type: "STATUS_CHANGE",
           status: newStatus,
@@ -468,14 +464,12 @@ class LeadService {
 
         const timeline = [...(lead.timeline || []), timelineEntry];
 
-        // Only update the fields we need to change
         const updateData = {
           status: newStatus,
           timeline,
           updatedAt: new Date(),
         };
 
-        // Set lastUpdatedBy for tracking
         if (updatedBy) {
           updateData.lastUpdatedBy = updatedBy;
         }
@@ -484,11 +478,8 @@ class LeadService {
           .collection(this.collection)
           .doc(leadId)
           .update(updateData);
-
-        // Return the updated lead
         updatedLead = await this.getLeadById(leadId);
       } else {
-        // Normal update with transition validation
         console.log(
           `📊 Updating lead ${leadId} status: stored status=${
             lead.status
@@ -498,8 +489,6 @@ class LeadService {
         );
 
         updatedLead = LeadModel.updateStatus(lead, newStatus, notes, updatedBy);
-
-        // Add lastUpdatedBy field for tracking
         if (updatedBy) {
           updatedLead.lastUpdatedBy = updatedBy;
         }
@@ -512,7 +501,6 @@ class LeadService {
 
       console.log(`✅ Lead ${leadId} status updated to ${newStatus}`);
 
-      // Sync lead status with conversation
       if (lead.phoneNumber || lead.phone) {
         try {
           const ConversationService = require("./conversationService");
@@ -530,7 +518,6 @@ class LeadService {
         }
       }
 
-      // Broadcast lead status update to all connected clients
       broadcastMessage(
         {
           leadId: leadId,
@@ -2169,26 +2156,16 @@ class LeadService {
     updatedBy = "system",
     forceUpdate = false
   ) {
-    try {
-      // Call the original method
-      const result = await super.updateLeadStatus(
-        leadId,
-        status,
-        notes,
-        updatedBy,
-        forceUpdate
-      );
-
-      // Invalidate relevant cache entries
-      await this.invalidateLeadsCache();
-
-      return result;
-    } catch (error) {
-      // If super method doesn't exist, we need to implement it here
-      // For now, just invalidate cache and re-throw
-      await this.invalidateLeadsCache();
-      throw error;
-    }
+    // Delegate to core method and then invalidate cache
+    const result = await this._updateLeadStatusCore(
+      leadId,
+      status,
+      notes,
+      updatedBy,
+      forceUpdate
+    );
+    await this.invalidateLeadsCache();
+    return result;
   }
 }
 
