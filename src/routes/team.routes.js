@@ -235,6 +235,88 @@ router.delete(
   }
 );
 
+// Get Firebase authentication data for team members
+router.post(
+  "/members/auth-data",
+  authenticateUser,
+  checkRole(["superAdmin", "admin", "admissionAdmin"]),
+  async (req, res) => {
+    try {
+      const { memberEmails } = req.body;
+
+      if (!memberEmails || !Array.isArray(memberEmails)) {
+        return res.status(400).json({
+          success: false,
+          message: "memberEmails array is required",
+        });
+      }
+
+      console.log(
+        `Fetching Firebase auth data for ${memberEmails.length} members...`
+      );
+
+      // Get Firebase auth data for each email
+      const authDataPromises = memberEmails.map(async (email) => {
+        try {
+          // Get user by email from Firebase Auth
+          const userRecord = await admin.auth().getUserByEmail(email);
+
+          return {
+            uid: userRecord.uid,
+            email: userRecord.email,
+            emailVerified: userRecord.emailVerified,
+            disabled: userRecord.disabled,
+            lastSignInTime: userRecord.metadata.lastSignInTime,
+            lastRefreshTime: userRecord.metadata.lastRefreshTime,
+            creationTime: userRecord.metadata.creationTime,
+            provider: userRecord.providerData?.[0]?.providerId || "password",
+            customClaims: userRecord.customClaims || {},
+          };
+        } catch (error) {
+          console.warn(
+            `Could not fetch auth data for ${email}:`,
+            error.message
+          );
+          // Return partial data if user not found in Firebase Auth
+          return {
+            email,
+            uid: null,
+            emailVerified: false,
+            disabled: false,
+            lastSignInTime: null,
+            lastRefreshTime: null,
+            creationTime: null,
+            provider: "unknown",
+            customClaims: {},
+            error: error.message,
+          };
+        }
+      });
+
+      const authData = await Promise.all(authDataPromises);
+
+      console.log(
+        `Successfully fetched auth data for ${
+          authData.filter((d) => d.uid).length
+        }/${memberEmails.length} members`
+      );
+
+      res.json({
+        success: true,
+        authData,
+        message: `Fetched authentication data for ${authData.length} members`,
+      });
+    } catch (error) {
+      console.error("Error fetching Firebase auth data:", error);
+      res.status(500).json({
+        success: false,
+        message: "Failed to fetch authentication data",
+        error: error.message,
+      });
+    }
+  }
+);
+
 // Get team member by ID
 router.get(
   "/members/:id",
