@@ -11,6 +11,7 @@ const {
 
 const { LEAD_STATUSES } = require("../config/lead.constants");
 const metaConversionsApi = require("./metaConversionsApi.service");
+const GoogleAdsConversionsApiService = require("./googleAdsConversionsApi.service");
 
 // Lightweight logger with levels (error < warn < info < debug)
 const LOG_LEVEL = process.env.LOG_LEVEL || "info"; // set LOG_LEVEL=debug for verbose output
@@ -36,6 +37,7 @@ class ApplicationService {
     this.storageService = storageService;
     this.storageBasePath = "applications"; // Base path for application files in storage
     this.metaConversions = metaConversionsApi;
+    this.googleAdsConversions = new GoogleAdsConversionsApiService();
 
     if (!this.storageService) {
       throw new Error("StorageService is required for ApplicationService");
@@ -2350,6 +2352,34 @@ IUEA Admissions Team`;
           console.error(
             `⚠️ Failed to send Meta conversion for application ${applicationId}:`,
             metaError.message
+          );
+          // Don't throw error to avoid breaking main flow
+        }
+
+        // 🎯 TRACK CONVERSION TO GOOGLE ADS - Enhanced Conversions!
+        try {
+          console.log(
+            `📊 Tracking conversion to Google Ads for status: ${newStatus}`
+          );
+
+          await this.googleAdsConversions.sendEnhancedConversion({
+            leadId: application.leadId,
+            applicationId: applicationId,
+            status: newStatus,
+            email: application.email,
+            phone: application.phoneNumber,
+            firstName: application.name?.split(" ")[0],
+            lastName: application.name?.split(" ").slice(1).join(" "),
+          });
+
+          console.log(
+            `✅ Google Ads conversion sent successfully for ${newStatus}`
+          );
+        } catch (googleAdsError) {
+          // Only log as warning, not error, since Google Ads might not be configured yet
+          console.warn(
+            `⚠️ Google Ads conversion not sent for application ${applicationId}:`,
+            googleAdsError.message
           );
           // Don't throw error to avoid breaking main flow
         }

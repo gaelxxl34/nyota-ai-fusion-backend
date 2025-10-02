@@ -7,12 +7,16 @@ const { LeadModel } = require("../models/lead.model");
 const { LEAD_STATUSES, LEAD_SOURCES } = require("../config/lead.constants");
 const { broadcastMessage } = require("./broadcastService");
 const redisCache = require("./redisCache.service");
+const GoogleAdsConversionsApiService = require("./googleAdsConversionsApi.service");
+const metaConversionsApi = require("./metaConversionsApi.service");
 
 class LeadService {
   constructor(firestore) {
     this.db = firestore;
     this.collection = "leads";
     this.cache = redisCache;
+    this.googleAdsConversions = new GoogleAdsConversionsApiService();
+    this.metaConversions = metaConversionsApi;
 
     // Cache TTL for leads data (5 minutes for conversion leads)
     this.CACHE_TTL = {
@@ -529,6 +533,52 @@ class LeadService {
         },
         "lead_status_update"
       );
+
+      // 🎯 TRACK CONVERSION TO META & GOOGLE ADS
+      try {
+        console.log(
+          `📊 Tracking lead conversion for status: ${newStatus}, Lead: ${leadId}`
+        );
+
+        const conversionData = {
+          leadId: leadId,
+          status: newStatus,
+          email: lead.email,
+          phone: lead.phoneNumber || lead.phone,
+          firstName: lead.firstName || lead.name?.split(" ")[0],
+          lastName: lead.lastName || lead.name?.split(" ").slice(1).join(" "),
+        };
+
+        // Track to Meta
+        try {
+          await this.metaConversions.sendConversionEvent(conversionData);
+          console.log(`✅ Meta conversion tracked for lead ${leadId}`);
+        } catch (metaError) {
+          console.warn(
+            `⚠️ Meta conversion not sent for lead ${leadId}:`,
+            metaError.message
+          );
+        }
+
+        // Track to Google Ads
+        try {
+          await this.googleAdsConversions.sendEnhancedConversion(
+            conversionData
+          );
+          console.log(`✅ Google Ads conversion tracked for lead ${leadId}`);
+        } catch (googleAdsError) {
+          console.warn(
+            `⚠️ Google Ads conversion not sent for lead ${leadId}:`,
+            googleAdsError.message
+          );
+        }
+      } catch (trackingError) {
+        console.error(
+          `⚠️ Error tracking conversions for lead ${leadId}:`,
+          trackingError.message
+        );
+        // Don't throw - conversion tracking shouldn't break the main flow
+      }
 
       return {
         id: leadId,
