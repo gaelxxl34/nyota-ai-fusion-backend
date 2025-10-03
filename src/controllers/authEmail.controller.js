@@ -6,6 +6,8 @@
 const emailService = require("../services/emailService");
 const logger = require("../utils/logger");
 const admin = require("firebase-admin");
+const WhatsAppMessageService = require("../services/whatsappMessageService");
+const ConversationService = require("../services/conversationService");
 
 class AuthEmailController {
   /**
@@ -13,7 +15,13 @@ class AuthEmailController {
    */
   sendEmailVerification = async (req, res) => {
     try {
-      const { email, userName, redirectUrl, portalType = "student" } = req.body;
+      const {
+        email,
+        userName,
+        redirectUrl,
+        portalType = "student",
+        phoneNumber,
+      } = req.body;
 
       // Validation
       if (!email) {
@@ -56,11 +64,85 @@ class AuthEmailController {
           provider: result.provider,
         });
 
+        // 📱 Send WhatsApp verification notification if phone number is provided
+        let whatsappResult = null;
+        if (phoneNumber) {
+          try {
+            logger.info(
+              `📱 Sending WhatsApp verification notification to ${phoneNumber}`
+            );
+
+            // Initialize services
+            const whatsappService = new WhatsAppMessageService();
+            const conversationService = new ConversationService();
+
+            // Normalize phone number (remove any + prefix for consistency)
+            const normalizedPhone = phoneNumber.replace(/^\+/, "");
+
+            // Create or get conversation for this user
+            const conversationId =
+              await conversationService.createOrGetConversation(
+                normalizedPhone,
+                null, // No leadId yet during signup
+                userName
+              );
+
+            // Prepare WhatsApp template payload for account_verification
+            const templatePayload = {
+              messaging_product: "whatsapp",
+              to: normalizedPhone,
+              type: "template",
+              template: {
+                name: "account_verification",
+                language: {
+                  code: "en_US",
+                },
+              },
+            };
+
+            // Send WhatsApp template message
+            whatsappResult = await whatsappService.sendTemplateMessage(
+              normalizedPhone,
+              templatePayload,
+              {
+                email: email,
+                userName: userName,
+                context: "email_verification",
+                portalType: portalType,
+              }
+            );
+
+            if (whatsappResult.success) {
+              logger.info(
+                `✅ WhatsApp verification notification sent to ${phoneNumber}`,
+                {
+                  phoneNumber: normalizedPhone,
+                  messageId: whatsappResult.messageId,
+                  conversationId: conversationId,
+                }
+              );
+            } else {
+              logger.warn(
+                `⚠️ Failed to send WhatsApp verification notification to ${phoneNumber}:`,
+                whatsappResult.error
+              );
+            }
+          } catch (whatsappError) {
+            logger.error(
+              `❌ WhatsApp verification notification error for ${phoneNumber}:`,
+              whatsappError
+            );
+            // Don't fail the entire request if WhatsApp fails - email is the primary verification method
+          }
+        }
+
         return res.json({
           success: true,
           message: "Email verification sent successfully",
           messageId: result.messageId,
           provider: result.provider,
+          whatsappSent: whatsappResult ? whatsappResult.success : false,
+          whatsappMessageId: whatsappResult?.messageId || null,
         });
       } else {
         logger.error(`Failed to send email verification to ${email}`, {
