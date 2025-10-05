@@ -126,13 +126,11 @@ class SendGridEmailService {
     }
   }
 
-
-  async sendPasswordResetEmail(userEmail, resetToken, userName) {
-    const resetUrl = `${process.env.FRONTEND_URL}/reset-password?token=${resetToken}`;
-
+  async sendPasswordResetEmail(userEmail, resetLink, userName) {
+    // resetLink is the complete Firebase password reset URL
     const emailOptions = {
       to: userEmail,
-      subject: "Password Reset Request - IUEA Nyota AI",
+      subject: "Password Reset Request - Nyota AI Fusion",
       html: `
         <!DOCTYPE html>
         <html>
@@ -144,58 +142,50 @@ class SendGridEmailService {
         <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
           <div style="background-color: #f8f9fa; padding: 30px; border-radius: 10px;">
             <div style="text-align: center; margin-bottom: 30px;">
-              <h1 style="color: #7a0000; margin-bottom: 5px;">International University of East Africa</h1>
-              <p style="color: #666; margin: 0; font-size: 14px;">Ggaba Street, Kansanga, Kampala, Uganda</p>
+              <h1 style="color: #2563eb; margin-bottom: 10px;">🌟 Nyota AI Fusion</h1>
+              <p style="color: #666; margin: 0; font-size: 14px;">Intelligent Lead Management & Analytics Platform</p>
             </div>
             <h2 style="color: #dc3545; margin-bottom: 20px;">Password Reset Request</h2>
-            <p style="font-size: 16px;">Dear <strong>${userName}</strong>,</p>
-            <p style="font-size: 16px;">You have requested to reset your password for your IUEA Nyota AI account.</p>
-            <p style="font-size: 16px;">Click the button below to reset your password:</p>
+            <p style="font-size: 16px;">Hello <strong>${userName}</strong>,</p>
+            <p style="font-size: 16px;">We received a request to reset your password for your Nyota AI Fusion account.</p>
+            <p style="font-size: 16px;">Click the button below to create a new password:</p>
             <div style="text-align: center; margin: 30px 0;">
-              <a href="${resetUrl}" style="background-color: #7a0000; color: white; padding: 15px 30px; text-decoration: none; border-radius: 5px; font-size: 16px; font-weight: bold; display: inline-block;">Reset Password</a>
+              <a href="${resetLink}" style="background-color: #2563eb; color: white; padding: 15px 30px; text-decoration: none; border-radius: 5px; font-size: 16px; font-weight: bold; display: inline-block;">Reset Your Password</a>
             </div>
             <p style="font-size: 14px; color: #666;">If the button doesn't work, copy and paste this link into your browser:</p>
-            <p style="font-size: 14px; color: #7a0000; word-break: break-all;">${resetUrl}</p>
+            <p style="font-size: 14px; color: #2563eb; word-break: break-all;">${resetLink}</p>
             <div style="margin: 30px 0; padding: 20px; background-color: #fff3cd; border-left: 4px solid #ffc107; border-radius: 5px;">
-              <p style="margin: 0; font-size: 14px; color: #856404;"><strong>Security Notice:</strong> This link will expire in 1 hour for security reasons.</p>
+              <p style="margin: 0; font-size: 14px; color: #856404;"><strong>⚠️ Security Notice:</strong> This link will expire in 1 hour for security reasons.</p>
             </div>
-            <p style="font-size: 16px;">If you didn't request this password reset, please ignore this email and your password will remain unchanged.</p>
-            <div style="text-align: center; margin: 30px 0; padding: 20px; background-color: #f8f9fa; border-left: 4px solid #7a0000; border-radius: 5px;">
-              <p style="margin: 0; font-size: 16px; font-weight: bold; color: #7a0000;">Need to access your portal?</p>
-              <p style="margin: 10px 0;">Visit our application portal at:</p>
-              <a href="https://applicant.iuea.ac.ug/" style="background-color: #7a0000; color: white; padding: 12px 25px; text-decoration: none; border-radius: 5px; font-size: 16px; font-weight: bold; display: inline-block;">Application Portal</a>
+            <div style="margin: 30px 0; padding: 20px; background-color: #e7f3ff; border-left: 4px solid #2563eb; border-radius: 5px;">
+              <p style="margin: 0; font-size: 14px; color: #1e40af;"><strong>💡 Tip:</strong> If you didn't request this password reset, you can safely ignore this email. Your password will remain unchanged.</p>
             </div>
-            <p style="font-size: 16px;">For any assistance, contact us at <a href="mailto:apply@iuea.ac.ug" style="color: #7a0000;">apply@iuea.ac.ug</a>.</p>
+            <p style="font-size: 16px;">For security assistance or questions about your account, please contact your system administrator.</p>
             <br>
             <p style="font-size: 16px;">Best regards,<br>
-            <strong>IUEA Nyota AI Team</strong><br>
-            <span style="font-size: 14px; color: #666;">International University of East Africa</span></p>
+            <strong>Nyota AI Fusion Team</strong><br>
+            <span style="font-size: 14px; color: #666;">Powered by IUEA</span></p>
           </div>
         </body>
         </html>
       `,
-      text: `International University of East Africa
-Ggaba Street, Kansanga, Kampala, Uganda
+      text: `Nyota AI Fusion - Password Reset Request
 
-Password Reset Request
+Hello ${userName},
 
-Dear ${userName},
+We received a request to reset your password for your Nyota AI Fusion account.
 
-You have requested to reset your password for your IUEA Nyota AI account.
-
-Click this link to reset your password: ${resetUrl}
+Click this link to create a new password: ${resetLink}
 
 Security Notice: This link will expire in 1 hour for security reasons.
 
-If you didn't request this password reset, please ignore this email and your password will remain unchanged.
+If you didn't request this password reset, you can safely ignore this email. Your password will remain unchanged.
 
-You can access your application portal at: https://applicant.iuea.ac.ug/
-
-For any assistance, contact us at apply@iuea.ac.ug.
+For security assistance or questions about your account, please contact your system administrator.
 
 Best regards,
-IUEA Nyota AI Team
-International University of East Africa`,
+Nyota AI Fusion Team
+Powered by IUEA`,
     };
 
     return await this.sendEmail(emailOptions);

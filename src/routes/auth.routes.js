@@ -283,46 +283,30 @@ router.post("/forgot-password", async (req, res) => {
         `${process.env.FRONTEND_URL || "http://localhost:3001"}/reset-password`,
     });
 
-    console.log("Generated reset link");
+    console.log("Generated reset link:", resetLink);
 
-    // Send email with the reset link
-    const transporter = nodemailer.createTransport({
-      service: process.env.EMAIL_SERVICE || "gmail",
-      auth: {
-        user: process.env.GMAIL_USER,
-        pass: process.env.GMAIL_APP_PASSWORD,
-      },
-    });
-
-    const mailOptions = {
-      from:
-        process.env.EMAIL_FROM ||
-        `"Nyota AI Fusion" <${process.env.GMAIL_USER}>`,
-      to: email,
-      subject: "Reset Your Password - Nyota AI Fusion",
-      html: `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-          <h2 style="color: #2c3e50;">Reset Your Password</h2>
-          <p>You requested to reset your password for your Nyota AI Fusion account.</p>
-          <p>Click the button below to reset your password:</p>
-          <a href="${resetLink}" 
-            style="background-color: #3498db; color: white; padding: 12px 24px; text-decoration: none; border-radius: 4px; display: inline-block; margin: 16px 0;">
-            Reset Password
-          </a>
-          <p style="color: #7f8c8d;">
-            If you didn't request this, please ignore this email or contact support if you have concerns.
-          </p>
-          <hr style="border: 1px solid #eee; margin: 20px 0;">
-          <p style="color: #7f8c8d; font-size: 0.8em;">
-            This link will expire in 1 hour for security reasons.
-          </p>
-        </div>
-      `,
-    };
+    // Get user details for personalization
+    const userRecord = await auth.getUserByEmail(email);
+    const userName = userRecord.displayName || email.split("@")[0];
 
     console.log("Sending password reset email to:", email);
-    const info = await transporter.sendMail(mailOptions);
-    console.log("Password reset email sent:", info.messageId);
+
+    // Use the existing email service with the complete Firebase reset link
+    const emailResult = await emailService.sendPasswordResetEmail(
+      email,
+      resetLink,
+      userName
+    );
+
+    if (!emailResult.success) {
+      console.error("Failed to send password reset email:", emailResult.error);
+      throw new Error(emailResult.error || "Failed to send email");
+    }
+
+    console.log(
+      "Password reset email sent successfully:",
+      emailResult.messageId
+    );
 
     return res.json({
       success: true,
