@@ -159,6 +159,15 @@ function startServer() {
     logger.warn("Super Admin routes not loaded:", error.message);
   }
 
+  // Archive management routes (Super Admin only)
+  try {
+    const archiveRoutes = require("./routes/archive.routes");
+    app.use("/api/super-admin/archive", archiveRoutes);
+    logger.info("Archive routes loaded");
+  } catch (error) {
+    logger.warn("Archive routes not loaded:", error.message);
+  }
+
   // Admin routes (Admin role)
   try {
     const adminRoutes = require("./routes/admin.routes");
@@ -166,6 +175,15 @@ function startServer() {
     logger.info("Admin routes loaded");
   } catch (error) {
     logger.warn("Admin routes not loaded:", error.message);
+  }
+
+  // Suzy Sheets routes (Admission Admin & Agents)
+  try {
+    const suzySheetsRoutes = require("./routes/suzy-sheets.routes");
+    app.use("/api/suzy-sheets", suzySheetsRoutes);
+    logger.info("Suzy Sheets routes loaded");
+  } catch (error) {
+    logger.warn("Suzy Sheets routes not loaded:", error.message);
   }
 
   // Enhanced webhook routes

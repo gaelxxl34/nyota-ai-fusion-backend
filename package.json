@@ -14,7 +14,8 @@
     "export-applied": "node scripts/export-interested-leads.js --status=APPLIED",
     "export-qualified": "node scripts/export-interested-leads.js --status=QUALIFIED",
     "export-enrolled": "node scripts/export-interested-leads.js --status=ENROLLED",
-    "quick-export": "node scripts/quick-export.js"
+    "quick-export": "node scripts/quick-export.js",
+    "archive-job": "node scripts/archive-job-runner.js --next"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.56.0",

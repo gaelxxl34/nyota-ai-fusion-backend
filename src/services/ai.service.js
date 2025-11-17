@@ -10,11 +10,71 @@ class AIService {
       apiKey: process.env.ANTHROPIC_API_KEY,
     });
 
+    this.primaryModel =
+      process.env.ANTHROPIC_PRIMARY_MODEL || "claude-3-5-sonnet-latest";
+    this.fallbackModel =
+      process.env.ANTHROPIC_FALLBACK_MODEL || "claude-3-sonnet-20240229";
+
     this.csvKnowledgeBase = null;
     this.isEnabled = process.env.AI_AUTO_REPLY_ENABLED === "true";
     this.redisCache = redisCache;
 
     this.loadCSVKnowledge();
+  }
+
+  isModelNotFoundError(error) {
+    if (!error) return false;
+
+    const status = error.status || error?.response?.status;
+    if (status === 404) return true;
+
+    const errorType =
+      error?.error?.type ||
+      error?.error?.error?.type ||
+      error?.data?.error?.type ||
+      error?.name;
+
+    if (typeof errorType === "string" && errorType.includes("not_found")) {
+      return true;
+    }
+
+    const message =
+      error?.error?.message ||
+      error?.error?.error?.message ||
+      error?.message ||
+      "";
+
+    if (typeof message === "string" && message.includes("model")) {
+      return message.includes("not found") || message.includes("Unknown");
+    }
+
+    return false;
+  }
+
+  async createMessageWithFallback(payload) {
+    try {
+      return await this.anthropic.messages.create({
+        ...payload,
+        model: this.primaryModel,
+      });
+    } catch (error) {
+      if (!this.isModelNotFoundError(error)) {
+        throw error;
+      }
+
+      console.warn(
+        `Primary Anthropic model ${this.primaryModel} unavailable, attempting fallback ${this.fallbackModel}`
+      );
+
+      if (!this.fallbackModel) {
+        throw error;
+      }
+
+      return this.anthropic.messages.create({
+        ...payload,
+        model: this.fallbackModel,
+      });
+    }
   }
 
   async loadCSVKnowledge() {
@@ -681,8 +741,7 @@ Diplomas: Electrical Eng, Civil Eng, Architecture.${statusContext}${engagementCo
       systemPrompt += contextPrompt;
 
       // 5. Send to Anthropic
-      const response = await this.anthropic.messages.create({
-        model: "claude-3-5-sonnet-20241022",
+      const response = await this.createMessageWithFallback({
         max_tokens: 150,
         system: systemPrompt,
         messages: [{ role: "user", content: userMessage }],

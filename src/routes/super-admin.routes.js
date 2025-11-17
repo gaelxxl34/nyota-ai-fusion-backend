@@ -439,6 +439,57 @@ router.delete("/users/:userId", async (req, res) => {
   }
 });
 
+// Bulk delete users (optimized with parallel processing)
+router.post("/users/bulk-delete", async (req, res) => {
+  try {
+    const { userIds } = req.body;
+
+    if (!Array.isArray(userIds) || userIds.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "userIds must be a non-empty array",
+      });
+    }
+
+    // Prevent self-deletion
+    if (userIds.includes(req.user.uid)) {
+      return res.status(400).json({
+        success: false,
+        message: "Cannot delete your own account",
+      });
+    }
+
+    const db = admin.firestore();
+
+    // Use optimized bulk deletion service
+    const BulkUserDeletionService = require("../services/bulkUserDeletionService");
+    const deletionService = new BulkUserDeletionService(db, admin);
+
+    const results = await deletionService.bulkDeleteUsers(
+      userIds,
+      req.user.uid
+    );
+
+    const statusCode = results.failed > 0 ? 207 : 200; // 207 Multi-Status if some failed
+
+    res.status(statusCode).json({
+      success: results.failed === 0,
+      message:
+        results.failed === 0
+          ? `Successfully deleted ${results.succeeded} user(s) and all associated data`
+          : `Deleted ${results.succeeded} user(s), but ${results.failed} failed`,
+      results,
+    });
+  } catch (error) {
+    console.error("❌ Error in bulk delete operation:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to perform bulk delete operation",
+      error: error.message,
+    });
+  }
+});
+
 // Reset user password
 router.post("/users/:userId/reset-password", async (req, res) => {
   try {
