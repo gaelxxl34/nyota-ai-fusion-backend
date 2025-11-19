@@ -34,3 +34,9 @@ scripts/*
 interested-leads-*.csv
 exports/*.csv
 enhanced-webhook.routes.js.backup
+
+# Generated data files from restore/recovery scripts
+restored-deferred-missing-applications-*.json
+restored-deferred-missing-leads-*.json
+password-reset-links-*.json
+missing-user-details-*.json

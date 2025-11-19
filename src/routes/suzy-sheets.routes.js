@@ -6,14 +6,14 @@
 const express = require("express");
 const router = express.Router();
 const suzySheetsService = require("../services/suzySheets.service");
-const { authenticate } = require("../middleware/auth.middleware");
+const { authenticateUser } = require("../middleware/auth.middleware");
 
 /**
  * @route GET /api/suzy-sheets/admitted-leads
  * @desc Get all admitted leads with caching
  * @access Private (admissionAdmin, admissionAgent, admin, superAdmin)
  */
-router.get("/admitted-leads", authenticate, async (req, res) => {
+router.get("/admitted-leads", authenticateUser, async (req, res) => {
   try {
     // Check user role
     const allowedRoles = [
@@ -52,7 +52,7 @@ router.get("/admitted-leads", authenticate, async (req, res) => {
  * @desc Get a single lead detail
  * @access Private
  */
-router.get("/lead/:leadId", authenticate, async (req, res) => {
+router.get("/lead/:leadId", authenticateUser, async (req, res) => {
   try {
     const { leadId } = req.params;
 
@@ -100,7 +100,7 @@ router.get("/lead/:leadId", authenticate, async (req, res) => {
  * @desc Update lead status (ENROLLED, DEFERRED, EXPIRED)
  * @access Private
  */
-router.patch("/lead/:leadId/status", authenticate, async (req, res) => {
+router.patch("/lead/:leadId/status", authenticateUser, async (req, res) => {
   try {
     const { leadId } = req.params;
     const { status } = req.body;
@@ -168,7 +168,7 @@ router.patch("/lead/:leadId/status", authenticate, async (req, res) => {
  * @desc Update Suzy's notes for a lead
  * @access Private
  */
-router.patch("/lead/:leadId/notes", authenticate, async (req, res) => {
+router.patch("/lead/:leadId/notes", authenticateUser, async (req, res) => {
   try {
     const { leadId } = req.params;
     const { notes } = req.body;
@@ -231,7 +231,7 @@ router.patch("/lead/:leadId/notes", authenticate, async (req, res) => {
  * @desc Force refresh the admitted leads cache
  * @access Private (admin only)
  */
-router.post("/refresh-cache", authenticate, async (req, res) => {
+router.post("/refresh-cache", authenticateUser, async (req, res) => {
   try {
     // Check user role - only admins can force refresh
     const allowedRoles = ["superAdmin", "admin", "admissionAdmin"];
@@ -267,7 +267,7 @@ router.post("/refresh-cache", authenticate, async (req, res) => {
  * @desc Get cache statistics
  * @access Private (admin only)
  */
-router.get("/cache-stats", authenticate, async (req, res) => {
+router.get("/cache-stats", authenticateUser, async (req, res) => {
   try {
     // Check user role
     const allowedRoles = ["superAdmin", "admin"];

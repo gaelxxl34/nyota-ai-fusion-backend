@@ -11,6 +11,7 @@ class SuzySheetsService {
     this.db = admin.firestore();
     this.leadsCollection = "leads";
     this.cache = redisCache;
+    this.targetStatuses = ["ADMITTED", "ENROLLED", "DEFERRED", "EXPIRED"];
 
     // Cache configuration
     this.CACHE_KEYS = {
@@ -42,42 +43,50 @@ class SuzySheetsService {
 
       console.log("📡 Fetching admitted leads from Firestore...");
 
-      // Fetch from Firestore
-      const snapshot = await this.db
-        .collection(this.leadsCollection)
-        .where("status", "==", "ADMITTED")
-        .get();
+      const leadDocs = await this._fetchLeadsByStatuses(this.targetStatuses);
 
-      const leads = [];
-      snapshot.forEach((doc) => {
-        const data = doc.data();
-        leads.push({
-          id: doc.id,
-          name: `${data.firstName || ""} ${data.lastName || ""}`.trim(),
-          regNo: data.regNo || doc.id,
-          email: data.email,
-          phone: data.phone,
-          program: data.interestedProgram || data.program || "N/A",
-          status: data.status,
-          paymentStatus: data.paymentStatus || "PENDING",
-          lastTouch: this._formatLastTouch(
-            data.lastInteractionAt || data.updatedAt
-          ),
-          lastTouchDays: this._calculateDaysSince(
-            data.lastInteractionAt || data.updatedAt
-          ),
-          notes: data.suzyNotes || data.notes || "",
-          owner: data.assignedTo || "Suzy",
-          createdAt: this._convertTimestamp(data.createdAt),
-          updatedAt: this._convertTimestamp(data.updatedAt),
-          lastInteractionAt: this._convertTimestamp(data.lastInteractionAt),
-        });
-      });
+      const leads = await Promise.all(
+        leadDocs.map(async (doc) => {
+          const data = doc.data();
+          const applicationInfo = await this._getLatestApplicationForLead(
+            doc.id
+          );
 
-      // Sort by most recent contact first
-      leads.sort((a, b) => a.lastTouchDays - b.lastTouchDays);
+          return {
+            id: doc.id,
+            name: this._resolveDisplayName(data, applicationInfo),
+            regNo: this._resolveRegistrationNumber(data, applicationInfo),
+            email: data.email,
+            phone: data.phone,
+            program: this._normalizeProgramField(
+              data.interestedProgram ||
+                data.program ||
+                applicationInfo?.preferredProgram ||
+                applicationInfo?.program ||
+                null
+            ),
+            status: data.status,
+            paymentStatus: data.paymentStatus || "PENDING",
+            lastTouch: this._formatLastTouch(
+              data.lastInteractionAt || data.updatedAt
+            ),
+            lastTouchDays: this._calculateDaysSince(
+              data.lastInteractionAt || data.updatedAt
+            ),
+            notes: data.suzyNotes || data.notes || "",
+            owner: data.assignedTo || "Suzy",
+            createdAt: this._convertTimestamp(data.createdAt),
+            updatedAt: this._convertTimestamp(data.updatedAt),
+            lastInteractionAt: this._convertTimestamp(data.lastInteractionAt),
+            application: applicationInfo,
+            source: this._resolveSource(data, applicationInfo),
+            modeOfStudy: this._resolveModeOfStudy(data, applicationInfo),
+          };
+        })
+      );
 
-      // Cache the results
+      leads.sort((a, b) => (a.lastTouchDays || 0) - (b.lastTouchDays || 0));
+
       await this.cache.set(
         this.CACHE_KEYS.ADMITTED_LEADS,
         leads,
@@ -95,6 +104,35 @@ class SuzySheetsService {
       console.error("❌ Error fetching admitted leads:", error);
       throw error;
     }
+  }
+
+  async _fetchLeadsByStatuses(statuses = []) {
+    if (!statuses || statuses.length === 0) {
+      return [];
+    }
+
+    const chunkSize = 10; // Firestore 'in' queries support up to 10 values
+    const allDocs = [];
+
+    for (let i = 0; i < statuses.length; i += chunkSize) {
+      const chunk = statuses.slice(i, i + chunkSize);
+      const snapshot = await this.db
+        .collection(this.leadsCollection)
+        .where("status", "in", chunk)
+        .get();
+
+      allDocs.push(...snapshot.docs);
+    }
+
+    // Deduplicate documents in case a lead matches multiple chunks
+    const uniqueDocsMap = new Map();
+    allDocs.forEach((doc) => {
+      if (!uniqueDocsMap.has(doc.id)) {
+        uniqueDocsMap.set(doc.id, doc);
+      }
+    });
+
+    return Array.from(uniqueDocsMap.values());
   }
 
   /**
@@ -287,6 +325,308 @@ class SuzySheetsService {
     } catch (error) {
       console.error("❌ Error refreshing cache:", error);
       throw error;
+    }
+  }
+
+  _normalizeProgramField(program) {
+    if (!program) return "N/A";
+
+    if (typeof program === "string") {
+      return program;
+    }
+
+    if (Array.isArray(program)) {
+      const parts = program
+        .map((item) => this._normalizeProgramField(item))
+        .filter((value) => typeof value === "string" && value.trim().length);
+      return parts.length ? parts.join(", ") : "N/A";
+    }
+
+    if (typeof program === "object") {
+      const name =
+        program.name || program.displayName || program.label || program.full;
+      const code = program.code || program.id || program.value;
+
+      if (name && code) {
+        return `${name} (${code})`;
+      }
+
+      return name || code || "N/A";
+    }
+
+    return String(program);
+  }
+
+  _resolveDisplayName(leadData = {}, applicationInfo = null) {
+    const leadCombined = this._combineName(
+      leadData.firstName || leadData.first_name || leadData.givenName,
+      leadData.lastName || leadData.last_name || leadData.familyName
+    );
+    if (leadCombined) return leadCombined;
+
+    if (typeof leadData.name === "string" && leadData.name.trim()) {
+      return leadData.name.trim();
+    }
+
+    if (leadData.name && typeof leadData.name === "object") {
+      const nameCombined = this._combineName(
+        leadData.name.first ||
+          leadData.name.firstName ||
+          leadData.name.given ||
+          leadData.name.givenName,
+        leadData.name.last ||
+          leadData.name.lastName ||
+          leadData.name.family ||
+          leadData.name.familyName
+      );
+      if (nameCombined) return nameCombined;
+
+      const fallbackName = leadData.name.full || leadData.name.display;
+      if (typeof fallbackName === "string" && fallbackName.trim()) {
+        return fallbackName.trim();
+      }
+    }
+
+    if (leadData.profile && typeof leadData.profile === "object") {
+      const profileCombined = this._combineName(
+        leadData.profile.firstName || leadData.profile.givenName,
+        leadData.profile.lastName || leadData.profile.familyName
+      );
+      if (profileCombined) return profileCombined;
+    }
+
+    if (applicationInfo) {
+      const appCombined = this._combineName(
+        applicationInfo.firstName ||
+          applicationInfo.first_name ||
+          applicationInfo.givenName,
+        applicationInfo.lastName ||
+          applicationInfo.last_name ||
+          applicationInfo.familyName
+      );
+      if (appCombined) return appCombined;
+
+      if (
+        applicationInfo.applicant &&
+        typeof applicationInfo.applicant === "object"
+      ) {
+        const applicantCombined = this._combineName(
+          applicationInfo.applicant.firstName ||
+            applicationInfo.applicant.givenName,
+          applicationInfo.applicant.lastName ||
+            applicationInfo.applicant.familyName
+        );
+        if (applicantCombined) return applicantCombined;
+      }
+
+      if (
+        typeof applicationInfo.name === "string" &&
+        applicationInfo.name.trim()
+      ) {
+        return applicationInfo.name.trim();
+      }
+
+      if (applicationInfo.name && typeof applicationInfo.name === "object") {
+        const appNameCombined = this._combineName(
+          applicationInfo.name.first || applicationInfo.name.givenName,
+          applicationInfo.name.last || applicationInfo.name.familyName
+        );
+        if (appNameCombined) return appNameCombined;
+
+        const fallbackName =
+          applicationInfo.name.full || applicationInfo.name.display;
+        if (typeof fallbackName === "string" && fallbackName.trim()) {
+          return fallbackName.trim();
+        }
+      }
+    }
+
+    return "Unknown Student";
+  }
+
+  _resolveRegistrationNumber(leadData = {}, applicationInfo = null) {
+    const candidates = [];
+    const addCandidate = (value) => {
+      if (typeof value === "string" && value.trim()) {
+        candidates.push(value.trim());
+      }
+    };
+
+    addCandidate(leadData.registrationNumber);
+    addCandidate(leadData.regNumber);
+    addCandidate(leadData.regNo);
+
+    if (applicationInfo) {
+      addCandidate(applicationInfo.registrationNumber);
+      addCandidate(applicationInfo.registration_number);
+      addCandidate(applicationInfo.regNo);
+      addCandidate(applicationInfo.regNumber);
+      addCandidate(applicationInfo.studentRegNo);
+
+      if (
+        applicationInfo.student &&
+        typeof applicationInfo.student === "object"
+      ) {
+        addCandidate(applicationInfo.student.registrationNumber);
+        addCandidate(applicationInfo.student.regNo);
+      }
+
+      if (applicationInfo.raw && typeof applicationInfo.raw === "object") {
+        addCandidate(applicationInfo.raw.registrationNumber);
+        addCandidate(applicationInfo.raw.regNo);
+        addCandidate(applicationInfo.raw.registration_number);
+      }
+    }
+
+    if (candidates.length > 0) {
+      return candidates[0];
+    }
+
+    return "N/A";
+  }
+
+  _combineName(first, last) {
+    const firstPart = typeof first === "string" ? first.trim() : "";
+    const lastPart = typeof last === "string" ? last.trim() : "";
+
+    const combined = `${firstPart} ${lastPart}`.trim();
+    return combined.length ? combined : null;
+  }
+
+  _resolveSource(leadData = {}, applicationInfo = null) {
+    const candidate =
+      this._pickFirstString([
+        leadData.source,
+        leadData.leadSource,
+        leadData.sourceName,
+        leadData.sourceType,
+        leadData.tracking?.source,
+        leadData.tracking?.utmSource,
+        leadData.metadata?.source,
+        applicationInfo?.source,
+        applicationInfo?.raw?.source,
+        applicationInfo?.raw?.leadSource,
+        applicationInfo?.raw?.metadata?.source,
+      ]) || "UNKNOWN";
+
+    return candidate;
+  }
+
+  _resolveModeOfStudy(leadData = {}, applicationInfo = null) {
+    const candidate = this._pickFirstString([
+      leadData.modeOfStudy,
+      leadData.studyMode,
+      leadData.preferredStudyMode,
+      leadData.programMode,
+      leadData.study_mode,
+      applicationInfo?.modeOfStudy,
+      applicationInfo?.raw?.modeOfStudy,
+      applicationInfo?.raw?.studyMode,
+    ]);
+
+    if (!candidate) {
+      return null;
+    }
+
+    const value = candidate.toLowerCase();
+    if (value.includes("campus")) {
+      return "On Campus";
+    }
+    if (value.includes("online")) {
+      return "Online";
+    }
+    return candidate;
+  }
+
+  _pickFirstString(values = []) {
+    for (const value of values) {
+      if (typeof value === "string" && value.trim().length > 0) {
+        return value.trim();
+      }
+    }
+    return null;
+  }
+
+  async _getLatestApplicationForLead(leadId) {
+    try {
+      const snapshot = await this.db
+        .collection("applications")
+        .where("leadId", "==", leadId)
+        .get();
+
+      if (snapshot.empty) {
+        return null;
+      }
+
+      let selected = null;
+
+      snapshot.forEach((doc) => {
+        const data = doc.data();
+        const updatedAt = this._convertTimestamp(data.updatedAt);
+        const submittedAt = this._convertTimestamp(data.submittedAt);
+        const candidateTimestamp = updatedAt || submittedAt || null;
+
+        if (
+          !selected ||
+          (candidateTimestamp &&
+            (!selected.timestamp || candidateTimestamp > selected.timestamp))
+        ) {
+          selected = {
+            id: doc.id,
+            data,
+            timestamp: candidateTimestamp,
+          };
+        }
+      });
+
+      if (!selected) {
+        return null;
+      }
+
+      const data = selected.data;
+
+      return {
+        id: selected.id,
+        registrationNumber:
+          data.registrationNumber ||
+          data.registration_number ||
+          data.regNo ||
+          data.regNumber ||
+          null,
+        preferredProgram: data.preferredProgram || null,
+        program: data.program || null,
+        name: data.name || null,
+        firstName:
+          data.firstName ||
+          data.first_name ||
+          data.givenName ||
+          (data.applicant && data.applicant.firstName) ||
+          null,
+        lastName:
+          data.lastName ||
+          data.last_name ||
+          data.familyName ||
+          (data.applicant && data.applicant.lastName) ||
+          null,
+        student: data.student || null,
+        modeOfStudy:
+          data.modeOfStudy || data.studyMode || data.study_mode || null,
+        source:
+          data.source ||
+          data.leadSource ||
+          data.applicationSource ||
+          (data.metadata && data.metadata.source) ||
+          null,
+        submittedAt: this._convertTimestamp(data.submittedAt),
+        updatedAt: this._convertTimestamp(data.updatedAt),
+        raw: data,
+      };
+    } catch (error) {
+      console.warn(
+        `⚠️ Unable to fetch latest application for lead ${leadId}:`,
+        error.message
+      );
+      return null;
     }
   }
 
